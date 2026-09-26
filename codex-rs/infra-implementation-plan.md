@@ -653,6 +653,8 @@ app-server 已增加独立 `HostServices` 契约及 `in_process::start_with_host
 
 该入口已通过 `cargo check -p codex-app-server --lib --locked --offline`，使用 Nix Rust/C 工具链及 Source flake 对应的 OpenSSL、pkg-config、CMake、Clang 开发依赖。仅编译库目标，未编写或执行测试。后续 ThreadStore adapter 还需保留现有能力查询与本地存储迁移路径；当前迁移入口通过 `as_any()` 识别 LocalThreadStore。
 
+独立 `codex-infra-extension` 包现提供 StoreAudit 与 AuditedThreadStore。审计 writer 在启动前按 Root Session/Agent/机器身份打开；adapter 在底层写入前保存完整输入，完成后记录返回结果或错误。原始 rollout 在存储过滤前进入日志，fork 记录冻结的 history base/model context；revert、删除、元数据、分区、附件及项目变更均保留记录。所有读取、能力查询与 `as_any()` 继续委托底层存储，保留原迁移路径。落盘使用 blocking 任务；缺少完成记录的操作保持结果未知，不自动重做副作用。该包库目标已通过 Clippy，Cargo.lock 与 Bazel 依赖元数据已维护；宿主装配、分片发布及从审计记录还原运行存储仍待连接。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。

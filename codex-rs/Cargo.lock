@@ -3710,6 +3710,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-infra-extension"
+version = "0.0.0"
+dependencies = [
+ "codex-infra-protocol",
+ "codex-infra-state",
+ "codex-protocol",
+ "codex-thread-store",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "codex-infra-nix"
 version = "0.0.0"
 dependencies = [
