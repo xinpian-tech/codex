@@ -168,7 +168,7 @@ impl JournalArchive {
             durable,
             bytes,
         };
-        let receipt = shard.publish(&serde_json::to_vec(&segment).map_err(io::Error::other)?)?;
+        let receipt = shard.publish_journal_segment(&segment)?;
         let range = ArchivedRange {
             start,
             end: segment.end,

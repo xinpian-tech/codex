@@ -32,6 +32,7 @@ pub use outbox::OutboxEntry;
 pub use queue::QueueItem;
 pub use queue::SpoolQueue;
 pub use session::ArchiveReceipt;
+pub use session::SegmentPage;
 pub use session::SessionShard;
 pub use stream_archive::ArchiveStream;
 pub use stream_archive::ArchivedRange;

@@ -13,6 +13,9 @@ use codex_infra_protocol::RootSessionId;
 use serde::Deserialize;
 use serde::Serialize;
 
+mod catalog;
+pub use catalog::SegmentPage;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveReceipt {
     pub session_ref: String,
@@ -95,6 +98,10 @@ impl SessionShard {
     /// Publishes content-addressed chunks; replay of the same chunk is idempotent.
     /// Sequence/epoch metadata belongs inside the chunk's durable stream envelope.
     pub fn publish(&mut self, bytes: &[u8]) -> io::Result<ArchiveReceipt> {
+        self.publish_named(bytes, &[])
+    }
+
+    fn publish_named(&mut self, bytes: &[u8], aliases: &[String]) -> io::Result<ArchiveReceipt> {
         let segment_name = format!("segments/{}.bin", blake3::hash(bytes));
         let parent_output = self
             .command(["rev-parse", "--verify", "--quiet", &self.session_ref])
@@ -139,8 +146,10 @@ impl SessionShard {
             ));
         }
         let object = String::from_utf8(output.stdout).map_err(io::Error::other)?;
-        let entry = format!("100644,{},{}", object.trim(), segment_name);
-        self.run(["update-index", "--add", "--cacheinfo", &entry])?;
+        for name in std::iter::once(&segment_name).chain(aliases) {
+            let entry = format!("100644,{},{}", object.trim(), name);
+            self.run(["update-index", "--add", "--cacheinfo", &entry])?;
+        }
         let tree = self.run(["write-tree"])?;
         let unchanged = match &parent {
             Some(parent) => self.run(["rev-parse", &format!("{parent}^{{tree}}")])? == tree,
