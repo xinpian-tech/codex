@@ -98,6 +98,19 @@ pub trait ProcessRecorder: Send + Sync {
 /// The host owns correlation and storage layout. Each attempt gets a distinct
 /// recorder: a rejected duplicate start must not fail the existing process.
 pub trait ProcessRecorderFactory: Send + Sync {
+    /// Persists a pipe-stdin close request before EOF is delivered. The outcome
+    /// uses the same acceptance statuses as input writes, with no byte payload.
+    fn open_input_close<'a>(
+        &'a self,
+        _process_id: &'a crate::protocol::ProcessId,
+    ) -> ExecProcessFuture<'a, Arc<dyn ProcessInputRecorder>> {
+        Box::pin(async {
+            Err(crate::ExecServerError::Protocol(
+                "process recorder does not support closing stdin".to_owned(),
+            ))
+        })
+    }
+
     /// Persists every stdin request, including retries and unknown process IDs.
     /// Each returned recorder correlates exactly one request with its outcome.
     fn open_input<'a>(

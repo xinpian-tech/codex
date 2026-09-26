@@ -82,6 +82,8 @@ use crate::shell_snapshot::CapturePurpose;
 use crate::telemetry::ExecServerTelemetry;
 use crate::telemetry::ProcessMetricGuard;
 
+mod input_close;
+
 const RETAINED_OUTPUT_BYTES_PER_PROCESS: usize = 1024 * 1024;
 // Each process/read chunk needs four JSON values. Keep retained replay below the
 // shared 256K-value JSON-RPC decoder budget even when output arrives in tiny chunks.
@@ -1018,6 +1020,10 @@ impl LocalExecProcess {
 }
 
 impl ExecProcess for LocalExecProcess {
+    fn close_stdin(&self) -> ExecProcessFuture<'_, WriteResponse> {
+        Box::pin(self.backend.close_input(self.process_id.clone()))
+    }
+
     fn process_id(&self) -> &ProcessId {
         &self.process_id
     }

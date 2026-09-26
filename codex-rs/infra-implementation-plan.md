@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+为受管 hook 的 JSON stdin/EOF 流程，ExecProcess 新增可选的本地 close_stdin 能力。LocalProcess 对非 TTY 管道在进程登记锁内停止接收新写入并关闭 session sender，已取得 sender 的写入及已排队字节继续排空后送出 EOF。启用记录时先持久化 InputCloseRequested，再执行关闭并以 InputFinished 保存完整结果；请求任务属于现有 recording_tasks，调用方取消不丢失后续动作与记录，ProcessActivity 将关闭请求纳入未结束输入集合。此处只扩展本地执行能力，未增加 wire RPC；受管 hook 执行器尚待调用该接口。组合库 Clippy 已通过，未编写或运行测试。
+
 核对 hook 实现后确认命令 hook 当前直接创建宿主进程，未经过 exec-server。hooks 包现提供可注入的 HookCommandExecutor：同步 prepare 接收拥有数据的请求并返回持有资源的执行 future；异步命令 hook 在入队前准备，配置刷新保留执行器。请求保存 thread、shell 程序/参数、普通或 Windows raw 命令参数、按原顺序过滤的环境、宿主 cwd、stdin 和超时，执行结果在 hook 解释前保留 stdout/stderr 字节。默认路径继续使用原命令运行逻辑。此阶段仅建立注入边界，受管执行器实现、宿主装配、原始流审计、租约归属及 hook 子进程收尾仍待完成；MCP hook 与 legacy notify 也需分别接入。hooks 与最终组合库 Clippy 已通过，未编写或运行测试。
 
 独立扩展包新增 ToolWorkspace 控制器，可通过 ToolAudit::with_workspace 在宿主启动前装配。普通工具取得独占操作，Delegating 外层由子工具各自管理，ExistingProcess 优先续持原操作；控制方登记与 handler 租约交付之间没有异步等待。Finished 记录成功落盘并归结后，写入任务自身移交 checkpoint，调用方取消等待不丢失调度。续持调用只释放份额，由原操作完成一次 checkpoint；后台进程、handler 和续持份额全部释放后才执行 Git。ManagedHost 自动将已装配控制器的登记表传入 ProcessAudit，收尾排空后等待 checkpoint 并检查任务错误。完成任务计数由拥有整个 guard 的 future 管理，异常退出也保留失败。组合库 Clippy 已通过，未编写或运行测试。该装配仍待 CLI 启用；系统启动/prewarm/hook 的进程归属、进程身份在实际交互时的复核、结果发布与 checkpoint 的等待关系、重启后的控制器恢复仍未完成。

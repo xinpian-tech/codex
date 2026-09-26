@@ -53,6 +53,9 @@ pub enum ProcessAuditEvent {
     InputRequested {
         params: WriteParams,
     },
+    InputCloseRequested {
+        process_id: ProcessId,
+    },
     InputFinished {
         requested_sequence: u64,
         outcome: Result<WriteResponse, JSONRPCErrorError>,
@@ -176,6 +179,28 @@ impl ProcessAudit {
 }
 
 impl ProcessRecorderFactory for ProcessAudit {
+    fn open_input_close<'a>(
+        &'a self,
+        process_id: &'a ProcessId,
+    ) -> ExecProcessFuture<'a, Arc<dyn ProcessInputRecorder>> {
+        let writer = Arc::clone(&self.writer);
+        let process_id = process_id.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let requested_sequence = writer
+                    .lock()
+                    .map_err(recording_error)?
+                    .append(&ProcessAuditEvent::InputCloseRequested { process_id })?;
+                Ok(Arc::new(InputRecorder {
+                    writer,
+                    requested_sequence,
+                }) as Arc<dyn ProcessInputRecorder>)
+            })
+            .await
+            .map_err(recording_error)?
+        })
+    }
+
     fn open_input<'a>(
         &'a self,
         params: &'a WriteParams,

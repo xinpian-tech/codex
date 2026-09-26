@@ -190,7 +190,8 @@ impl ProcessActivity {
             } => {
                 self.attempt(*requested_sequence, process_id)?;
             }
-            ProcessAuditEvent::InputRequested { .. } => {
+            ProcessAuditEvent::InputRequested { .. }
+            | ProcessAuditEvent::InputCloseRequested { .. } => {
                 self.inputs.insert(sequence);
             }
             ProcessAuditEvent::InputFinished {

@@ -276,6 +276,16 @@ pub trait ExecProcess: Send + Sync {
 
     fn write(&self, chunk: Vec<u8>) -> ExecProcessFuture<'_, WriteResponse>;
 
+    /// Stops accepting new pipe input and delivers EOF after queued writes.
+    /// This is a local capability; peers may expose it separately in future.
+    fn close_stdin(&self) -> ExecProcessFuture<'_, WriteResponse> {
+        Box::pin(async {
+            Err(ExecServerError::Protocol(
+                "exec process does not support closing stdin".to_owned(),
+            ))
+        })
+    }
+
     fn signal(&self, signal: ProcessSignal) -> ExecProcessFuture<'_, ()>;
 
     fn terminate(&self) -> ExecProcessFuture<'_, ()>;
