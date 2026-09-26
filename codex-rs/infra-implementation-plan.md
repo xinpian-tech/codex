@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+RecordedHookExecutor 现实现 ManagedHookMcpExecutor，并通过受管宿主和 ExtensionRegistry 安装到每个线程的 Hooks。MCP prepare 与命令 hook 共用接收 token、任务排空和失败记录，入队前续持原操作；实际调用通过 ToolAudit admission/Started 登记独立 hook 操作，记录上下文与展开参数（包含 Core 使用的 threadId 元数据）。完整 HookMcpOutput 或 RPC 错误写入 McpHookResult，活动账本保存结果序号并核对操作/阶段，再处理正常 Finished 与 checkpoint。收到带 is_error 的 MCP 响应仍是明确完成的调用；RPC 错误没有终止响应时保留待核对操作，不移交 checkpoint。后台任务继续持有调用与记录，不随调用方停止等待而取消。此处保存的是主机调用对象和 MCP 返回对象，原始传输流、待核对操作恢复、legacy notify 及统一 finalizer 仍待完成。组合库 Clippy 已通过，未编写或运行测试。
+
 hooks 包新增 ManagedHookMcpExecutor、拥有资源的 HookMcpFuture 和独立于公开 hook JSON 的 HookMcpContext。MCP 参数展开、executor metadata 合并已提取为共享准备逻辑。配置了受管实现时，同步 hook 与 executor-scoped 后台 hook 均传递 thread、实际 tool_call_id、完整事件输入、展开后的调用及原连接执行器；后台路径在入队前调用 prepare，以便先续持归属。Hooks 配置刷新保留受管实现，未安装时继续使用原执行器。此阶段仅接通准备与调度接口，独立扩展中的 MCP 审计/租约实现和宿主安装仍待完成。组合库 Clippy 已通过，未编写或运行测试。
 
 MCP hook 新增 HookMcpOutput 与 execute_response，CoreHookMcpExecutor 保留完整 CallToolResult 到 hook 解释入口，包括非文本 content、structured_content、is_error 和 _meta；文本提取及 MCP error 转换统一在 into_text 完成。现有只实现 execute 的执行器通过默认实现明确标记为 Text，不伪造完整 MCP 响应。HookMcpCall 和输出类型可序列化，供后续审计保存展开后的请求与完整响应。此阶段尚未写入 MCP hook 持久审计，也尚未接入异步入队前的操作续持和排空。组合库 Clippy 已通过，未编写或运行测试。

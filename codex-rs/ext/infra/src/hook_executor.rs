@@ -36,6 +36,8 @@ use crate::ToolOperation;
 use crate::ToolOrigin;
 use crate::ToolOutcome;
 
+mod mcp;
+
 #[derive(Deserialize)]
 struct Attribution {
     turn_id: Option<String>,

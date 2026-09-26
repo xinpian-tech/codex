@@ -153,6 +153,7 @@ impl HostServices for ManagedHostServices {
         builder.tool_lifecycle_contributor(self.tools.clone());
         if let Some(hooks) = &self.hooks {
             builder.hook_command_executor(hooks.clone());
+            builder.managed_hook_mcp_executor(hooks.clone());
         }
         Arc::new(builder.build())
     }

@@ -1589,6 +1589,10 @@ impl Session {
                 Some(executor) => hooks.with_command_executor(executor),
                 None => hooks,
             };
+            let hooks = match extensions.managed_hook_mcp_executor() {
+                Some(executor) => hooks.with_managed_mcp_executor(executor),
+                None => hooks,
+            };
             for warning in hooks.startup_warnings() {
                 post_session_configured_events.push(Event {
                     id: INITIAL_SUBMIT_ID.to_owned(),

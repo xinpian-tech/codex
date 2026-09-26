@@ -95,6 +95,10 @@ pub enum ToolAuditEvent {
         operation: ToolOperation,
         outcome: ToolOutcome,
     },
+    McpHookResult {
+        operation: ToolOperation,
+        outcome: Result<codex_hooks::HookMcpOutput, String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -228,7 +232,10 @@ impl ToolAudit {
                 let bytes = serde_json::to_vec(&event)?;
                 let sequence = writer.journal.append(&bytes)?;
                 let reconciled = writer.activity.apply(sequence, &event);
-                if matches!(&event, ToolAuditEvent::Admitted { .. }) {
+                if matches!(
+                    &event,
+                    ToolAuditEvent::Admitted { .. } | ToolAuditEvent::McpHookResult { .. }
+                ) {
                     reconciled?;
                 } else if let ToolAuditEvent::Finished { operation, .. } = &event {
                     reconciled?;

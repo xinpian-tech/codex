@@ -15,6 +15,8 @@ use crate::ToolOutcome;
 #[derive(Debug, Serialize, Deserialize)]
 struct PendingTool {
     #[serde(default)]
+    result_sequence: Option<u64>,
+    #[serde(default)]
     origin: Option<ToolExecutionOrigin>,
     #[serde(default)]
     execution_kind: Option<ToolExecutionKind>,
@@ -27,6 +29,8 @@ struct PendingTool {
 /// Handler completion to reconcile with the processes attributed to this call.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolSettlement {
+    #[serde(default)]
+    pub result_sequence: Option<u64>,
     #[serde(default)]
     pub origin: Option<ToolExecutionOrigin>,
     #[serde(default)]
@@ -123,6 +127,7 @@ impl ToolActivity {
                 self.pending.insert(
                     key,
                     PendingTool {
+                        result_sequence: None,
                         origin: origin.clone(),
                         execution_kind: *execution_kind,
                         admitted_sequence: Some(sequence),
@@ -137,6 +142,7 @@ impl ToolActivity {
                     .pending
                     .entry(operation_key(operation)?)
                     .or_insert_with(|| PendingTool {
+                        result_sequence: None,
                         origin: None,
                         execution_kind: None,
                         admitted_sequence: None,
@@ -149,26 +155,52 @@ impl ToolActivity {
                 pending.started_sequence = Some(sequence);
                 None
             }
+            ToolAuditEvent::McpHookResult { operation, outcome } => {
+                let pending = self
+                    .pending
+                    .get_mut(&operation_key(operation)?)
+                    .ok_or_else(|| io::Error::other("MCP hook result has no operation"))?;
+                if pending.operation != *operation
+                    || pending.started_sequence.is_none()
+                    || pending.result_sequence.is_some()
+                {
+                    return Err(io::Error::other(
+                        "MCP hook result identity or phase mismatch",
+                    ));
+                }
+                pending.result_sequence = Some(sequence);
+                if let Err(error) = outcome {
+                    // A failed RPC does not establish that the server stopped
+                    // writing. Keep the operation for explicit reconciliation.
+                    return Err(io::Error::other(format!(
+                        "MCP hook completion unresolved: {error}"
+                    )));
+                }
+                None
+            }
             ToolAuditEvent::Finished { operation, outcome } => {
                 let pending = self.pending.remove(&operation_key(operation)?);
-                let (admitted_sequence, started_sequence, execution_kind, origin) = match pending {
-                    Some(pending) => {
-                        if &pending.operation != operation {
-                            return Err(io::Error::other("tool finish identity mismatch"));
+                let (admitted_sequence, started_sequence, execution_kind, origin, result_sequence) =
+                    match pending {
+                        Some(pending) => {
+                            if &pending.operation != operation {
+                                return Err(io::Error::other("tool finish identity mismatch"));
+                            }
+                            (
+                                pending.admitted_sequence,
+                                pending.started_sequence,
+                                pending.execution_kind,
+                                pending.origin,
+                                pending.result_sequence,
+                            )
                         }
-                        (
-                            pending.admitted_sequence,
-                            pending.started_sequence,
-                            pending.execution_kind,
-                            pending.origin,
-                        )
-                    }
-                    // MCP preparation can fail inside its handler before the
-                    // start callback. Preserve missing provenance rather than
-                    // infer an external invocation from the handler outcome.
-                    None => (None, None, None, None),
-                };
+                        // MCP preparation can fail inside its handler before the
+                        // start callback. Preserve missing provenance rather than
+                        // infer an external invocation from the handler outcome.
+                        None => (None, None, None, None, None),
+                    };
                 Some(ToolSettlement {
+                    result_sequence,
                     origin,
                     execution_kind,
                     admitted_sequence,
