@@ -118,6 +118,10 @@ impl ControlCollector {
         &self.directory
     }
 
+    pub fn attachment_id(&self) -> MessageId {
+        self.attachment_id
+    }
+
     /// A worker ending while the control client remains alive also needs runtime
     /// attention: that pipe is no longer being captured. `finish` returns the
     /// concrete recording error after detaching the control client.

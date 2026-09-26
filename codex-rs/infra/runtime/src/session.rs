@@ -41,7 +41,9 @@ use crate::PeerScheduler;
 use crate::ReceptionEvent;
 
 mod archive;
+mod collector;
 mod shutdown;
+use collector::CollectorOwner;
 
 pub struct TransportSessionConfig {
     pub directory: PathBuf,
@@ -76,7 +78,7 @@ pub struct TransportSession {
     config: TransportSessionConfig,
     directory: DirectoryStore,
     readiness: PaneReadiness,
-    collector: ControlCollector,
+    collector: CollectorOwner,
     tmux: Arc<TmuxClient>,
     retiring: BTreeMap<Id, MessageId>,
     reapers: JoinSet<String>,
@@ -180,19 +182,13 @@ impl TransportSession {
         }
         let session = tmux.ensure_session(config.root_session_id)?;
         let collector = ControlCollector::attach(&tmux, &session, &collectors)?;
-        let id = collector
-            .directory()
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| io::Error::other("collector ID missing"))?
-            .parse()
-            .map_err(io::Error::other)?;
+        let id = collector.attachment_id();
         attachments.insert(id, open_attachment(collector.directory(), id, &config)?);
         Ok(Self {
             config,
             directory,
             readiness,
-            collector,
+            collector: CollectorOwner::Running(Box::new(collector)),
             tmux,
             retiring: BTreeMap::new(),
             reapers: JoinSet::new(),
@@ -250,22 +246,17 @@ impl TransportSession {
     /// Each source has a bounded processing slice. Network readers, pane capture,
     /// peer sends and blocking input commands continue in their own workers.
     pub fn tick(&mut self) -> io::Result<()> {
-        if self.collector.needs_attention()? {
+        let collector = self.collector.running()?;
+        if collector.needs_attention()? {
             let session = self.tmux.ensure_session(self.config.root_session_id)?;
             let replacement = ControlCollector::attach(
                 &self.tmux,
                 &session,
                 &self.config.directory.join("collectors"),
             )?;
-            let id = replacement
-                .directory()
-                .file_name()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| io::Error::other("collector ID missing"))?
-                .parse()
-                .map_err(io::Error::other)?;
+            let id = replacement.attachment_id();
             let attachment = open_attachment(replacement.directory(), id, &self.config)?;
-            let mut previous = std::mem::replace(&mut self.collector, replacement);
+            let mut previous = std::mem::replace(collector, replacement);
             let previous_id = std::mem::replace(&mut self.current_attachment, id);
             self.attachments.insert(id, attachment);
             let handle = self.reapers.spawn_blocking(move || {
