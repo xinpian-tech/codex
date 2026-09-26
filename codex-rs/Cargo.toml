@@ -4,6 +4,7 @@ members = [
     "infra/state",
     "infra/nix",
     "infra/tmux",
+    "infra/runtime",
     "aws-auth",
     "analytics",
     "agent-graph-store",
@@ -174,6 +175,7 @@ codex-infra-protocol = { path = "infra/protocol" }
 codex-infra-state = { path = "infra/state" }
 codex-infra-nix = { path = "infra/nix" }
 codex-infra-tmux = { path = "infra/tmux" }
+codex-infra-runtime = { path = "infra/runtime" }
 # Internal
 codex-realtime-webrtc = { path = "realtime-webrtc" }
 app_test_support = { path = "app-server/tests/common" }
