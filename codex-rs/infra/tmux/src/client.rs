@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -24,7 +25,7 @@ pub struct AgentLaunch {
     pub launch_id: MessageId,
     pub worktree: PathBuf,
     pub host_program: PathBuf,
-    pub host_args: Vec<String>,
+    pub host_args: Vec<OsString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

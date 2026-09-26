@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// Native paths belong to the machine that owns this workspace.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceBinding {
     pub root_session_id: RootSessionId,
     pub agent_id: AgentId,

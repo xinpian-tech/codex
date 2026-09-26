@@ -36,7 +36,7 @@ pub struct TaskSpec {
     pub assigned_agent: AgentId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferenceBinding {
     pub provider_id: String,
     pub account_id: String,
@@ -47,7 +47,7 @@ pub struct InferenceBinding {
 
 /// Native store paths refer to the generation's target Nix system. Token values
 /// live in the referenced Team State commit and realized generation files.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigGeneration {
     pub codex_source_repository: String,
     pub codex_source_commit: CommitId,
