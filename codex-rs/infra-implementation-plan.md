@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+codex-infra-provider 新增 ChatFrontend/ChatFrontendConfig，按每个逻辑 Agent 的固定 InferenceBinding、完整 Chat Completions URL 和已选账户 headers 创建客户端，监听动态 loopback 端口并提供 /v1/responses/base_url。请求经既有转换器发送，成功响应串接 SSE 转换；供应商非成功状态、错误 body、request-id/retry-after 保留返回。请求/响应字节预算、连接/请求超时和本实例请求并发由配置给出，许可持有至 body 消费结束；停止通过 Axum graceful shutdown 停止接受连接并等待现有请求，丢弃 handle 也发送停止通知。此处并发只是逻辑客户端限制，尚不是跨 Agent 账户额度准入。库入口尚未接入启动器/Nix 配置，原始 HTTP 审计、凭据刷新、custom/namespace 工具、用量归属与完整关闭观察仍待完成。复用 workspace axum/reqwest/tokio/protocol 依赖，Cargo.lock 与 Bazel 元数据更新；库级 Clippy 通过，未编写或运行测试，未启动 HTTP 服务或调用供应商。
+
 codex-infra-provider 新增 translate_chat_sse，将异步 Bytes 响应体通过既有 eventsource-stream 解析器交给 ChatStream，再逐事件编码为 Responses SSE 帧。解析器复用 UTF-8 网络分片、多行 data、注释和 CRLF 处理；总原始响应字节预算在解析器缓存前执行，输出按下游拉取推进，取消消费会丢弃上游 body。显式 [DONE] 才调用 finish，提前 EOF 返回 Interrupted，JSON/协议/网络错误分别返回。新增的 async-stream/bytes/eventsource-stream/futures 均复用 workspace 版本，Cargo.lock 与 Bazel 元数据已刷新；库级 Clippy 通过（构建时下载缺少的依赖）。未编写或运行测试，未调用模型服务或实装。动态 HTTP 前端、请求/响应原始审计、custom/namespace 工具与账户绑定仍待接入。
 
 ChatStream 新增 reasoning_content 聚合及 Responses reasoning_text delta/done、reasoning output item，完整结果保留原推理文本。完成时在既有 encrypted_content 续接字段写入适配器版本前缀加明文原文（字段用于兼容 Codex，不执行加密），使现有历史回放/估算路径保留该内容；请求转换识别本包续接前缀，也可读取原始 reasoning_text content，并将推理内容绑定到紧随其后的 assistant 文本或工具调用。外部不透明 reasoning 无法由该适配器解码时返回 Unsupported；不把 summary 替代原推理。无需修改 core/protocol。多轮实际回放仍需在完整 HTTP/宿主链路接入后实装观察；SSE 字节层、custom/namespace 工具和账户请求绑定尚待完成。库级 Clippy 通过，未编写或运行测试，未调用供应商或进行实装实验。

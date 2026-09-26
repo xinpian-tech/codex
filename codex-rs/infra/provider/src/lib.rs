@@ -1,6 +1,7 @@
 //! Provider wire adaptation, independent of Codex's agent and execution loop.
 //! Account selection and endpoint realization belong to the launch binding.
 
+mod frontend;
 mod request;
 mod sse;
 mod stream;
@@ -9,6 +10,8 @@ mod stream;
 // adapter's versioned payload is plaintext provider reasoning, not ciphertext.
 pub(crate) const CHAT_REASONING_PREFIX: &str = "codex-infra-chat-reasoning-v1:";
 
+pub use frontend::ChatFrontend;
+pub use frontend::ChatFrontendConfig;
 pub use request::TranslationError;
 pub use request::translate_chat_request;
 pub use sse::ProviderStreamError;
