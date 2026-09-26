@@ -55,6 +55,11 @@ pub struct DurableInbox {
 }
 
 impl DurableInbox {
+    /// The acknowledged prefix, independently of model presentation progress.
+    pub fn position(&self) -> crate::JournalPosition {
+        self.journal.position()
+    }
+
     pub fn open(
         path: &Path,
         root_session_id: RootSessionId,

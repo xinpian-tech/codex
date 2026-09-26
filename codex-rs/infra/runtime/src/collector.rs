@@ -12,6 +12,7 @@ use std::thread::JoinHandle;
 
 use codex_infra_protocol::MessageId;
 use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
 use codex_infra_tmux::TmuxClient;
 
 /// One attachment has its own streams so a new control connection never joins
@@ -22,8 +23,8 @@ pub struct ControlCollector {
     input: Option<ChildStdin>,
     commands: Journal,
     lifecycle: Journal,
-    stdout: JoinHandle<io::Result<u64>>,
-    stderr: JoinHandle<io::Result<u64>>,
+    stdout: JoinHandle<io::Result<CapturedStream>>,
+    stderr: JoinHandle<io::Result<CapturedStream>>,
 }
 
 #[derive(Debug)]
@@ -31,6 +32,10 @@ pub struct CollectorCompletion {
     pub status: ExitStatus,
     pub stdout_bytes: u64,
     pub stderr_bytes: u64,
+    pub stdout_position: JournalPosition,
+    pub stderr_position: JournalPosition,
+    pub commands_position: JournalPosition,
+    pub lifecycle_position: JournalPosition,
 }
 
 impl ControlCollector {
@@ -106,17 +111,27 @@ impl ControlCollector {
             .map_err(|_| io::Error::other("control stderr recorder panicked"));
         self.lifecycle
             .append(format!("exit {status}; stdout={stdout:?}; stderr={stderr:?}").as_bytes())?;
-        let stdout_bytes = stdout??;
-        let stderr_bytes = stderr??;
+        let stdout = stdout??;
+        let stderr = stderr??;
         Ok(CollectorCompletion {
             status,
-            stdout_bytes,
-            stderr_bytes,
+            stdout_bytes: stdout.bytes,
+            stderr_bytes: stderr.bytes,
+            stdout_position: stdout.position,
+            stderr_position: stderr.position,
+            commands_position: self.commands.position(),
+            lifecycle_position: self.lifecycle.position(),
         })
     }
 }
 
-fn capture(mut stream: impl Read, mut journal: Journal) -> io::Result<u64> {
+#[derive(Debug)]
+struct CapturedStream {
+    bytes: u64,
+    position: JournalPosition,
+}
+
+fn capture(mut stream: impl Read, mut journal: Journal) -> io::Result<CapturedStream> {
     let mut bytes = [0_u8; 64 * 1024];
     let mut total = 0_u64;
     loop {
@@ -126,7 +141,10 @@ fn capture(mut stream: impl Read, mut journal: Journal) -> io::Result<u64> {
             Err(error) => return Err(error),
         };
         if length == 0 {
-            return Ok(total);
+            return Ok(CapturedStream {
+                bytes: total,
+                position: journal.position(),
+            });
         }
         journal.append(&bytes[..length])?;
         total = total

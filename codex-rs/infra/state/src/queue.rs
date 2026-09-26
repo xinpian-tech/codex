@@ -44,6 +44,11 @@ pub struct SpoolQueue {
 }
 
 impl SpoolQueue {
+    /// Includes durable intents and completions; pending work remains pending.
+    pub fn position(&self) -> JournalPosition {
+        self.journal.position()
+    }
+
     pub fn open(path: &Path) -> io::Result<Self> {
         let mut entries = BTreeMap::new();
         let mut pending = BTreeMap::new();

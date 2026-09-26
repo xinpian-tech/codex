@@ -41,6 +41,11 @@ pub struct DurableOutbox {
 }
 
 impl DurableOutbox {
+    /// The acknowledged local prefix, independently of remote delivery status.
+    pub fn position(&self) -> crate::JournalPosition {
+        self.journal.position()
+    }
+
     pub fn open(
         path: &Path,
         root_session_id: RootSessionId,

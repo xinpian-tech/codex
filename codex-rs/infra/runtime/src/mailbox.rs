@@ -30,6 +30,17 @@ use crate::recorded_writer::RecordedWriter;
 
 mod publication;
 
+/// Durable prefixes sampled together under the host's mailbox ownership.
+/// Positions describe recorded bytes/events, not remote delivery or processing.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MailboxPositions {
+    pub stdin: codex_infra_state::JournalPosition,
+    pub stdout: codex_infra_state::JournalPosition,
+    pub inbox: codex_infra_state::JournalPosition,
+    pub outbox: codex_infra_state::JournalPosition,
+    pub publications: codex_infra_state::JournalPosition,
+}
+
 /// Owned by one Agent host. `stdout` is its terminal writer; `receive_stdin`
 /// consumes only bytes read from that host's terminal stdin. Methods are
 /// serialized by the host, including presentation at a Codex input boundary.
@@ -46,6 +57,20 @@ pub struct HostMailbox<W: Write> {
 }
 
 impl<W: Write> HostMailbox<W> {
+    /// Flushes terminal output before sampling its journal. The finalizer stops
+    /// mailbox producers before using these as completion positions; snapshots
+    /// taken during operation are only incremental archive watermarks.
+    pub fn flush_positions(&mut self) -> io::Result<MailboxPositions> {
+        self.output.flush()?;
+        Ok(MailboxPositions {
+            stdin: self.input.position(),
+            stdout: self.output.get_ref().journal.position(),
+            inbox: self.inbox.position(),
+            outbox: self.outbox.position(),
+            publications: self.publications.position(),
+        })
+    }
+
     pub fn open(
         directory: &Path,
         root_session_id: RootSessionId,

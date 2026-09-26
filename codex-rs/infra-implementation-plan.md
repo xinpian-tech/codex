@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+HostMailbox 新增 flush_positions，在 stdout 缓冲及底层终端 flush 完成后采样 stdin/stdout/inbox/outbox/publications 五条日志的 durable position；位置不代表远端接收或模型处理完成。底层 inbox/outbox/spool 提供各自 writer 的已确认位置。ControlCollector 的 capture worker 在 EOF 时返回真实 journal position，finish 等待两条输出线程并落盘退出记录后，一并返回 stdout/stderr/commands/lifecycle 完成位置，保留原始输出字节计数。JournalArchive 为初次归档的空日志发布包含流身份的零长度段，以便空流也有远端回执；后续相同位置不重复发布。生产者仍需由 finalizer 停止，machine writer 按这些位置归档的装配尚待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 受管宿主新增 HostAuditPositions / settled_audit_positions，直接从 process/tool/thread-store writer 返回已 fsync 的 JournalPosition，供后续归档核对使用；调用方先停止分发并排空相应生产者，采样本身不关闭宿主。ProcessAudit 与 ToolAudit 复用原活动账本和失败状态，在同一 writer 锁下核对完成并取得位置。StoreAudit 增加 Started/Finished 序号对账、待落盘写入计数和写入失败记录，重启重建未完成 store 操作；取消或缺失 Finished 的副作用留待恢复，不以文件存在作为完成依据。宿主保留自己的 StoreAudit 句柄；此集合明确不包含 Provider 传输、tmux/mailbox 和 machine 日志。新增逻辑均在 ext/infra，无依赖变化。producer 停止装配、未知 store 操作恢复及 finalizer 仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 infra/state 增加 JournalArchive，将已 fsync 的 producer position、流身份（root session/machine/agent/launch/name）、原始字节起止范围与 SessionShard 远端回执关联。publish_next 按调用方指定的字节预算分块，允许一条大 journal record 跨段，保留原 frame/checksum 字节；回执日志只在 push 与远端确认后推进连续偏移，重启重建已确认范围。require_archived 按实际已归档 end 与 producer 完成位置核对，不将段内记录的整体 durable position 当作全部字节已上传。回执落盘前中断可能留下范围重叠的远端段，恢复须按流/偏移重建。此阶段提供归档水位基础；各 producer 的真实完成位置汇总、machine writer 调度、段恢复和 finalizer 仍待装配。全部逻辑位于 infra/state，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

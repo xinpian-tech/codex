@@ -144,7 +144,7 @@ impl JournalArchive {
                 "producer durable position moved backwards",
             ));
         }
-        if durable.byte_offset == start {
+        if durable.byte_offset == start && self.latest.is_some() {
             return Ok(None);
         }
         let expected_ref = format!(
@@ -198,7 +198,11 @@ fn validate_range(
         stream.root_session_id, stream.machine_id
     );
     if range.start != expected_start
-        || range.end <= range.start
+        || range.end < range.start
+        || (range.end == range.start
+            && (previous.is_some()
+                || range.start != 0
+                || range.durable != JournalPosition::default()))
         || range.end > range.durable.byte_offset
         || range.receipt.session_ref != expected_ref
         || previous.is_some_and(|previous| {
