@@ -44,6 +44,22 @@ impl ContextSnapshot {
 }
 
 impl AgentContext {
+    pub(crate) fn validate_audit_identity(
+        &self,
+        identity: &crate::StoreAuditIdentity,
+    ) -> io::Result<()> {
+        let current = self.current.borrow();
+        if identity.agent_id.to_string() != current.identity.agent_id
+            || identity.root_session_id.to_string() != current.identity.root_session_id
+            || identity.machine_id.to_string() != current.identity.machine_id
+        {
+            return Err(io::Error::other(
+                "audit identity does not match Agent context",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_message_source(
         &self,
         message: &codex_infra_protocol::AgentMessage,

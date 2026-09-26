@@ -121,6 +121,9 @@ struct Writer {
 /// for checkpoint/finalization checks because the tool may already be running.
 #[derive(Clone)]
 pub struct ToolAudit {
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) identity: StoreAuditIdentity,
+    pub(crate) launch_id: MessageId,
     writer: Arc<Mutex<Writer>>,
     pending: Arc<AtomicUsize>,
     append_order: Arc<tokio::sync::Semaphore>,
@@ -155,12 +158,15 @@ impl ToolAudit {
             Ok(())
         })?;
         let opened = ToolAuditEvent::Opened {
-            identity,
+            identity: identity.clone(),
             launch_id,
         };
         let sequence = journal.append(&serde_json::to_vec(&opened)?)?;
         let _ = activity.apply(sequence, &opened);
         Ok(Self {
+            path: path.canonicalize()?,
+            identity,
+            launch_id,
             pending: Arc::new(AtomicUsize::new(0)),
             append_order: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
             writer: Arc::new(Mutex::new(Writer {

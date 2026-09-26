@@ -46,6 +46,8 @@ pub enum StoreAuditEvent {
 /// Prepared audit writer shared by adapters within one Agent host.
 #[derive(Clone)]
 pub struct StoreAudit {
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) identity: StoreAuditIdentity,
     writer: Arc<Mutex<Writer>>,
     pending: Arc<AtomicUsize>,
 }
@@ -77,8 +79,12 @@ impl StoreAudit {
             }
             reconcile(&mut active, record.sequence, &event)
         })?;
-        journal.append(&serde_json::to_vec(&StoreAuditEvent::Opened { identity })?)?;
+        journal.append(&serde_json::to_vec(&StoreAuditEvent::Opened {
+            identity: identity.clone(),
+        })?)?;
         Ok(Self {
+            path: path.canonicalize()?,
+            identity,
             writer: Arc::new(Mutex::new(Writer {
                 journal,
                 active,

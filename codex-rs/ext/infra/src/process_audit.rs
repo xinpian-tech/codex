@@ -122,7 +122,9 @@ impl Writer {
 /// Payloads remain on disk; recorders retain only their start-attempt identity.
 #[derive(Clone)]
 pub struct ProcessAudit {
-    path: PathBuf,
+    pub(crate) path: PathBuf,
+    pub(crate) identity: StoreAuditIdentity,
+    pub(crate) launch_id: MessageId,
     writer: Arc<Mutex<Writer>>,
     operations: Option<WorkspaceOperations>,
 }
@@ -149,13 +151,15 @@ impl ProcessAudit {
             Ok(())
         })?;
         let opened = ProcessAuditEvent::Opened {
-            identity,
+            identity: identity.clone(),
             launch_id,
         };
         let sequence = journal.append(&serde_json::to_vec(&opened)?)?;
         let _ = activity.apply(sequence, &opened);
         Ok(Self {
             path: std::fs::canonicalize(path)?,
+            identity,
+            launch_id,
             operations: None,
             writer: Arc::new(Mutex::new(Writer {
                 journal,

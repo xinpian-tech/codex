@@ -17,6 +17,12 @@ use crate::RecordedHookExecutor;
 use crate::StoreAudit;
 use crate::ToolAudit;
 
+mod archive;
+pub use archive::HostArchiveJobIds;
+pub use archive::HostArchiveJobs;
+pub use archive::HostArchivePhase;
+pub use archive::HostArchiveReceipts;
+
 // A prepared writer can be passed directly to start_with_host_services. The
 // default queue and extension assembly remain owned by the embedded app-server.
 impl HostServices for StoreAudit {
@@ -116,6 +122,15 @@ impl ManagedHostServices {
         mut args: InProcessStartArgs,
         process_audit: ProcessAudit,
     ) -> std::io::Result<ManagedHost> {
+        self.context.validate_audit_identity(&self.audit.identity)?;
+        if self.tools.identity != self.audit.identity
+            || process_audit.identity != self.audit.identity
+            || self.tools.launch_id != process_audit.launch_id
+        {
+            return Err(std::io::Error::other(
+                "host audit streams have different launch bindings",
+            ));
+        }
         let process_audit = match self.tools.workspace()? {
             Some(workspace) => process_audit.with_operations(workspace.operations()),
             None => process_audit,
