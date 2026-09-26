@@ -22,6 +22,7 @@ use codex_infra_state::Journal;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::ProcessActivity;
 use crate::StoreAuditIdentity;
 
 /// Raw requested execution and producer events. Requested is not evidence that
@@ -85,6 +86,7 @@ pub enum ProcessAuditEvent {
 struct Writer {
     journal: Journal,
     failure: Option<String>,
+    activity: ProcessActivity,
 }
 
 impl Writer {
@@ -95,10 +97,14 @@ impl Writer {
         let result = serde_json::to_vec(event)
             .map_err(io::Error::other)
             .and_then(|bytes| self.journal.append(&bytes));
-        result.map_err(|error| {
+        let sequence = result.map_err(|error| {
             self.failure = Some(error.to_string());
             recording_error(error)
-        })
+        })?;
+        // The ledger latches unresolved provenance independently; retaining
+        // subsequent raw evidence must continue even if reconciliation fails.
+        let _ = self.activity.apply(sequence, event);
+        Ok(sequence)
     }
 }
 
@@ -116,26 +122,31 @@ impl ProcessAudit {
         identity: StoreAuditIdentity,
         launch_id: MessageId,
     ) -> io::Result<Self> {
+        let mut activity = ProcessActivity::default();
         let mut journal = Journal::open(path, |record| {
             let event: ProcessAuditEvent = serde_json::from_slice(&record.payload)?;
             if let ProcessAuditEvent::Opened {
                 identity: previous,
                 launch_id: previous_launch,
-            } = event
-                && (previous != identity || previous_launch != launch_id)
+            } = &event
+                && (previous != &identity || previous_launch != &launch_id)
             {
                 return Err(io::Error::other("process audit launch binding changed"));
             }
+            let _ = activity.apply(record.sequence, &event);
             Ok(())
         })?;
-        journal.append(&serde_json::to_vec(&ProcessAuditEvent::Opened {
+        let opened = ProcessAuditEvent::Opened {
             identity,
             launch_id,
-        })?)?;
+        };
+        let sequence = journal.append(&serde_json::to_vec(&opened)?)?;
+        let _ = activity.apply(sequence, &opened);
         Ok(Self {
             writer: Arc::new(Mutex::new(Writer {
                 journal,
                 failure: None,
+                activity,
             })),
         })
     }
@@ -149,7 +160,7 @@ impl ProcessAudit {
             .map_err(|error| io::Error::other(error.to_string()))?;
         match &writer.failure {
             Some(error) => Err(io::Error::other(error.clone())),
-            None => Ok(()),
+            None => writer.activity.require_settled(),
         }
     }
 }
