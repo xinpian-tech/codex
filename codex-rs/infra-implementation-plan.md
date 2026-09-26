@@ -605,9 +605,17 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 | `abf4b94f54` | state：独立 worktree、commit/push/远端 HEAD 确认、checkpoint pending/completed 日志 |
 | `9f68bdf326` | state：专属 Git index、内容寻址 Session 分块、机器分片 ref 与远端归档 receipt |
 | `6a449789ec` | nix：hostid 读取、锁定 flake、锁文件摘要、Task 构建计划、固定 drv realization |
+| `c5f49f84ca` | tmux：消息分块编码、增量 frame 解码、control mode 输出字节还原 |
+| `ccadb08981` | tmux：由 generation 提供可执行文件，创建 Session/pane、连接 collector、注入输入 |
+| `e32e377536` | tmux：由操作系统动态分配 TCP 端口，独立收发连接与长度分帧 |
+| `d57412902b` | tmux：目标宿主临时文件中的消息重组及重复分块处理 |
+| `c0a44a6c3e` | state：持久 inbox、接收/呈现/处理记录与待呈现分页查询 |
+| `51d4390293` | protocol/state：公共回执类型、持久 outbox、待重投查询、幂等回执记录 |
+
+tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。宿主仍需接入 frame writer/reader，并将输入在 thread history 中的消息 ID 与 inbox 呈现记录对账。
 
 日志 fsync 完成后才确认本地写入，任务当前视图可由日志重建。Git 归档 receipt 与本地日志确认分别返回；相同分块重复发布复用已有 tree/commit。checkpoint 在 Git 操作前保存 pending，push 与远端确认完成后保存 completed。Nix 求值与构建采用独立入口，锁文件更新关闭，构建使用已解析 drv。
 
-三个包均已通过限定库目标的 Cargo 编译/Clippy，使用 Nix store 中的 Rust 1.95.0 和 C 工具链；Rust/Bazel 文件直接以 rustfmt/buildifier 格式化。Cargo.lock 已维护。Bazel 9.0.0 的 `mod deps --lockfile_mode=update` 已成功执行，MODULE.bazel.lock 未产生内容差异。本机 NixOS 下使用临时目录中的适配 launcher/process-wrapper，以及同版本 Nix Cargo 的 repository override 完成元数据生成；这些本机构建工具路径没有进入项目配置。
+四个包均已通过限定库目标的 Cargo 编译/Clippy，使用 Nix store 中的 Rust 1.95.0 和 C 工具链；Rust/Bazel 文件直接以 rustfmt/buildifier 格式化。tmux 的独立库构建仍有根目录 Clippy 配置引用未启用 Tokio sync 类型的三条警告。Cargo.lock 已维护。Bazel 9.0.0 的 `mod deps --lockfile_mode=update` 已成功执行，MODULE.bazel.lock 未产生内容差异。本机 NixOS 下使用临时目录中的适配 launcher/process-wrapper，以及同版本 Nix Cargo 的 repository override 完成元数据生成；这些本机构建工具路径没有进入项目配置。
 
-P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、原始流采集、Hook 装配和日志消费者尚待连接。P2–P7 的 tmux、Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
+P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、原始流采集、Hook 装配和日志消费者尚待连接。P2 已有 tmux/传输与收发状态组件，collector 持续采集、PTY 初始化、宿主就绪协调、路由、重连与重投调度仍待连接。当前 inbox/outbox 物化视图保留历史消息正文，长 Session 所需的按需正文读取与索引维护尚待实现。P3–P7 的 Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
