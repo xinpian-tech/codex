@@ -100,6 +100,10 @@ pub struct ProviderAttemptFinished {
 
 impl ProviderAttemptFinished {
     pub fn read(directory: &Path) -> io::Result<Option<Self>> {
+        Ok(Self::read_with_position(directory)?.map(|(finished, _)| finished))
+    }
+
+    pub fn read_with_position(directory: &Path) -> io::Result<Option<(Self, JournalPosition)>> {
         let mut reader = match JournalReader::open(
             &directory.join("completion.journal"),
             JournalPosition::default(),
@@ -108,10 +112,13 @@ impl ProviderAttemptFinished {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
-        reader
-            .next_record()?
-            .map(|record| serde_json::from_slice(&record.payload).map_err(io::Error::other))
-            .transpose()
+        let Some(record) = reader.next_record()? else {
+            return Ok(None);
+        };
+        Ok(Some((
+            serde_json::from_slice(&record.payload)?,
+            reader.position(),
+        )))
     }
 }
 

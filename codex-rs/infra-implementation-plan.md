@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+runtime 新增 ProviderArchiveJobs，读取 provider 的原始 attempt 身份及完成标记确认位置，为 client-request/provider-request/provider-response/client-response/lifecycle/completion 六条流生成 ProducerFinished 任务。归属沿用原 root/machine/agent/launch，流名包含 attempt ID；prepare 先持久化 archive.journal，再允许 submit 交给既有 ArchiveController。重复准备校对原绑定/路径/结束位置并沿用已存 job IDs，completion 查询六项精确远端回执，缺少任一项仍返回 pending。provider 增加完成标记位置读取 API，runtime 依赖独立 provider 包且不引入 core。自动发现/周期提交服务、运行中快照和整机最终汇总仍待接入。Cargo.lock/Bazel 元数据更新，runtime 库与机器 CLI Clippy 通过；未编写或运行测试，未执行归档 Git 操作或实装实验。
+
 Provider attempt 新增 run.lock，由共享 AuditJournals 持有，覆盖所有 capture/record 引用及已提交的 blocking 写入。启动时首先持久化 lifecycle opened 身份，再打开其余 body 日志；新增 ProviderAttemptIdentity 读取与 recover_provider_attempt。恢复以非阻塞锁跳过存活 owner，取得锁后复核完成标记，重放五条 Journal、按既有逻辑处理不完整尾部，记录 owner_exit_recovered 并保存明确的 OwnerExited 结束类型。正常路径标记 ResponseBodyFinished，旧完成记录缺省解释为原有正常结束类型。ChatFrontend::start 在线程池中逐目录执行恢复，不将异常结束改写成推理成功；旧版没有运行锁的未完成数据仍需迁移处理。库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。完成记录远端归档、周期快照、usage 汇总和宿主生命周期接入继续待完成。
 
 Provider attempt 新增持久 ProviderAttemptFinished，包含 attempt_id 与五条原始/生命周期 JournalPosition，并提供只读 completion.journal 读取入口。最外层 ClientResponse capture 读到结束后释放其上游流、记录该流 EOF，再在线程池内封闭共享 writer 并写完成记录；此后 record 不再追加。完成证据表示本地 body 生产链结束，不表示模型任务成功、客户端远端接收或 Git 归档完成。取消、读取错误、写入错误保留无完成标记的运行供恢复处理，未用文件长度推断结束。复用 serde workspace 依赖并刷新 Cargo.lock/Bazel 元数据，库级 Clippy 通过；未编写或运行测试，未启动服务或调用模型。异常 attempt 恢复、完成标记归档、周期快照和 usage 汇总仍待接入。
