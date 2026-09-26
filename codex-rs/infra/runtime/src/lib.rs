@@ -1,6 +1,7 @@
 //! Machine and Agent runtime services, independent of the Codex inference engine.
 
 mod collector;
+mod dispatch;
 mod extraction;
 mod input;
 mod mailbox;
@@ -10,6 +11,8 @@ mod routing;
 
 pub use collector::CollectorCompletion;
 pub use collector::ControlCollector;
+pub use dispatch::CapturedFrame;
+pub use dispatch::ControlDispatch;
 pub use extraction::ControlBatch;
 pub use extraction::ControlCursor;
 pub use extraction::ControlFrameReader;

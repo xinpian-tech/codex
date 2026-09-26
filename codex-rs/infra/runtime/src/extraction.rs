@@ -21,6 +21,12 @@ pub struct ControlCursor {
     panes: BTreeMap<String, FrameDecoder>,
 }
 
+impl ControlCursor {
+    pub fn next_source_sequence(&self) -> u64 {
+        self.position.next_sequence
+    }
+}
+
 #[derive(Debug)]
 pub enum ObservedControl {
     PaneOutput {
