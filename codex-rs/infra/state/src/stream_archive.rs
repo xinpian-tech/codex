@@ -23,9 +23,24 @@ use crate::SessionShard;
 pub struct ArchiveStream {
     pub root_session_id: RootSessionId,
     pub machine_id: MachineId,
-    pub agent_id: AgentId,
-    pub launch_id: MessageId,
+    #[serde(flatten)]
+    pub producer: ArchiveProducer,
     pub name: String,
+}
+
+/// Distinguishes an Agent launch from a machine-owned runtime attachment.
+/// Flattened Agent fields preserve the existing serialized stream identity and
+/// its content-derived catalog key. Machine runs do not invent an Agent ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ArchiveProducer {
+    Agent {
+        agent_id: AgentId,
+        launch_id: MessageId,
+    },
+    Machine {
+        machine_run_id: MessageId,
+    },
 }
 
 /// Raw journal bytes may split a record across segments. Concatenation restores

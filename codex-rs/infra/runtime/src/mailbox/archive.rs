@@ -4,6 +4,7 @@ use std::path::Path;
 
 use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
+use codex_infra_state::ArchiveProducer;
 use codex_infra_state::ArchiveReceipt;
 use codex_infra_state::ArchiveStream;
 use serde::Deserialize;
@@ -113,8 +114,10 @@ impl<W: Write> HostMailbox<W> {
                 stream: ArchiveStream {
                     root_session_id: self.root_session_id,
                     machine_id: machine_id.clone(),
-                    agent_id: self.agent_id,
-                    launch_id,
+                    producer: ArchiveProducer::Agent {
+                        agent_id: self.agent_id,
+                        launch_id,
+                    },
                     name: format!("mailbox-{name}"),
                 },
                 source: self.directory.join(format!("{name}.journal")),

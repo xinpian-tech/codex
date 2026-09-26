@@ -36,6 +36,7 @@ pub use session::ArchivedStreamHead;
 pub use session::SegmentPage;
 pub use session::SessionShard;
 pub use session::StreamPage;
+pub use stream_archive::ArchiveProducer;
 pub use stream_archive::ArchiveStream;
 pub use stream_archive::ArchivedRange;
 pub use stream_archive::JournalArchive;

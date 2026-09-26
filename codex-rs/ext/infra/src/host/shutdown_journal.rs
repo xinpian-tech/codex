@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use codex_infra_protocol::MessageId;
 use codex_infra_runtime::ArchiveController;
 use codex_infra_runtime::ArchiveTarget;
+use codex_infra_state::ArchiveProducer;
 use codex_infra_state::Journal;
 use serde::Deserialize;
 use serde::Serialize;
@@ -253,9 +254,12 @@ impl State {
                     if job.job_id != id
                         || job.stream.name != name
                         || job.stream.root_session_id != self.plan.identity.root_session_id
-                        || job.stream.agent_id != self.plan.identity.agent_id
+                        || job.stream.producer
+                            != (ArchiveProducer::Agent {
+                                agent_id: self.plan.identity.agent_id,
+                                launch_id: self.plan.launch_id,
+                            })
                         || job.stream.machine_id != self.plan.identity.machine_id
-                        || job.stream.launch_id != self.plan.launch_id
                         || !matches!(job.target, ArchiveTarget::Snapshot(_))
                         || job.receipt_journal
                             != self

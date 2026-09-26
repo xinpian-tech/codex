@@ -46,6 +46,14 @@ impl CollectorFinished {
     /// substituted for producer acknowledgments. The caller supplies the known
     /// attachment identity from the machine's collector directory.
     pub fn read(directory: &Path, attachment_id: MessageId) -> io::Result<Option<Self>> {
+        Self::read_with_position(directory, attachment_id)
+            .map(|record| record.map(|(finished, _)| finished))
+    }
+
+    pub(super) fn read_with_position(
+        directory: &Path,
+        attachment_id: MessageId,
+    ) -> io::Result<Option<(Self, JournalPosition)>> {
         let mut reader = match JournalReader::open(
             &directory.join("completion.journal"),
             JournalPosition::default(),
@@ -63,6 +71,6 @@ impl CollectorFinished {
                 "collector completion identity or count mismatch",
             ));
         }
-        Ok(Some(finished))
+        Ok(Some((finished, reader.position())))
     }
 }

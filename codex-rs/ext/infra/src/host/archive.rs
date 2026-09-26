@@ -5,6 +5,7 @@ use codex_infra_protocol::MessageId;
 use codex_infra_runtime::ArchiveController;
 use codex_infra_runtime::ArchiveJob;
 use codex_infra_runtime::ArchiveTarget;
+use codex_infra_state::ArchiveProducer;
 use codex_infra_state::ArchiveReceipt;
 use codex_infra_state::ArchiveStream;
 use serde::Deserialize;
@@ -118,8 +119,10 @@ pub(super) fn prepare_jobs(
         stream: ArchiveStream {
             root_session_id: identity.root_session_id,
             machine_id: identity.machine_id.clone(),
-            agent_id: identity.agent_id,
-            launch_id,
+            producer: ArchiveProducer::Agent {
+                agent_id: identity.agent_id,
+                launch_id,
+            },
             name: name.to_owned(),
         },
         source,
