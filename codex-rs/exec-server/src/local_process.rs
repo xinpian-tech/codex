@@ -464,6 +464,17 @@ impl LocalProcess {
         };
         let sandbox_type = Some(sandbox);
         if let Some(recorder) = &recorder {
+            #[cfg(unix)]
+            let shell_snapshot = match snapshot_file.as_ref() {
+                Some(file) => Some(
+                    crate::PreparedShellSnapshot::capture(file)
+                        .await
+                        .map_err(|error| internal_error(error.to_string()))?,
+                ),
+                None => None,
+            };
+            #[cfg(not(unix))]
+            let shell_snapshot = None;
             recorder
                 .prepared(crate::PreparedProcessCommand {
                     command: prepared.command.clone(),
@@ -471,6 +482,7 @@ impl LocalProcess {
                     env: prepared.env.clone(),
                     arg0: prepared.arg0.clone(),
                     sandbox,
+                    shell_snapshot,
                 })
                 .await
                 .map_err(|error| internal_error(error.to_string()))?;

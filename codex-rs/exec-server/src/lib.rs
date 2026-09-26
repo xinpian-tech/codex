@@ -144,6 +144,7 @@ pub use process::ExecProcessEventReceiver;
 pub use process::ExecProcessFuture;
 pub use process::StartedExecProcess;
 pub use process_recording::PreparedProcessCommand;
+pub use process_recording::PreparedShellSnapshot;
 pub use process_recording::ProcessInputRecorder;
 pub use process_recording::ProcessRecorder;
 pub use process_recording::ProcessRecorderFactory;
