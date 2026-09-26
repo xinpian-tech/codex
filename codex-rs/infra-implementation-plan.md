@@ -641,6 +641,8 @@ TransportSession 检测到 collector 停止或采集线程结束时建立新的 
 
 SessionActor 已将定时传输推进与 Directory/launch/退出控制更新串行装配，并返回更新确认。停止或推进失败后等待运行中的 peer 发送、pane 注入和 collector 回收任务结束，再交回 TransportSession 与错误记录；待处理队列和 collector 所有权保留。该停止接口用于外层机器管理的交接，Agent 的 final checkpoint、最终消息交付、关闭 pane 和最终归档尚需完整 finalizer 连接。
 
+tmux Agent window 现以 AgentId/launch ID 命名。创建重试先查询同一绑定，复用存活 pane；退出的 launch 使用新 ID 重启。Session 注册 launch 时核对 tmux 存活状态、window 和 pane 后再启用已恢复的 Ready。字段与命名行为依据 [tmux 官方手册](https://man.openbsd.org/tmux)；真实启动器的持久创建意图、generation/Provider/worktree 绑定与命令入口仍待装配。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
