@@ -19,6 +19,7 @@ mod workspace_operations;
 pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
 pub use hook_executor::RecordedHookExecutor;
+pub use host::HostAuditPositions;
 pub use host::ManagedHost;
 pub use host::ManagedHostServices;
 pub use process_activity::ProcessActivity;

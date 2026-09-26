@@ -174,13 +174,22 @@ impl ProcessAudit {
     /// Check after recorded requests and producers have drained. A final
     /// request-result write can fail after the child's output already closed.
     pub fn check_health(&self) -> io::Result<()> {
+        self.settled_position().map(|_| ())
+    }
+
+    /// Returns the durable completion boundary after request/producer drain.
+    /// The caller must keep process dispatch quiescent while archiving it.
+    pub fn settled_position(&self) -> io::Result<codex_infra_state::JournalPosition> {
         let writer = self
             .writer
             .lock()
             .map_err(|error| io::Error::other(error.to_string()))?;
         match &writer.failure {
             Some(error) => Err(io::Error::other(error.clone())),
-            None => writer.activity.require_settled(),
+            None => {
+                writer.activity.require_settled()?;
+                Ok(writer.journal.position())
+            }
         }
     }
 }

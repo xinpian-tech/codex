@@ -42,9 +42,29 @@ pub struct ManagedHost {
     tools: Arc<ToolAudit>,
     processes: ProcessAudit,
     hooks: Arc<RecordedHookExecutor>,
+    store_audit: StoreAudit,
+}
+
+/// Completion boundaries for the host's currently recorded audit streams.
+/// These do not cover provider transport, terminal, mailbox, or machine logs.
+pub struct HostAuditPositions {
+    pub processes: codex_infra_state::JournalPosition,
+    pub tools: codex_infra_state::JournalPosition,
+    pub thread_store: codex_infra_state::JournalPosition,
 }
 
 impl ManagedHost {
+    /// Sample after dispatch is quiescent, process/hook output has drained and
+    /// store operations have finished. Keep those producers quiescent while
+    /// archiving the returned positions. This does not itself close the host.
+    pub fn settled_audit_positions(&self) -> std::io::Result<HostAuditPositions> {
+        Ok(HostAuditPositions {
+            processes: self.processes.settled_position()?,
+            tools: self.tools.settled_position()?,
+            thread_store: self.store_audit.settled_position()?,
+        })
+    }
+
     /// Waits for recorded requests and child output producers before checkpoint.
     /// A long-running child must finish or be terminated by the task owner.
     /// The caller first quiesces tool and hook dispatch; this checks tool audit health
@@ -128,6 +148,7 @@ impl ManagedHostServices {
             Arc::clone(&tools),
         ));
         self.hooks = Some(Arc::clone(&hooks));
+        let store_audit = self.audit.clone();
         let client = start_with_host_services(args, Arc::new(self)).await?;
         Ok(ManagedHost {
             client,
@@ -135,6 +156,7 @@ impl ManagedHostServices {
             tools,
             processes: process_audit,
             hooks,
+            store_audit,
         })
     }
 }

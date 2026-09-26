@@ -194,6 +194,12 @@ impl ToolAudit {
     /// Call after tool dispatch is quiescent. Pending disk writes are not yet
     /// healthy, even when their lifecycle callback was cancelled by its caller.
     pub fn check_health(&self) -> io::Result<()> {
+        self.settled_position().map(|_| ())
+    }
+
+    /// Returns the fsync-acknowledged boundary after all admitted operations
+    /// settle. The caller keeps dispatch quiescent through archive publication.
+    pub fn settled_position(&self) -> io::Result<codex_infra_state::JournalPosition> {
         if self.pending.load(Ordering::SeqCst) != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -206,7 +212,10 @@ impl ToolAudit {
             .map_err(|error| io::Error::other(error.to_string()))?;
         match &writer.failure {
             Some(error) => Err(io::Error::other(error.clone())),
-            None => writer.activity.require_settled(),
+            None => {
+                writer.activity.require_settled()?;
+                Ok(writer.journal.position())
+            }
         }
     }
 
