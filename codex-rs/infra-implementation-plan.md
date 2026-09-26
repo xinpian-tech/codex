@@ -665,6 +665,8 @@ AgentContext 的公开启动入口现从 LaunchIntent 与已接收的 TaskSpec �
 
 WorkspaceCheckpoints 已提供独立 blocking 任务中的串行 commit/push 服务，返回前完成远端确认、完成日志及 AgentContext 更新。等待方取消后，已开始的工作仍持有服务与上下文并继续完成。恢复入口复用原 pending operation ID/kind；Coordinator 另外保留最近 Completed 记录，使新的 pending 不覆盖模型恢复需要的已推送版本。执行前核对 workspace/context 归属，Coordinator 重试时核对原 worktree 绑定。库 Clippy 已通过。调用方仍需持有修改边界，等待前台工具与后台进程停止写入；现有 on_tool_finish 不代表后台进程结束，生产侧退出/输出排空通知、Hook 调用与最终收尾尚待接入。
 
+exec-server 已增加通用 ProcessRecorder/Factory 与本地 backend 的可选装配入口。recorder 在创建进程前准备；stdout/stderr/PTY 原始块先交给 recorder，再进入有限缓存与通知，Exited 和 Closed 分别交付。每个进程独立串行，等待记录时释放全局进程表；记录失败进入事件流和 read.failure，输出记录失败会终止该进程。启用记录时，启动采集的连接任务在请求等待方取消后继续完成；提前 shutdown 记录未排空状态。上游修改集中在现有私有进程状态的创建/输出/退出点，未迁移整个大模块。exec-server 库 Clippy 已通过。独立包的 journal recorder、stdin、Environment 装配和 Closed 后的 checkpoint 调用仍待接入；当前尚未执行真实进程实验。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。

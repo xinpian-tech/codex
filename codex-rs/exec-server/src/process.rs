@@ -77,6 +77,9 @@ struct ExecProcessEventLogInner {
     live_tx: broadcast::Sender<ExecProcessEvent>,
     event_capacity: usize,
     byte_capacity: usize,
+    recorder: Option<Arc<dyn crate::ProcessRecorder>>,
+    recording_failure: StdMutex<Option<String>>,
+    ordering: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Default)]
@@ -109,6 +112,14 @@ impl ExecProcessEvent {
 
 impl ExecProcessEventLog {
     pub(crate) fn new(event_capacity: usize, byte_capacity: usize) -> Self {
+        Self::with_recorder(event_capacity, byte_capacity, /*recorder*/ None)
+    }
+
+    pub(crate) fn with_recorder(
+        event_capacity: usize,
+        byte_capacity: usize,
+        recorder: Option<Arc<dyn crate::ProcessRecorder>>,
+    ) -> Self {
         let (live_tx, _live_rx) = broadcast::channel(event_capacity);
         Self {
             inner: Arc::new(ExecProcessEventLogInner {
@@ -116,8 +127,52 @@ impl ExecProcessEventLog {
                 live_tx,
                 event_capacity,
                 byte_capacity,
+                recorder,
+                recording_failure: StdMutex::new(None),
+                ordering: Arc::new(tokio::sync::Semaphore::new(1)),
             }),
         }
+    }
+
+    pub(crate) fn recording_failure(&self) -> Option<String> {
+        self.inner
+            .recording_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(crate) fn recorder(&self) -> Option<&Arc<dyn crate::ProcessRecorder>> {
+        self.inner.recorder.as_ref()
+    }
+
+    pub(crate) async fn ordering_permit(
+        &self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
+        Arc::clone(&self.inner.ordering).acquire_owned().await
+    }
+
+    pub(crate) async fn publish_recorded(
+        &self,
+        event: ExecProcessEvent,
+    ) -> Result<(), ExecServerError> {
+        if let Some(error) = self.recording_failure() {
+            return Err(ExecServerError::Protocol(error));
+        }
+        if let Some(recorder) = self.recorder()
+            && let Err(error) = recorder.record(event.clone()).await
+        {
+            let message = format!("process recording failed: {error}");
+            *self
+                .inner
+                .recording_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(message.clone());
+            self.publish(ExecProcessEvent::Failed(message));
+            return Err(error);
+        }
+        self.publish(event);
+        Ok(())
     }
 
     pub(crate) fn publish(&self, event: ExecProcessEvent) {
@@ -222,6 +277,17 @@ pub type ExecProcessFuture<'a, T> =
 
 pub trait ExecBackend: Send + Sync {
     fn start(&self, params: ExecParams) -> ExecBackendFuture<'_>;
+
+    /// Creates a backend with producer-side recording for subsequent starts.
+    /// Remote hosts install the recorder in their own local execution backend.
+    fn recording_backend(
+        &self,
+        _factory: Arc<dyn crate::ProcessRecorderFactory>,
+    ) -> Result<Arc<dyn ExecBackend>, ExecServerError> {
+        Err(ExecServerError::Protocol(
+            "exec backend does not support producer recording".to_owned(),
+        ))
+    }
 
     /// Captures a local shell snapshot without starting the requested command.
     /// Failures must remain retryable by real commands. Remote backends do not

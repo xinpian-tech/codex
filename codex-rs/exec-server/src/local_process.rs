@@ -175,6 +175,7 @@ struct Inner {
 pub(crate) struct LocalProcess {
     inner: Arc<Inner>,
     runtime_paths: Option<ExecServerRuntimePaths>,
+    recorder_factory: Option<Arc<dyn crate::ProcessRecorderFactory>>,
 }
 
 struct LocalExecProcess {
@@ -230,6 +231,7 @@ impl LocalProcess {
                 telemetry,
             }),
             runtime_paths,
+            recorder_factory: None,
         }
     }
 
@@ -245,6 +247,15 @@ impl LocalProcess {
                 .collect::<Vec<_>>()
         };
         for mut process in remaining {
+            if !process.closed && process.events.recorder().is_some() {
+                let _order = process.events.ordering_permit().await;
+                let _ = process
+                    .events
+                    .publish_recorded(ExecProcessEvent::Failed(
+                        "exec backend shut down before output closed".to_owned(),
+                    ))
+                    .await;
+            }
             if let Some(network_policy_shutdown) = process.network_policy_shutdown.take() {
                 network_policy_shutdown.cancel();
             }
@@ -281,7 +292,41 @@ impl LocalProcess {
     async fn start_process(
         &self,
         params: ExecParams,
+        telemetry: ProcessTelemetry,
+    ) -> Result<(ExecResponse, watch::Sender<u64>, ExecProcessEventLog), JSONRPCErrorError> {
+        let Some(factory) = self.recorder_factory.clone() else {
+            return self
+                .start_process_recorded(params, telemetry, /*recorder*/ None)
+                .await;
+        };
+        let recorder = factory
+            .open(&params)
+            .await
+            .map_err(|error| internal_error(error.to_string()))?;
+        // The recording startup owns capture setup even if its requester drops
+        // the response future after the OS process has already been created.
+        let backend = self.clone();
+        tokio::spawn(async move {
+            let result = backend
+                .start_process_recorded(params, telemetry, Some(recorder.clone()))
+                .await;
+            if let Err(error) = &result {
+                recorder
+                    .record(ExecProcessEvent::Failed(error.message.clone()))
+                    .await
+                    .map_err(|error| internal_error(error.to_string()))?;
+            }
+            result
+        })
+        .await
+        .map_err(|error| internal_error(error.to_string()))?
+    }
+
+    async fn start_process_recorded(
+        &self,
+        params: ExecParams,
         mut telemetry: ProcessTelemetry,
+        recorder: Option<Arc<dyn crate::ProcessRecorder>>,
     ) -> Result<(ExecResponse, watch::Sender<u64>, ExecProcessEventLog), JSONRPCErrorError> {
         telemetry.launch_context = telemetry.launch_context.filter(SpanContext::is_valid);
         let metadata = params.metadata.as_ref();
@@ -453,9 +498,10 @@ impl LocalProcess {
 
         let output_notify = Arc::new(Notify::new());
         let (wake_tx, _wake_rx) = watch::channel(0);
-        let events = ExecProcessEventLog::new(
+        let events = ExecProcessEventLog::with_recorder(
             PROCESS_EVENT_CHANNEL_CAPACITY,
             RETAINED_OUTPUT_BYTES_PER_PROCESS,
+            recorder,
         );
         {
             let mut process_map = self.inner.processes.lock().await;
@@ -603,7 +649,7 @@ impl LocalProcess {
                         exited: process.exit_code.is_some(),
                         exit_code: process.exit_code,
                         closed: process.closed,
-                        failure: None,
+                        failure: process.events.recording_failure(),
                         sandbox_denied: process.sandbox_denied,
                     },
                     Arc::clone(&process.output_notify),
@@ -803,6 +849,15 @@ impl LocalProcess {
 }
 
 impl ExecBackend for LocalProcess {
+    fn recording_backend(
+        &self,
+        factory: Arc<dyn crate::ProcessRecorderFactory>,
+    ) -> Result<Arc<dyn ExecBackend>, ExecServerError> {
+        let mut backend = self.clone();
+        backend.recorder_factory = Some(factory);
+        Ok(Arc::new(backend))
+    }
+
     fn start(&self, params: ExecParams) -> ExecBackendFuture<'_> {
         Box::pin(LocalProcess::start(self, params))
     }
@@ -975,6 +1030,23 @@ fn map_handler_error(error: JSONRPCErrorError) -> ExecServerError {
     }
 }
 
+async fn ordered_events(
+    process_id: &ProcessId,
+    inner: &Inner,
+) -> Option<(ExecProcessEventLog, tokio::sync::OwnedSemaphorePermit)> {
+    let events = {
+        let processes = inner.processes.lock().await;
+        let ProcessEntry::Running(process) = processes.get(process_id)? else {
+            return None;
+        };
+        process.events.clone()
+    };
+    // The private semaphore is never closed. Each process has its own gate;
+    // recorder I/O does not hold the shared process table.
+    let order = events.ordering_permit().await.ok()?;
+    Some((events, order))
+}
+
 async fn stream_output(
     process_id: ProcessId,
     stream: ExecOutputStream,
@@ -984,6 +1056,32 @@ async fn stream_output(
 ) {
     while let Some(chunk) = receiver.recv().await {
         let _chunk_len = chunk.len();
+        let Some((events, order)) = ordered_events(&process_id, &inner).await else {
+            break;
+        };
+        let seq = {
+            let processes = inner.processes.lock().await;
+            let Some(ProcessEntry::Running(process)) = processes.get(&process_id) else {
+                break;
+            };
+            process.next_seq
+        };
+        let output = ProcessOutputChunk {
+            seq,
+            stream,
+            chunk: chunk.clone().into(),
+        };
+        if events
+            .publish_recorded(ExecProcessEvent::Output(output.clone()))
+            .await
+            .is_err()
+        {
+            let processes = inner.processes.lock().await;
+            if let Some(ProcessEntry::Running(process)) = processes.get(&process_id) {
+                process.session.terminate();
+            }
+            break;
+        }
         let notification = {
             let mut processes = inner.processes.lock().await;
             let Some(entry) = processes.get_mut(&process_id) else {
@@ -992,14 +1090,11 @@ async fn stream_output(
             let ProcessEntry::Running(process) = entry else {
                 break;
             };
-            let seq = process.next_seq;
             process.next_seq += 1;
             process.retained_bytes += chunk.len();
-            process.output.push_back(RetainedOutputChunk {
-                seq,
-                stream,
-                chunk: chunk.clone(),
-            });
+            process
+                .output
+                .push_back(RetainedOutputChunk { seq, stream, chunk });
             while process.retained_bytes > RETAINED_OUTPUT_BYTES_PER_PROCESS
                 || process.output.len() > RETAINED_OUTPUT_CHUNKS_PER_PROCESS
             {
@@ -1009,14 +1104,6 @@ async fn stream_output(
                 process.retained_bytes = process.retained_bytes.saturating_sub(evicted.chunk.len());
             }
             let _ = process.wake_tx.send(seq);
-            let output = ProcessOutputChunk {
-                seq,
-                stream,
-                chunk: chunk.into(),
-            };
-            process
-                .events
-                .publish(ExecProcessEvent::Output(output.clone()));
             ExecOutputDeltaNotification {
                 process_id: process_id.clone(),
                 seq,
@@ -1024,6 +1111,7 @@ async fn stream_output(
                 chunk: output.chunk,
             }
         };
+        drop(order);
         output_notify.notify_waiters();
         if let Some(notifications) = notification_sender(&inner) {
             let _ = notifications
@@ -1074,12 +1162,13 @@ fn watch_exit(
         if sandboxed {
             let _ = tokio::time::timeout(Duration::from_millis(20), output_notify.notified()).await;
         }
+        let Some((events, order)) = ordered_events(&process_id, &inner).await else {
+            return;
+        };
         let notification = {
             let mut processes = inner.processes.lock().await;
             if let Some(ProcessEntry::Running(process)) = processes.get_mut(&process_id) {
                 let seq = process.next_seq;
-                process.next_seq += 1;
-                process.exit_code = Some(exit_code);
                 if process.sandbox != SandboxType::None {
                     let mut stdout = Vec::new();
                     let mut stderr = Vec::new();
@@ -1116,12 +1205,6 @@ fn watch_exit(
                     },
                     process.sandbox,
                 );
-                let _ = process.wake_tx.send(seq);
-                process.events.publish(ExecProcessEvent::Exited {
-                    seq,
-                    exit_code,
-                    sandbox_denied: Some(process.sandbox_denied),
-                });
                 Some(ExecExitedNotification {
                     process_id: process_id.clone(),
                     seq,
@@ -1132,6 +1215,22 @@ fn watch_exit(
                 None
             }
         };
+        if let Some(notification) = &notification {
+            let _ = events
+                .publish_recorded(ExecProcessEvent::Exited {
+                    seq: notification.seq,
+                    exit_code,
+                    sandbox_denied: notification.sandbox_denied,
+                })
+                .await;
+            let mut processes = inner.processes.lock().await;
+            if let Some(ProcessEntry::Running(process)) = processes.get_mut(&process_id) {
+                process.next_seq += 1;
+                process.exit_code = Some(exit_code);
+                let _ = process.wake_tx.send(notification.seq);
+            }
+        }
+        drop(order);
         output_notify.notify_waiters();
         if let Some(notification) = notification
             && let Some(notifications) = notification_sender(&inner)
@@ -1162,6 +1261,9 @@ async fn finish_output_stream(process_id: ProcessId, inner: Arc<Inner>) {
 }
 
 async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
+    let Some((events, order)) = ordered_events(&process_id, &inner).await else {
+        return;
+    };
     let (notification, output_notify, network_proxy_handle) = {
         let mut processes = inner.processes.lock().await;
         let Some(ProcessEntry::Running(process)) = processes.get_mut(&process_id) else {
@@ -1172,14 +1274,10 @@ async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
             return;
         }
 
-        process.closed = true;
         if let Some(network_policy_shutdown) = process.network_policy_shutdown.take() {
             network_policy_shutdown.cancel();
         }
         let seq = process.next_seq;
-        process.next_seq += 1;
-        let _ = process.wake_tx.send(seq);
-        process.events.publish(ExecProcessEvent::Closed { seq });
         (
             ExecClosedNotification {
                 process_id: process_id.clone(),
@@ -1189,6 +1287,21 @@ async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
             process.network_proxy_handle.take(),
         )
     };
+
+    let _ = events
+        .publish_recorded(ExecProcessEvent::Closed {
+            seq: notification.seq,
+        })
+        .await;
+    {
+        let mut processes = inner.processes.lock().await;
+        if let Some(ProcessEntry::Running(process)) = processes.get_mut(&process_id) {
+            process.closed = true;
+            process.next_seq += 1;
+            let _ = process.wake_tx.send(notification.seq);
+        }
+    }
+    drop(order);
 
     if let Some(network_proxy_handle) = network_proxy_handle
         && let Err(err) = network_proxy_handle.shutdown().await
