@@ -2,6 +2,7 @@
 //! Account selection and endpoint realization belong to the launch binding.
 
 mod request;
+mod sse;
 mod stream;
 
 // Responses names its opaque continuation field encrypted_content. This
@@ -10,4 +11,6 @@ pub(crate) const CHAT_REASONING_PREFIX: &str = "codex-infra-chat-reasoning-v1:";
 
 pub use request::TranslationError;
 pub use request::translate_chat_request;
+pub use sse::ProviderStreamError;
+pub use sse::translate_chat_sse;
 pub use stream::ChatStream;

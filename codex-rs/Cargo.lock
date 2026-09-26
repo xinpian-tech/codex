@@ -3755,6 +3755,10 @@ dependencies = [
 name = "codex-infra-provider"
 version = "0.0.0"
 dependencies = [
+ "async-stream",
+ "bytes",
+ "eventsource-stream",
+ "futures",
  "serde_json",
  "thiserror 2.0.18",
 ]

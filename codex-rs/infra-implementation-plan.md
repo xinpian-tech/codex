@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+codex-infra-provider 新增 translate_chat_sse，将异步 Bytes 响应体通过既有 eventsource-stream 解析器交给 ChatStream，再逐事件编码为 Responses SSE 帧。解析器复用 UTF-8 网络分片、多行 data、注释和 CRLF 处理；总原始响应字节预算在解析器缓存前执行，输出按下游拉取推进，取消消费会丢弃上游 body。显式 [DONE] 才调用 finish，提前 EOF 返回 Interrupted，JSON/协议/网络错误分别返回。新增的 async-stream/bytes/eventsource-stream/futures 均复用 workspace 版本，Cargo.lock 与 Bazel 元数据已刷新；库级 Clippy 通过（构建时下载缺少的依赖）。未编写或运行测试，未调用模型服务或实装。动态 HTTP 前端、请求/响应原始审计、custom/namespace 工具与账户绑定仍待接入。
+
 ChatStream 新增 reasoning_content 聚合及 Responses reasoning_text delta/done、reasoning output item，完整结果保留原推理文本。完成时在既有 encrypted_content 续接字段写入适配器版本前缀加明文原文（字段用于兼容 Codex，不执行加密），使现有历史回放/估算路径保留该内容；请求转换识别本包续接前缀，也可读取原始 reasoning_text content，并将推理内容绑定到紧随其后的 assistant 文本或工具调用。外部不透明 reasoning 无法由该适配器解码时返回 Unsupported；不把 summary 替代原推理。无需修改 core/protocol。多轮实际回放仍需在完整 HTTP/宿主链路接入后实装观察；SSE 字节层、custom/namespace 工具和账户请求绑定尚待完成。库级 Clippy 通过，未编写或运行测试，未调用供应商或进行实装实验。
 
 codex-infra-provider 新增每 attempt 独立的 ChatStream，将已解码 Chat Completions chunks 转换为 Responses JSON 事件：普通文本 delta/done、按 index 聚合的 function 参数 delta/done、output_item added/done 和最终 completed/incomplete。保留 call_id、供应商 response ID，映射 prompt/completion/cache/reasoning token usage；完成理由到达后仍接收独立 usage chunk，仅显式 [DONE] 调用 finish，网络 EOF 不构造成功。截断/内容过滤不发工具 output_item.done；转换错误结束本次 attempt。调用者提供输出字节预算，转换累计受其约束。该组件尚未接入 SSE 字节解析与 HTTP 前端，reasoning 内容续接、custom/namespace 工具和实际供应商调用仍待完成。库级 Clippy 通过，未编写或运行测试，未执行供应商请求或实装实验。

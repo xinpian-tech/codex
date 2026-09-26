@@ -12,5 +12,9 @@ test = false
 workspace = true
 
 [dependencies]
+async-stream = { workspace = true }
+bytes = { workspace = true }
+eventsource-stream = { workspace = true }
+futures = { workspace = true, features = ["std"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
