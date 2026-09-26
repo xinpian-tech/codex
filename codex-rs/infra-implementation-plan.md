@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ext/infra 增加 HostShutdownJournal / HostShutdownPlan，先持久化 identity、launch、receipt 目录和固定 job IDs，再由独立任务执行 shutdown_and_snapshot，并在返回前保存完整 HostArchiveJobs。状态变更先核对计划/阶段再写日志；取消调用方等待不取消 worker 的快照记录。archive 重放原任务入队、查询三项精确回执并持久化 Archived，处理部分提交或确认返回丢失；status 提供 Requested/Draining/Prepared/Archived 及最近关闭错误。恢复时 Prepared/Archived 直接继续归档阶段，不重新采样；Requested 也可能是关闭已发生但快照尚未持久化的中断，仍需实际 host/audit 状态核对。此日志仅管理三条宿主审计快照，不表达完整 Agent 终态；最终消息、其余 producer、快照前中断恢复及 CLI 驱动仍待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 ManagedHost 新增 shutdown_and_snapshot，将等待式 inference shutdown、受管 hook 排空、backend 请求关闭、进程输出排空和 workspace checkpoint 等待按顺序装配；独立拥有的任务在调用方取消等待后继续收尾。前一步出错仍尝试后续独立 drain，全部成功后才从实际 audit writer 生成 HostArchiveJobs。任务返回 Snapshot 而非 ProducerFinished，不将该入口等同于全部 Session 流结束；外部线程创建与长进程退出由调用方先安排。finalizer 对收尾意图/准备结果的持久化、归档提交等待、最终消息和余下 producer tails 仍待接入。改动集中于 ext/infra，复用现有 jobs 准备逻辑，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 新增 InProcessClientHandle::shutdown_drained 作为受管关闭接入点，默认 shutdown 继续原有有界行为。显式 drained 请求通过内部关闭模式传递给 processor，等待已接收后台任务、已跟踪线程的 shutdown_and_wait 以及 processor/outbound worker，不执行这些层级的超时 abort；确认丢失、worker 异常和 thread shutdown 提交失败返回给宿主。ThreadManager 的等待式关闭放在独立子模块，完成后按实例匹配移除线程；调用方仍须先停止线程创建。新增逻辑分别在 core/thread_manager 与 app-server 的小模块中，既有大文件只增加模式分派和模块接入，无依赖变化。此处不证明所有 detached producer 已结束，也不保存关闭前后的完整原始 app-server 通知流；受管宿主顺序装配、进程/发送排空与最终归档仍待完成。组合库 Clippy 已通过，未编写或运行测试。

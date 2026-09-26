@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use super::ManagedHost;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostArchiveJobIds {
     pub processes: MessageId,
     pub tools: MessageId,
@@ -26,14 +26,14 @@ pub enum HostArchivePhase {
 
 /// Persist the prepared jobs with finalization state before submitting them.
 /// Replay submits these exact jobs, not a fresh sample with the same IDs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostArchiveJobs {
     pub processes: ArchiveJob,
     pub tools: ArchiveJob,
     pub thread_store: ArchiveJob,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostArchiveReceipts {
     pub processes: ArchiveReceipt,
     pub tools: ArchiveReceipt,

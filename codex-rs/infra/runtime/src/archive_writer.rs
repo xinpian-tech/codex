@@ -18,7 +18,7 @@ use serde::Serialize;
 mod receipts;
 use receipts::ArchiveReceipts;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "position", rename_all = "snake_case")]
 pub enum ArchiveTarget {
     Snapshot(JournalPosition),
@@ -27,7 +27,7 @@ pub enum ArchiveTarget {
 
 /// Host-local machine work. Producer positions come from writer acknowledgments
 /// or completion records; paths are not instructions received from the model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveJob {
     pub job_id: MessageId,
     pub stream: ArchiveStream,
