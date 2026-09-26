@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ChatStream 新增 reasoning_content 聚合及 Responses reasoning_text delta/done、reasoning output item，完整结果保留原推理文本。完成时在既有 encrypted_content 续接字段写入适配器版本前缀加明文原文（字段用于兼容 Codex，不执行加密），使现有历史回放/估算路径保留该内容；请求转换识别本包续接前缀，也可读取原始 reasoning_text content，并将推理内容绑定到紧随其后的 assistant 文本或工具调用。外部不透明 reasoning 无法由该适配器解码时返回 Unsupported；不把 summary 替代原推理。无需修改 core/protocol。多轮实际回放仍需在完整 HTTP/宿主链路接入后实装观察；SSE 字节层、custom/namespace 工具和账户请求绑定尚待完成。库级 Clippy 通过，未编写或运行测试，未调用供应商或进行实装实验。
+
 codex-infra-provider 新增每 attempt 独立的 ChatStream，将已解码 Chat Completions chunks 转换为 Responses JSON 事件：普通文本 delta/done、按 index 聚合的 function 参数 delta/done、output_item added/done 和最终 completed/incomplete。保留 call_id、供应商 response ID，映射 prompt/completion/cache/reasoning token usage；完成理由到达后仍接收独立 usage chunk，仅显式 [DONE] 调用 finish，网络 EOF 不构造成功。截断/内容过滤不发工具 output_item.done；转换错误结束本次 attempt。调用者提供输出字节预算，转换累计受其约束。该组件尚未接入 SSE 字节解析与 HTTP 前端，reasoning 内容续接、custom/namespace 工具和实际供应商调用仍待完成。库级 Clippy 通过，未编写或运行测试，未执行供应商请求或实装实验。
 
 新增独立 codex-infra-provider crate，不依赖 codex-core，首批提供完整上下文 Responses 请求到流式 Chat Completions 请求的转换。已覆盖 instructions/developer 角色、文本消息、普通 function 工具定义、连续工具调用合并、原 call_id/参数字符串、工具结果回填、tool_choice 和基础生成参数；model 由调用者传入的已解析绑定提供。命名空间/custom 工具、reasoning continuation、非文本输入及 previous_response_id 尚未转换，当前返回明确的 Unsupported，不删除相关输入。此为协议转换基础，尚未接入动态端口 HTTP 前端、供应商请求、反向 SSE、账户/token 和实际 Agent 启动链路，不能视为 DeepSeek 已可运行。实现参考 [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/) 与 [Responses 工具调用事件](https://developers.openai.com/api/docs/guides/function-calling)，服务能力仍需由 Team State profile 解析。Cargo workspace/lock 与 Bazel crate target 已加入，Bazel 元数据刷新完成；仅运行库级 Clippy，未编写或运行测试，未调用供应商或进行实装实验。

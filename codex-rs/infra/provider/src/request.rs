@@ -37,6 +37,7 @@ pub fn translate_chat_request(request: &Value, model: &str) -> Result<Value> {
     if let Some(input) = input.as_str() {
         messages.push(json!({"role": "user", "content": input}));
     } else {
+        let mut reasoning = None::<String>;
         for item in input
             .as_array()
             .ok_or_else(|| TranslationError::Invalid("input".to_owned()))?
@@ -46,6 +47,36 @@ pub fn translate_chat_request(request: &Value, model: &str) -> Result<Value> {
                 .and_then(Value::as_str)
                 .unwrap_or("message")
             {
+                "reasoning" => {
+                    if let Some(continuation) = item
+                        .get("encrypted_content")
+                        .filter(|value| !value.is_null())
+                    {
+                        let continuation = text(continuation, "reasoning continuation")?
+                            .strip_prefix(crate::CHAT_REASONING_PREFIX)
+                            .ok_or_else(|| {
+                                TranslationError::Unsupported(
+                                    "foreign reasoning continuation".to_owned(),
+                                )
+                            })?;
+                        reasoning.get_or_insert_default().push_str(continuation);
+                        continue;
+                    }
+                    let parts = item["content"].as_array().ok_or_else(|| {
+                        TranslationError::Unsupported(
+                            "reasoning without original content".to_owned(),
+                        )
+                    })?;
+                    let pending = reasoning.get_or_insert_default();
+                    for part in parts {
+                        if part["type"] != "reasoning_text" {
+                            return Err(TranslationError::Unsupported(
+                                "reasoning content type".to_owned(),
+                            ));
+                        }
+                        pending.push_str(text(&part["text"], "reasoning.text")?);
+                    }
+                }
                 "message" => {
                     let role = text(&item["role"], "message.role")?;
                     let role = match role {
@@ -57,7 +88,16 @@ pub fn translate_chat_request(request: &Value, model: &str) -> Result<Value> {
                             )));
                         }
                     };
-                    messages.push(json!({"role": role, "content": content(&item["content"])?}));
+                    let mut message = json!({"role": role, "content": content(&item["content"])?});
+                    if let Some(reasoning) = reasoning.take() {
+                        if role != "assistant" {
+                            return Err(TranslationError::Invalid(
+                                "reasoning must precede assistant output".to_owned(),
+                            ));
+                        }
+                        message["reasoning_content"] = json!(reasoning);
+                    }
+                    messages.push(message);
                 }
                 "function_call" => {
                     if item.get("namespace").is_some_and(|value| !value.is_null()) {
@@ -73,7 +113,9 @@ pub fn translate_chat_request(request: &Value, model: &str) -> Result<Value> {
                             "arguments": text(&item["arguments"], "function_call.arguments")?,
                         },
                     });
-                    if messages
+                    if let Some(reasoning) = reasoning.take() {
+                        messages.push(json!({"role": "assistant", "content": null, "reasoning_content": reasoning}));
+                    } else if messages
                         .last()
                         .is_none_or(|message| message["role"] != "assistant")
                     {
@@ -90,13 +132,25 @@ pub fn translate_chat_request(request: &Value, model: &str) -> Result<Value> {
                         .ok_or_else(|| TranslationError::Invalid("tool_calls".to_owned()))?
                         .push(call);
                 }
-                "function_call_output" => messages.push(json!({
+                "function_call_output" => {
+                    if reasoning.is_some() {
+                        return Err(TranslationError::Invalid(
+                            "reasoning missing assistant output".to_owned(),
+                        ));
+                    }
+                    messages.push(json!({
                     "role": "tool",
                     "tool_call_id": text(&item["call_id"], "function_call_output.call_id")?,
                     "content": content(&item["output"])? ,
-                })),
+                    }));
+                }
                 other => return Err(TranslationError::Unsupported(format!("input item {other}"))),
             }
+        }
+        if reasoning.is_some() {
+            return Err(TranslationError::Invalid(
+                "unfinished reasoning item".to_owned(),
+            ));
         }
     }
     let mut result = json!({

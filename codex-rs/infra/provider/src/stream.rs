@@ -21,6 +21,7 @@ pub struct ChatStream {
     finish_reason: Option<String>,
     items: Vec<Value>,
     text_index: Option<usize>,
+    reasoning_index: Option<usize>,
     tools: BTreeMap<u64, usize>,
     usage: Value,
 }
@@ -37,6 +38,7 @@ impl ChatStream {
             finish_reason: None,
             items: Vec::new(),
             text_index: None,
+            reasoning_index: None,
             tools: BTreeMap::new(),
             usage: Value::Null,
         }
@@ -120,10 +122,38 @@ impl ChatStream {
                 ));
             }
             let delta = &choice["delta"];
-            if !delta["reasoning_content"].is_null() {
-                return Err(TranslationError::Unsupported(
-                    "reasoning continuation".to_owned(),
-                ));
+            if let Some(reasoning) = delta
+                .get("reasoning_content")
+                .filter(|value| !value.is_null())
+            {
+                let text = reasoning.as_str().ok_or_else(|| {
+                    TranslationError::Invalid("delta.reasoning_content".to_owned())
+                })?;
+                if !text.is_empty() {
+                    let index = match self.reasoning_index {
+                        Some(index) => index,
+                        None => {
+                            if !self.items.is_empty() {
+                                return Err(TranslationError::Invalid(
+                                    "reasoning started after assistant output".to_owned(),
+                                ));
+                            }
+                            let index = self.items.len();
+                            let item = json!({"type": "reasoning", "status": "in_progress",
+                                "id": format!("{}_reasoning_{index}", self.response_id), "summary": [],
+                                "content": [{"type": "reasoning_text", "text": ""}], "encrypted_content": null});
+                            events.push(self.event(json!({"type": "response.output_item.added", "output_index": index, "item": item})));
+                            self.items.push(item);
+                            self.reasoning_index = Some(index);
+                            index
+                        }
+                    };
+                    append(&mut self.items[index]["content"][0]["text"], text)?;
+                    events.push(self.event(
+                        json!({"type": "response.reasoning_text.delta", "output_index": index,
+                        "item_id": self.items[index]["id"], "content_index": 0, "delta": text}),
+                    ));
+                }
             }
             if let Some(text) = delta["content"].as_str().filter(|text| !text.is_empty()) {
                 let index = match self.text_index {
@@ -230,6 +260,16 @@ impl ChatStream {
                         "item_id": self.items[index]["id"], "content_index": 0,
                         "text": self.items[index]["content"][0]["text"]}),
                     ));
+                } else if self.reasoning_index == Some(index) {
+                    let text = self.items[index]["content"][0]["text"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            TranslationError::Invalid("reasoning accumulator".to_owned())
+                        })?;
+                    self.items[index]["encrypted_content"] =
+                        json!(format!("{}{text}", crate::CHAT_REASONING_PREFIX));
+                    events.push(self.event(json!({"type": "response.reasoning_text.done", "output_index": index,
+                        "item_id": self.items[index]["id"], "content_index": 0, "text": self.items[index]["content"][0]["text"]})));
                 } else {
                     events.push(self.event(json!({"type": "response.function_call_arguments.done", "output_index": index,
                         "item_id": self.items[index]["id"], "arguments": self.items[index]["arguments"]})));
