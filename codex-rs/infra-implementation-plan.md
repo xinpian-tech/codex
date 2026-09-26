@@ -616,6 +616,10 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 | `94b52cf60a` | tmux：Agent PTY raw 模式初始化和生命周期结束时恢复 |
 | `f242fb0a0b` | state：独立只读 JournalReader，完整记录跟随与消费者游标接续 |
 | `24fcaabcb1` | runtime/tmux：独立 control stdout/stderr 采集线程、attach 分流日志、增量 control 解码 |
+| `a1b469bf89` | runtime：带 control/frame 解析状态的日志消费者游标 |
+| `ee13d37b3e` | protocol/state：RoleDefinition、AgentDescriptor、按机器排序的 Directory 日志和分页过滤 |
+
+FrameRouter 从当前 Directory 解析目标动态 endpoint，核对采集 pane 与发送 Agent 的关联，并处理反向回执路由。本机目标同样解析为 TCP endpoint。网络收取后的目标查询返回本机最新 placement，实际输入注入与 raw-mode 就绪协调尚待连接。Directory 按来源机器的连续 sequence 和 Agent revision 更新；机器发布运行状态/placement，Agent 发布职责/任务及收发关系。现阶段 Agent 所属机器固定，跨机器恢复时的目录归属交接尚待实现。
 
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
