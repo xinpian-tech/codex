@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+机器 CLI 每次启动在 machine-control/<run_id> 建立 stdin/stdout/lifecycle/stdin-lifecycle journals。stdin recorder 位于缓冲和 JSON 解析之下，保留原始读取块（包括无效 UTF-8、半条输入）；stdout 先记录完整拟输出字节再写终端，输出失败另记生命周期。opened 保存实际读取的配置字节、规范化配置路径、Root Session 和期望 hostid，Ready 输出关联 control_run_id；信号注册、资源打开、服务启动/清理及停止错误均有相应记录。stdin EOF 与读失败由实际 reader 记录，阻塞中的 stdin 不因主控制循环停止而标记完成。新增日志尚未进入远端归档调度，stdin reader 最终交接、stderr 覆盖、generation 源提交关联及完整 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未运行该 CLI。
+
 机器 CLI 新增正常信号收尾：Unix 注册 SIGINT/SIGTERM，Windows 注册 Ctrl-C；在打开机器资源前注册，启动期间到达的信号保留到控制循环，再进入 MachineRuntime::stop。控制循环区分 Requested/StdinClosed/Interrupt/Terminate/ControlError，Stopped 输出增加 reason 和 control_error，同时保留各服务关闭错误。已提交的控制更新仍等待其响应，不因选择信号分支撤销已执行操作。Tokio 启用 signal feature，Bazel binary 显式列入信号模块与 crate_root。库/二进制 Clippy 和 Bazel 元数据刷新通过，锁文件无变化；未编写或运行测试，未运行二进制或发送实验信号。CLI 原始控制审计、启动/generation 关联及完整 finalizer 仍待接入。
 
 infra/runtime 增加独立 codex-machine-runtime 二进制，读取一个 machine-runtime.json 路径，打开并启动 MachineRuntime。标准输入采用带 request id 的逐行 JSON 控制元数据（directory、launch、agent_exited、stop），标准输出返回 Ready（真实 endpoint/root/hostid）、Response 和服务 Stopped；EOF 或显式 stop 走收尾，命令错误/输出错误也先尝试停止已启动服务。该接口不接收 Agent 语义消息，launch 仅登记实际已启动的 pane，创建 Agent 仍待宿主/受管工具装配。Cargo 二进制关闭 test/bench，Bazel 添加独立 binary target 并排除库 src/bin，flake 增加 machine-runtime app 指向构建产物。CLI 停止目前是服务交接，不代表最终 backlog/manifest 全部完成；信号退出、CLI 原始控制审计、generation 启动关联和完整 Agent finalizer 仍待实现。库/二进制 Clippy、Nix 语法解析及 Bazel 元数据刷新通过，锁文件无变化；未编写或运行测试，未执行该二进制或启动实装实验。

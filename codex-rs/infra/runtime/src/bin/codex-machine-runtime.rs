@@ -1,6 +1,4 @@
 use std::io;
-use std::io::BufRead;
-use std::io::Write;
 use std::path::PathBuf;
 use std::thread;
 
@@ -10,10 +8,16 @@ use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::RootSessionId;
 use codex_infra_runtime::MachineLaunchConfig;
+use codex_infra_runtime::MachineRuntime;
+use codex_infra_runtime::MachineRuntimeExit;
 use codex_infra_runtime::SessionUpdate;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc;
+
+#[path = "machine_runtime/audit.rs"]
+mod audit;
+use audit::ControlAudit;
 
 #[path = "machine_runtime/signals.rs"]
 mod signals;
@@ -47,6 +51,7 @@ enum ControlCommand {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Output {
     Ready {
+        control_run_id: MessageId,
         root_session_id: RootSessionId,
         machine_id: MachineId,
         endpoint: std::net::SocketAddr,
@@ -74,33 +79,42 @@ async fn main() -> io::Result<()> {
             "usage: codex-machine-runtime <machine-runtime.json>",
         ));
     }
-    let config = MachineLaunchConfig::read(&path)?;
-    let mut signals = ShutdownSignals::open()?;
+    let path = path.canonicalize()?;
+    let config_bytes = std::fs::read(&path)?;
+    let config: MachineLaunchConfig = serde_json::from_slice(&config_bytes)?;
+    let (mut audit, input_audit) = ControlAudit::open(&config, &path, &config_bytes)?;
+    let mut signals = match ShutdownSignals::open() {
+        Ok(signals) => signals,
+        Err(error) => {
+            audit.event("signal_setup_failed", &error.to_string())?;
+            return Err(error);
+        }
+    };
     let capacity = config.scheduling.command_capacity.get();
     let root_session_id = config.root_session_id;
     let machine_id = config.machine_id.clone();
-    let mut machine = config.open().await?;
+    let mut machine = match config.open().await {
+        Ok(machine) => machine,
+        Err(error) => {
+            audit.event("open_failed", &error.to_string())?;
+            return Err(error);
+        }
+    };
     if let Err(error) = machine.start().await {
-        let exit = machine.stop().await?;
+        let recorded = audit.event("startup_failed", &error.to_string());
+        let exit = stop_machine(machine, &mut audit).await?;
+        recorded?;
+        audit.event("startup_cleanup", &exit.failures)?;
         return Err(io::Error::other(format!(
             "machine startup: {error}; cleanup: {:?}",
             exit.failures
         )));
     }
     let (send, mut receive) = mpsc::channel(capacity);
-    thread::spawn(move || {
-        // This thread owns only stdin, never journals or runtime services. EOF
-        // requests shutdown; an explicit Stop need not wait for another line.
-        for line in io::stdin().lock().lines() {
-            let request = line
-                .and_then(|line| serde_json::from_str::<Request>(&line).map_err(io::Error::other));
-            if send.blocking_send(request).is_err() {
-                break;
-            }
-        }
-    });
+    thread::spawn(move || input_audit.read_requests(send));
     let result = async {
-        emit(Output::Ready {
+        audit.emit(Output::Ready {
+            control_run_id: audit.run_id,
             root_session_id,
             machine_id,
             endpoint: machine.endpoint(),
@@ -126,7 +140,7 @@ async fn main() -> io::Result<()> {
                 },
                 ControlCommand::AgentExited { agent_id } => SessionUpdate::AgentExited { agent_id },
                 ControlCommand::Stop => {
-                    emit(Output::Response { id, error: None })?;
+                    audit.emit(Output::Response { id, error: None })?;
                     return Ok(StopReason::Requested);
                 }
             };
@@ -135,14 +149,23 @@ async fn main() -> io::Result<()> {
                 .await
                 .err()
                 .map(|error| error.to_string());
-            emit(Output::Response { id, error })?;
+            audit.emit(Output::Response { id, error })?;
         }
     }
     .await;
     drop(receive);
-    let exit = machine.stop().await?;
+    let recorded = audit.event(
+        "stop_requested",
+        &serde_json::json!({
+            "reason": result.as_ref().copied().unwrap_or(StopReason::ControlError),
+            "control_error": result.as_ref().err().map(ToString::to_string),
+        }),
+    );
+    let exit = stop_machine(machine, &mut audit).await?;
+    recorded?;
     let failed = !exit.failures.is_empty();
-    emit(Output::Stopped {
+    audit.event("services_stopped", &exit.failures)?;
+    audit.emit(Output::Stopped {
         reason: result.as_ref().copied().unwrap_or(StopReason::ControlError),
         control_error: result.as_ref().err().map(ToString::to_string),
         failures: exit.failures,
@@ -156,9 +179,15 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn emit(output: Output) -> io::Result<()> {
-    let mut stdout = io::stdout().lock();
-    serde_json::to_writer(&mut stdout, &output)?;
-    stdout.write_all(b"\n")?;
-    stdout.flush()
+async fn stop_machine(
+    machine: MachineRuntime,
+    audit: &mut ControlAudit,
+) -> io::Result<MachineRuntimeExit> {
+    match machine.stop().await {
+        Ok(exit) => Ok(exit),
+        Err(error) => {
+            audit.event("shutdown_failed", &error.to_string())?;
+            Err(error)
+        }
+    }
 }
