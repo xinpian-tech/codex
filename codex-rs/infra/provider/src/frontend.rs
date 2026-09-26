@@ -276,6 +276,7 @@ async fn execute(state: Arc<FrontendState>, audit: AttemptAudit, bytes: Bytes) -
             state.config.response_bytes,
             tools,
             custom,
+            audit.clone(),
         );
         Body::from_stream(async_stream::stream! {
             let _permit = permit;

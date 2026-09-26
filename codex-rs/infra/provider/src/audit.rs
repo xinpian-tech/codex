@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::ProviderUsage;
+use crate::ProviderUsageObserver;
 use bytes::Bytes;
 use codex_infra_protocol::AgentId;
 use codex_infra_protocol::InferenceBinding;
@@ -81,6 +83,8 @@ struct AuditJournals {
     completion: Journal,
     closed: bool,
     _run_lock: File,
+    usage: Option<ProviderUsage>,
+    usage_revision: u64,
 }
 
 impl AuditJournals {
@@ -94,6 +98,32 @@ impl AuditJournals {
                 .collect(),
         }
         .publish(&self.directory)
+    }
+}
+
+impl ProviderUsageObserver for AttemptAudit {
+    async fn observe_usage(&self, usage: ProviderUsage) -> io::Result<()> {
+        let journals = Arc::clone(&self.journals);
+        let attempt_id = self.id;
+        tokio::task::spawn_blocking(move || {
+            let mut journals = journals.lock().map_err(|_| io::Error::other("provider audit writer poisoned"))?;
+            if journals.closed {
+                return Err(io::Error::other("provider usage after attempt closure"));
+            }
+            if journals.usage.as_ref() == Some(&usage) {
+                return Ok(());
+            }
+            if journals.usage.as_ref().is_some_and(|previous| previous.provider_response_id != usage.provider_response_id) {
+                return Err(io::Error::other("provider usage response ID changed"));
+            }
+            let revision = journals.usage_revision.checked_add(1).ok_or_else(|| io::Error::other("provider usage revision exhausted"))?;
+            let (_, lifecycle) = journals.entries.iter_mut().find(|(lane, _)| matches!(lane, WireLane::Lifecycle))
+                .ok_or_else(|| io::Error::other("provider lifecycle missing"))?;
+            lifecycle.append(&serde_json::to_vec(&json!({"event": "usage_observed", "attempt_id": attempt_id, "revision": revision, "usage": usage}))?)?;
+            journals.usage = Some(usage);
+            journals.usage_revision = revision;
+            journals.publish(attempt_id)
+        }).await.map_err(io::Error::other)?
     }
 }
 
@@ -176,6 +206,8 @@ impl AttemptAudit {
                 closed: false,
                 _run_lock: run_lock,
                 directory,
+                usage: None,
+                usage_revision: 0,
             };
             journals.publish(id)?;
             Ok(Self {

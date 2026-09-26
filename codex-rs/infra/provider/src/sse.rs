@@ -10,6 +10,8 @@ use serde_json::Value;
 
 use crate::ChatStream;
 use crate::CustomTools;
+use crate::ProviderUsage;
+use crate::ProviderUsageObserver;
 use crate::ToolNames;
 use crate::TranslationError;
 
@@ -32,16 +34,18 @@ pub enum ProviderStreamError {
 /// The raw byte budget applies before the SSE parser buffers an unfinished
 /// event. Output is pulled incrementally, so a slow client backpressures the
 /// provider body. Dropping the returned stream drops its source HTTP body.
-pub fn translate_chat_sse<S, E>(
+pub fn translate_chat_sse<S, E, O>(
     source: S,
     response_id: String,
     byte_budget: NonZeroUsize,
     tools: ToolNames,
     mut custom: CustomTools,
+    observer: O,
 ) -> impl Stream<Item = Result<Vec<u8>, ProviderStreamError>> + Send
 where
     S: Stream<Item = Result<Bytes, E>> + Send,
     E: Display + Send,
+    O: ProviderUsageObserver,
 {
     let mut remaining = byte_budget.get();
     let bounded = source.map(move |chunk| {
@@ -65,7 +69,11 @@ where
             let translated = if done {
                 converter.finish()?
             } else {
-                converter.push(&serde_json::from_str::<Value>(&event.data)?)?
+                let chunk = serde_json::from_str::<Value>(&event.data)?;
+                if let Some(usage) = ProviderUsage::from_chunk(&chunk)? {
+                    observer.observe_usage(usage).await.map_err(|error| ProviderStreamError::Transport(format!("usage observation: {error}")))?;
+                }
+                converter.push(&chunk)?
             };
             for mut event in translated {
                 tools.restore(&mut event);
