@@ -4,6 +4,7 @@ use std::path::Path;
 use codex_infra_protocol::MessageId;
 use codex_infra_provider::ProviderAttemptFinished;
 use codex_infra_provider::ProviderAttemptIdentity;
+use codex_infra_provider::ProviderAttemptProgress;
 use codex_infra_state::ArchiveProducer;
 use codex_infra_state::ArchiveReceipt;
 use codex_infra_state::ArchiveStream;
@@ -19,12 +20,13 @@ mod actor;
 pub use actor::ProviderArchiveActor;
 pub use actor::ProviderArchiveConfig;
 
-/// One completed attempt's five audit streams and producer completion marker.
-/// Job identities are persisted in the source spool before queue admission.
+/// One attempt's live prefix or final batch. Final batches include the producer
+/// completion marker and persist IDs in the source spool. Snapshot callers
+/// persist the prepared batch in their scheduling queue before submission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderArchiveJobs {
     pub attempt_id: MessageId,
-    pub jobs: [ArchiveJob; 6],
+    pub jobs: Vec<ArchiveJob>,
 }
 
 impl ProviderArchiveJobs {
@@ -87,7 +89,7 @@ impl ProviderArchiveJobs {
             });
         }
         if let Some(saved) = saved {
-            if saved.attempt_id != identity.attempt_id {
+            if saved.attempt_id != identity.attempt_id || saved.jobs.len() != jobs.len() {
                 return Err(io::Error::other("saved provider archive identity changed"));
             }
             for (saved, current) in saved.jobs.iter().zip(&jobs) {
@@ -103,12 +105,58 @@ impl ProviderArchiveJobs {
         }
         let prepared = Self {
             attempt_id: identity.attempt_id,
-            jobs: jobs
-                .try_into()
-                .map_err(|_| io::Error::other("provider archive stream count"))?,
+            jobs,
         };
         journal.append(&serde_json::to_vec(&prepared)?)?;
         Ok(Some(prepared))
+    }
+
+    /// Prepares a live prefix without sealing any source. The caller persists
+    /// this batch before submission; a later final batch uses the same streams.
+    pub fn prepare_snapshot(directory: &Path, receipts: &Path) -> io::Result<Option<Self>> {
+        let directory = directory.canonicalize()?;
+        let Some(progress) = ProviderAttemptProgress::read(&directory)? else {
+            return Ok(None);
+        };
+        let identity = ProviderAttemptIdentity::read(&directory)?
+            .ok_or_else(|| io::Error::other("provider progress without identity"))?;
+        if progress.attempt_id != identity.attempt_id {
+            return Err(io::Error::other("provider progress identity mismatch"));
+        }
+        std::fs::create_dir_all(receipts)?;
+        let receipts = receipts.canonicalize()?;
+        let mut jobs = Vec::new();
+        for name in [
+            "client-request",
+            "provider-request",
+            "provider-response",
+            "client-response",
+            "lifecycle",
+        ] {
+            let position = *progress
+                .positions
+                .get(name)
+                .ok_or_else(|| io::Error::other(format!("provider progress missing {name}")))?;
+            jobs.push(ArchiveJob {
+                job_id: MessageId::new(),
+                stream: ArchiveStream {
+                    root_session_id: identity.root_session_id,
+                    machine_id: identity.machine_id.clone(),
+                    producer: ArchiveProducer::Agent {
+                        agent_id: identity.agent_id,
+                        launch_id: identity.launch_id,
+                    },
+                    name: format!("provider-{}-{name}", identity.attempt_id),
+                },
+                source: directory.join(format!("{name}.journal")),
+                receipt_journal: receipts.join(format!("{}-{name}.journal", identity.attempt_id)),
+                target: ArchiveTarget::Snapshot(position),
+            });
+        }
+        Ok(Some(Self {
+            attempt_id: identity.attempt_id,
+            jobs,
+        }))
     }
 
     pub async fn submit(&self, controller: &ArchiveController) -> io::Result<()> {

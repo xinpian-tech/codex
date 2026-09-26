@@ -16,6 +16,7 @@ pub(crate) const CHAT_REASONING_PREFIX: &str = "codex-infra-chat-reasoning-v1:";
 pub use audit::ProviderAttemptEnd;
 pub use audit::ProviderAttemptFinished;
 pub use audit::ProviderAttemptIdentity;
+pub use audit::ProviderAttemptProgress;
 pub use audit::ProviderAuditConfig;
 pub use audit::recover_provider_attempt;
 pub use custom::CustomTools;

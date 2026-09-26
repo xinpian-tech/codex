@@ -24,7 +24,9 @@ use serde::Serialize;
 use serde_json::Value;
 use serde_json::json;
 
+mod progress;
 mod recovery;
+pub use progress::ProviderAttemptProgress;
 pub use recovery::ProviderAttemptIdentity;
 pub use recovery::recover_provider_attempt;
 
@@ -74,10 +76,25 @@ pub(crate) struct AttemptAudit {
 }
 
 struct AuditJournals {
+    directory: PathBuf,
     entries: Vec<(WireLane, Journal)>,
     completion: Journal,
     closed: bool,
     _run_lock: File,
+}
+
+impl AuditJournals {
+    fn publish(&self, attempt_id: MessageId) -> io::Result<()> {
+        ProviderAttemptProgress {
+            attempt_id,
+            positions: self
+                .entries
+                .iter()
+                .map(|(lane, journal)| (lane.name().to_owned(), journal.position()))
+                .collect(),
+        }
+        .publish(&self.directory)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -131,6 +148,7 @@ impl AttemptAudit {
             let id = MessageId::new();
             let directory = config.directory.join(id.to_string());
             std::fs::create_dir_all(&directory)?;
+            let directory = directory.canonicalize()?;
             let run_lock = OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -152,14 +170,17 @@ impl AttemptAudit {
                 }
                 journals.push((lane, journal));
             }
+            let journals = AuditJournals {
+                entries: journals,
+                completion: Journal::open(&directory.join("completion.journal"), |_| Ok(()))?,
+                closed: false,
+                _run_lock: run_lock,
+                directory,
+            };
+            journals.publish(id)?;
             Ok(Self {
                 id,
-                journals: Arc::new(Mutex::new(AuditJournals {
-                    entries: journals,
-                    completion: Journal::open(&directory.join("completion.journal"), |_| Ok(()))?,
-                    closed: false,
-                    _run_lock: run_lock,
-                })),
+                journals: Arc::new(Mutex::new(journals)),
             })
         })
         .await
@@ -168,6 +189,7 @@ impl AttemptAudit {
 
     pub(crate) async fn record(&self, lane: WireLane, bytes: Bytes) -> io::Result<()> {
         let journals = Arc::clone(&self.journals);
+        let attempt_id = self.id;
         tokio::task::spawn_blocking(move || {
             let mut journals = journals
                 .lock()
@@ -181,6 +203,7 @@ impl AttemptAudit {
                 .find(|(candidate, _)| candidate.name() == lane.name())
                 .ok_or_else(|| io::Error::other("provider audit lane missing"))?;
             journal.append(&bytes)?;
+            journals.publish(attempt_id)?;
             Ok(())
         })
         .await

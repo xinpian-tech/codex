@@ -94,14 +94,39 @@ impl Worker {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
-        if recover_provider_attempt(&entry.path())?.is_none() {
+        if !self
+            .queue
+            .pending_keys(&key, 0, NonZeroUsize::MIN)
+            .is_empty()
+        {
             return Ok(());
         }
-        let Some(jobs) = ProviderArchiveJobs::prepare(&entry.path(), &self.receipts)? else {
-            return Ok(());
+        let (job_key, jobs) = if recover_provider_attempt(&entry.path())?.is_some() {
+            let Some(jobs) = ProviderArchiveJobs::prepare(&entry.path(), &self.receipts)? else {
+                return Ok(());
+            };
+            (key.clone(), jobs)
+        } else {
+            let Some(jobs) = ProviderArchiveJobs::prepare_snapshot(&entry.path(), &self.receipts)?
+            else {
+                return Ok(());
+            };
+            let positions: Vec<_> = jobs
+                .jobs
+                .iter()
+                .map(|job| (&job.stream, &job.target))
+                .collect();
+            let digest = blake3::hash(&serde_json::to_vec(&positions)?).to_hex();
+            let job_key = format!("{key}/snapshot/{digest}");
+            match self.queue.read(&job_key) {
+                Ok(_) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+            (job_key, jobs)
         };
         self.queue.enqueue(QueueItem {
-            key: key.clone(),
+            key: job_key,
             lane: key,
             payload: serde_json::to_vec(&jobs)?,
         })?;

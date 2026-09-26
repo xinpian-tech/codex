@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Provider 生产者新增 ProviderAttemptProgress：初始化和每次 Journal append 确认后，在线程池、同一 writer 锁下原子替换 progress.json，保存 attempt 身份与五条日志确认位置；attempt 目录规范化为绝对路径。ProviderArchiveJobs 支持五项 Snapshot 与六项最终任务（序列化仍为 jobs 数组），自动归档 worker 对尚在运行的 attempt 读取已发布位置，按流身份/目标位置生成去重 key，先持久化队列再提交；同一 attempt 有待确认批次时合并后续采样，旧批次完成后再准备新快照或最终批次。Snapshot 不封口，最终完成仍需六项最终任务回执。增加 position 文件 fsync 的实际开销尚未实装观察；完整 finalizer、usage 汇总和 Agent 启动装配仍待完成。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未启动服务或调用模型。
+
 新增 ProviderArchiveActor 并接入 MachineRuntime.start/stop。worker 持久绑定 root/machine/实际 attempt 目录，逐目录项发现身份，在 owner 已退出时调用恢复，再读取已保存的六项归档任务，先进入本地 SpoolQueue 后提交机器 ArchiveController。待处理 attempt 按 lane 轮转，每轮准备/推进各一项，发现错误不阻断已持久批次；六项回执全部可读才完成队列。停止等待当前步骤，未完成任务留盘，不宣称整个 backlog 已清空。MachineLaunchConfig 将同机 attempt spool 定为 <spool>/provider-attempts，归档调度数据为 <spool>/provider-archive，沿用已有 archive interval；机器资源部分启动失败仍保留已启动 actor 供收尾。运行中快照、最终归档汇总和 Agent 启动时传入该 spool 的装配仍待完成。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未启动归档服务、执行远端 Git 或调用模型。
 
 runtime 新增 ProviderArchiveJobs，读取 provider 的原始 attempt 身份及完成标记确认位置，为 client-request/provider-request/provider-response/client-response/lifecycle/completion 六条流生成 ProducerFinished 任务。归属沿用原 root/machine/agent/launch，流名包含 attempt ID；prepare 先持久化 archive.journal，再允许 submit 交给既有 ArchiveController。重复准备校对原绑定/路径/结束位置并沿用已存 job IDs，completion 查询六项精确远端回执，缺少任一项仍返回 pending。provider 增加完成标记位置读取 API，runtime 依赖独立 provider 包且不引入 core。自动发现/周期提交服务、运行中快照和整机最终汇总仍待接入。Cargo.lock/Bazel 元数据更新，runtime 库与机器 CLI Clippy 通过；未编写或运行测试，未执行归档 Git 操作或实装实验。
