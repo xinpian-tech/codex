@@ -28,6 +28,14 @@ pub struct ResolvedTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockedFlake {
+    pub reference: String,
+    pub store_path: PathBuf,
+    pub revision: String,
+    pub lock_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildOutput {
     pub drv_path: PathBuf,
@@ -91,21 +99,11 @@ impl NixTaskResolver {
                 "Task target differs from the resolver's hostid",
             ));
         }
-        let metadata: FlakeMetadata = self.json(&[
-            "flake",
-            "metadata",
-            "--json",
-            "--no-write-lock-file",
-            "--no-update-lock-file",
-            "--",
-            &task.flake_reference,
-        ])?;
-        let lock = fs::read(metadata.path.join("flake.lock"))?;
-        let flake_lock_hash = format!("blake3:{}", blake3::hash(&lock));
+        let metadata = self.lock_flake(&task.flake_reference)?;
         let build_plan = match &task.build {
             BuildIntent::NoBuild => None,
             BuildIntent::Derivation { attribute } => {
-                let installable = format!("{}#{attribute}.drvPath", metadata.url);
+                let installable = format!("{}#{attribute}.drvPath", metadata.reference);
                 let derivation: PathBuf = self.json(&[
                     "eval",
                     "--json",
@@ -139,11 +137,30 @@ impl NixTaskResolver {
         };
         Ok(ResolvedTask {
             task,
-            locked_flake_reference: metadata.url,
-            source_store_path: metadata.path,
-            flake_revision: metadata.locked.rev.unwrap_or(metadata.locked.nar_hash),
-            flake_lock_hash,
+            locked_flake_reference: metadata.reference,
+            source_store_path: metadata.store_path,
+            flake_revision: metadata.revision,
+            flake_lock_hash: metadata.lock_hash,
             build_plan,
+        })
+    }
+
+    pub fn lock_flake(&self, reference: &str) -> io::Result<LockedFlake> {
+        let metadata: FlakeMetadata = self.json(&[
+            "flake",
+            "metadata",
+            "--json",
+            "--no-write-lock-file",
+            "--no-update-lock-file",
+            "--",
+            reference,
+        ])?;
+        let lock = fs::read(metadata.path.join("flake.lock"))?;
+        Ok(LockedFlake {
+            reference: metadata.url,
+            store_path: metadata.path,
+            revision: metadata.locked.rev.unwrap_or(metadata.locked.nar_hash),
+            lock_hash: format!("blake3:{}", blake3::hash(&lock)),
         })
     }
 
