@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+受管宿主现用同一 exec backend、ProcessAudit 和 ToolAudit 创建 RecordedHookExecutor，并通过 ExtensionRegistry 的可选执行器入口装配；Core 在 Hooks 构造后、首次 hook 运行前安装它，默认宿主保持原路径。registry 复制与 hooks 配置刷新均保留该装配。hook prepare 在同步接收边界取得 TaskTracker token，覆盖已准备但尚未开始执行的队列任务；shutdown 关闭新接收并等待这些任务执行或被队列释放。ManagedHost 先等待 hook，再关闭/排空进程请求，正常排空与 checkpoint 检查完成后仍返回 hook 错误。组合库 Clippy 已通过，依赖锁定维护已完成（MODULE.bazel.lock 无变化），未编写或运行测试。PermissionRequest 输入尚无 tool_use_id，其原操作归属还需补齐，避免工具等待 hook 时 hook 再等待同一工作区；MCP hook、legacy notify 和统一 finalizer 仍待完成。
+
 独立扩展包增加 RecordedHookExecutor，将命令 hook 转为带独立 call/process ID 的工具操作和 exec-server 管道进程。prepare 同步续持工具来源的租约，实际执行再通过 ToolAudit 完成 admission、Started、Finished；无工具来源的 session hook 取得自己的操作。请求使用已有 shell 参数和环境，写入 JSON stdin 后关闭管道，输出从审计日志完整收集。后台任务持有执行与租约，调用方取消只取消等待；超时/执行错误尝试终止进程并处理审计输出，任务异常或错误由 shutdown 保留。启动响应始终等待，以便已创建进程获得终止 handle。该实现面向生产使用的参数式 shell，Windows raw shell 参数尚未适配。受管宿主仍需在 Hooks 构造时安装执行器并在关闭进程请求前排空 hook；MCP hook、legacy notify 及完整重启恢复仍待接入。组合库 Clippy 已通过，依赖锁定维护已完成（MODULE.bazel.lock 无变化），未编写或运行测试。
 
 ProcessAudit 新增 RecordedProcessOutput：调用方在启动指定 process ID 前创建读取器，保存当时的日志位置，随后绑定首次匹配 Requested 的序号。读取器按该启动尝试校验原始 stdout/stderr/PTY、Exited、Closed 的连续 producer 序号，并等待成功的 StartFinished；允许输出与 Closed 早于启动响应。每次只读取 writer 已完成 fsync 的水位，向调用方提供的文件或缓冲写入，读取器不累积完整正文。sink 部分写入或日志错误保留为该读取器的终止错误，重试不会重复写入同一片段。该入口供 hook 执行器取得完整输出，避免依赖 exec-server 的有界实时缓冲；实际 hook 执行器与宿主装配仍待完成。组合库 Clippy 已通过，未编写或运行测试。

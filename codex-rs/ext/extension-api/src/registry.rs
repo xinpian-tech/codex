@@ -28,6 +28,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
             registry: ExtensionRegistry {
                 event_sink: Arc::new(NoopExtensionEventSink),
                 turn_start_admission: None,
+                hook_command_executor: None,
                 thread_lifecycle_contributors: Vec::new(),
                 turn_lifecycle_contributors: Vec::new(),
                 config_contributors: Vec::new(),
@@ -67,6 +68,11 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
     /// Installs the host gate for turn-input submissions that start a new turn.
     pub fn turn_start_admission(&mut self, admission: Arc<dyn TurnStartAdmission>) {
         self.registry.turn_start_admission = Some(admission);
+    }
+
+    /// Installs the host's executor before newly created thread hooks run.
+    pub fn hook_command_executor(&mut self, executor: Arc<dyn codex_hooks::HookCommandExecutor>) {
+        self.registry.hook_command_executor = Some(executor);
     }
 
     /// Registers one approval-review contributor.
@@ -152,6 +158,7 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
 
 /// Immutable typed registry produced after extensions are installed.
 pub struct ExtensionRegistry<C: Sync> {
+    hook_command_executor: Option<Arc<dyn codex_hooks::HookCommandExecutor>>,
     event_sink: Arc<dyn ExtensionEventSink>,
     turn_start_admission: Option<Arc<dyn TurnStartAdmission>>,
     thread_lifecycle_contributors: Vec<Arc<dyn ThreadLifecycleContributor<C>>>,
@@ -170,12 +177,17 @@ pub struct ExtensionRegistry<C: Sync> {
 }
 
 impl<C: Sync> ExtensionRegistry<C> {
+    pub fn hook_command_executor(&self) -> Option<Arc<dyn codex_hooks::HookCommandExecutor>> {
+        self.hook_command_executor.clone()
+    }
+
     /// Copies the registered contributors into a builder for host-specific additions.
     pub fn to_builder(&self) -> ExtensionRegistryBuilder<C> {
         ExtensionRegistryBuilder {
             registry: Self {
                 event_sink: self.event_sink.clone(),
                 turn_start_admission: self.turn_start_admission.clone(),
+                hook_command_executor: self.hook_command_executor.clone(),
                 thread_lifecycle_contributors: self.thread_lifecycle_contributors.clone(),
                 turn_lifecycle_contributors: self.turn_lifecycle_contributors.clone(),
                 config_contributors: self.config_contributors.clone(),

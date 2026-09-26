@@ -265,6 +265,13 @@ impl RecordedHookExecutor {
 impl HookCommandExecutor for RecordedHookExecutor {
     fn prepare(&self, request: HookCommandRequest) -> HookCommandFuture {
         let prepared = (|| {
+            let admission = {
+                let tasks = self.tasks.lock().map_err(|error| error.to_string())?;
+                if tasks.is_closed() {
+                    return Err("hook executor is closed".to_owned());
+                }
+                tasks.token()
+            };
             let attribution: Attribution =
                 serde_json::from_slice(&request.stdin).map_err(|error| error.to_string())?;
             let call_id = format!("hook-{}", MessageId::new());
@@ -292,22 +299,20 @@ impl HookCommandExecutor for RecordedHookExecutor {
                 tool_name: "hook_command".to_owned(),
                 source: ToolOrigin::Direct,
             };
-            Ok::<_, String>((operation, origin, reservation))
+            Ok::<_, String>((operation, origin, reservation, admission))
         })();
         let executor = self.clone();
         Box::pin(async move {
-            let (operation, origin, reservation) = prepared?;
+            let (operation, origin, reservation, admission) = prepared?;
             let task = {
-                let tasks = executor.tasks.lock().map_err(|error| error.to_string())?;
-                if tasks.is_closed() {
-                    return Err("hook executor is closed".to_owned());
-                }
                 let worker = executor.clone();
                 let mut job = HookJob {
                     failure: Arc::clone(&executor.failure),
                     finished: false,
                 };
-                tasks.spawn(async move {
+                // A prepared hook is already admitted, including while queued
+                // in the hook runtime. Closing admission must not reject it.
+                tokio::spawn(async move {
                     let result = worker.execute(request, operation, origin).await;
                     if let Err(error) = &result {
                         job.failure
@@ -318,6 +323,7 @@ impl HookCommandExecutor for RecordedHookExecutor {
                     drop(reservation);
                     job.finished = true;
                     drop(job);
+                    drop(admission);
                     result
                 })
             };

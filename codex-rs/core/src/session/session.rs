@@ -1585,6 +1585,10 @@ impl Session {
                     thread_id,
                 }),
             )?;
+            let hooks = match extensions.hook_command_executor() {
+                Some(executor) => hooks.with_command_executor(executor),
+                None => hooks,
+            };
             for warning in hooks.startup_warnings() {
                 post_session_configured_events.push(Event {
                     id: INITIAL_SUBMIT_ID.to_owned(),

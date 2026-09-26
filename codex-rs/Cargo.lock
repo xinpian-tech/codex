@@ -3306,6 +3306,7 @@ dependencies = [
  "codex-file-system",
  "codex-guardian-context",
  "codex-history",
+ "codex-hooks",
  "codex-mcp",
  "codex-protocol",
  "codex-tools",
