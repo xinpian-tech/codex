@@ -33,6 +33,10 @@ pub struct SessionShard {
 }
 
 impl SessionShard {
+    pub(crate) fn session_ref(&self) -> &str {
+        &self.session_ref
+    }
+
     pub fn open(
         git: PathBuf,
         repository: PathBuf,

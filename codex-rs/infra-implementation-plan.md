@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+infra/state 增加 JournalArchive，将已 fsync 的 producer position、流身份（root session/machine/agent/launch/name）、原始字节起止范围与 SessionShard 远端回执关联。publish_next 按调用方指定的字节预算分块，允许一条大 journal record 跨段，保留原 frame/checksum 字节；回执日志只在 push 与远端确认后推进连续偏移，重启重建已确认范围。require_archived 按实际已归档 end 与 producer 完成位置核对，不将段内记录的整体 durable position 当作全部字节已上传。回执落盘前中断可能留下范围重叠的远端段，恢复须按流/偏移重建。此阶段提供归档水位基础；各 producer 的真实完成位置汇总、machine writer 调度、段恢复和 finalizer 仍待装配。全部逻辑位于 infra/state，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 WorkspaceCheckpoints 增加共享 PublicationTasks 与 shutdown_publications：接收新发送和关闭接收在同一锁下协调，发送 worker 启动前取得 TaskTracker token，覆盖持久化意图、等待工作区、checkpoint、入队和终端写入。调用方取消等待不会取消 worker；正常错误和异常退出保留到 shutdown 结果。token 随任务 guard 在错误记录之后释放，排空不会早于失败归属。关闭须在最终消息已接收后、checkpoint/终端服务仍可用时进行；该入口仅确认本次进程的发送任务完成，磁盘待发送意图与远端回执仍分别恢复。实现全部位于 ext/infra，无依赖变化；finalizer 的实际调用顺序仍待装配。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 HostMailbox 增加 publications.journal，复用 SpoolQueue 在等待工作区 gate 前持久化待发送 envelope；内存保存 key/offset，正文按批从日志读取。受管 send_checkpointed 的独立任务先 stage，再 checkpoint/入队；reconcile_publication 核对草稿与 outbox（仅允许 commit 由已推送回执替换），处理 outbox 已持久化但意图完成记录尚未写入的中断窗口。终端输出失败后，已入队意图仍标记完成，网络交付继续由原 outbox 重放。WorkspaceCheckpoints::recover_publications 提供有界批次恢复：未入队的意图重新 checkpoint，已入队的意图使用原 envelope；调用方须先恢复工作区操作，随后继续 outbox 交付恢复。新增逻辑位于 infra/runtime/mailbox 与 ext/infra，无依赖变化。实际宿主启动/关闭装配、发送任务排空和最终消息归档水位仍待接入。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

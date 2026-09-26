@@ -8,6 +8,7 @@ mod journal_reader;
 mod outbox;
 mod queue;
 mod session;
+mod stream_archive;
 mod tasks;
 mod workspace;
 
@@ -31,6 +32,10 @@ pub use queue::QueueItem;
 pub use queue::SpoolQueue;
 pub use session::ArchiveReceipt;
 pub use session::SessionShard;
+pub use stream_archive::ArchiveStream;
+pub use stream_archive::ArchivedRange;
+pub use stream_archive::JournalArchive;
+pub use stream_archive::JournalSegment;
 pub use tasks::TaskStore;
 pub use tasks::TaskStoreError;
 pub use workspace::Checkpoint;
