@@ -611,11 +611,15 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 | `d57412902b` | tmux：目标宿主临时文件中的消息重组及重复分块处理 |
 | `c0a44a6c3e` | state：持久 inbox、接收/呈现/处理记录与待呈现分页查询 |
 | `51d4390293` | protocol/state：公共回执类型、持久 outbox、待重投查询、幂等回执记录 |
+| `fe3c74331e` | tmux：终端流和 TCP 复用消息分块/回执 frame 类型 |
+| `cd743853ed` | runtime：宿主 mailbox，checkpoint commit 标记、stdin/stdout 原始日志、收发与回执装配 |
+| `94b52cf60a` | tmux：Agent PTY raw 模式初始化和生命周期结束时恢复 |
+| `f242fb0a0b` | state：独立只读 JournalReader，完整记录跟随与消费者游标接续 |
 
-tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。宿主仍需接入 frame writer/reader，并将输入在 thread history 中的消息 ID 与 inbox 呈现记录对账。
+tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
 
 日志 fsync 完成后才确认本地写入，任务当前视图可由日志重建。Git 归档 receipt 与本地日志确认分别返回；相同分块重复发布复用已有 tree/commit。checkpoint 在 Git 操作前保存 pending，push 与远端确认完成后保存 completed。Nix 求值与构建采用独立入口，锁文件更新关闭，构建使用已解析 drv。
 
-四个包均已通过限定库目标的 Cargo 编译/Clippy，使用 Nix store 中的 Rust 1.95.0 和 C 工具链；Rust/Bazel 文件直接以 rustfmt/buildifier 格式化。tmux 的独立库构建仍有根目录 Clippy 配置引用未启用 Tokio sync 类型的三条警告。Cargo.lock 已维护。Bazel 9.0.0 的 `mod deps --lockfile_mode=update` 已成功执行，MODULE.bazel.lock 未产生内容差异。本机 NixOS 下使用临时目录中的适配 launcher/process-wrapper，以及同版本 Nix Cargo 的 repository override 完成元数据生成；这些本机构建工具路径没有进入项目配置。
+五个包均已通过限定库目标的 Cargo 编译/Clippy，使用 Nix store 中的 Rust 1.95.0 和 C 工具链；Rust/Bazel 文件直接以 rustfmt/buildifier 格式化。tmux/runtime 的独立库构建仍有根目录 Clippy 配置引用未启用 Tokio sync 类型的三条警告。Cargo.lock 已维护。Bazel 9.0.0 的 `mod deps --lockfile_mode=update` 已成功执行，MODULE.bazel.lock 未产生内容差异。本机 NixOS 下使用临时目录中的适配 launcher/process-wrapper，以及同版本 Nix Cargo 的 repository override 完成元数据生成；这些本机构建工具路径没有进入项目配置。
 
-P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、原始流采集、Hook 装配和日志消费者尚待连接。P2 已有 tmux/传输与收发状态组件，collector 持续采集、PTY 初始化、宿主就绪协调、路由、重连与重投调度仍待连接。当前 inbox/outbox 物化视图保留历史消息正文，长 Session 所需的按需正文读取与索引维护尚待实现。P3–P7 的 Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
+P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、完整原始流采集、Hook 装配和日志消费者尚待连接。P2 已有 tmux/传输、PTY raw 模式和宿主收发组件，collector 持续采集、宿主就绪协调、路由、重连与重投调度仍待连接。当前 inbox/outbox 物化视图保留历史消息正文，长 Session 所需的按需正文读取与索引维护尚待实现。P3–P7 的 Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
