@@ -68,6 +68,19 @@ impl ChatFrontend {
         if config.connect_timeout.is_zero() || config.request_timeout.is_zero() {
             return Err(io::Error::other("provider timeouts must be positive"));
         }
+        let audit_directory = config.audit.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            std::fs::create_dir_all(&audit_directory)?;
+            for entry in std::fs::read_dir(audit_directory)? {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    crate::recover_provider_attempt(&entry.path())?;
+                }
+            }
+            Ok::<_, io::Error>(())
+        })
+        .await
+        .map_err(io::Error::other)??;
         let client = reqwest::Client::builder()
             .retry(reqwest::retry::never())
             .redirect(reqwest::redirect::Policy::none())

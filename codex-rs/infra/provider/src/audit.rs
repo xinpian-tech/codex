@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -21,6 +23,18 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use serde_json::json;
+
+mod recovery;
+pub use recovery::ProviderAttemptIdentity;
+pub use recovery::recover_provider_attempt;
+
+const WIRE_LANES: [WireLane; 5] = [
+    WireLane::Lifecycle,
+    WireLane::ClientRequest,
+    WireLane::ProviderRequest,
+    WireLane::ProviderResponse,
+    WireLane::ClientResponse,
+];
 
 /// Host-local spool and the Agent launch owning all attempts of this frontend.
 #[derive(Clone)]
@@ -63,6 +77,15 @@ struct AuditJournals {
     entries: Vec<(WireLane, Journal)>,
     completion: Journal,
     closed: bool,
+    _run_lock: File,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAttemptEnd {
+    #[default]
+    ResponseBodyFinished,
+    OwnerExited,
 }
 
 /// Local producer closure after the client response body finishes consumption.
@@ -70,6 +93,8 @@ struct AuditJournals {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderAttemptFinished {
     pub attempt_id: MessageId,
+    #[serde(default)]
+    pub end: ProviderAttemptEnd,
     pub positions: BTreeMap<String, JournalPosition>,
 }
 
@@ -99,14 +124,14 @@ impl AttemptAudit {
             let id = MessageId::new();
             let directory = config.directory.join(id.to_string());
             std::fs::create_dir_all(&directory)?;
+            let run_lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(directory.join("run.lock"))?;
+            run_lock.lock()?;
             let mut journals = Vec::new();
-            for lane in [
-                WireLane::ClientRequest,
-                WireLane::ProviderRequest,
-                WireLane::ProviderResponse,
-                WireLane::ClientResponse,
-                WireLane::Lifecycle,
-            ] {
+            for lane in WIRE_LANES {
                 let mut journal =
                     Journal::open(&directory.join(format!("{}.journal", lane.name())), |_| {
                         Ok(())
@@ -126,6 +151,7 @@ impl AttemptAudit {
                     entries: journals,
                     completion: Journal::open(&directory.join("completion.journal"), |_| Ok(()))?,
                     closed: false,
+                    _run_lock: run_lock,
                 })),
             })
         })
@@ -175,6 +201,7 @@ impl AttemptAudit {
             journals.closed = true;
             let finished = ProviderAttemptFinished {
                 attempt_id,
+                end: ProviderAttemptEnd::ResponseBodyFinished,
                 positions: journals
                     .entries
                     .iter()
