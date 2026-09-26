@@ -2,6 +2,7 @@
 
 mod checkpoint;
 mod journal;
+mod session;
 mod tasks;
 mod workspace;
 
@@ -11,6 +12,8 @@ pub use checkpoint::CheckpointKind;
 pub use checkpoint::CheckpointPhase;
 pub use journal::Journal;
 pub use journal::JournalRecord;
+pub use session::ArchiveReceipt;
+pub use session::SessionShard;
 pub use tasks::TaskStore;
 pub use tasks::TaskStoreError;
 pub use workspace::Checkpoint;
