@@ -631,6 +631,8 @@ PeerScheduler 已实现按机器并发发送和同一 peer 的串行写包，支
 
 GatewayReception 已实现独立连接接收任务与有界事件通道。IngressSpool 保存连接建立、frame、关闭和任务异常事件，在 frame 进入 GatewayInbox 后推进持久消费游标；以 connection ID/sequence 去重同一次到达的日志重放。停止接收后可以继续排空已进入通道的事件。最新 runtime 库 Clippy 构建无警告，Tokio sync/macros 随接收任务的实际需要启用。上述收发组件尚未装配为机器主循环或 CLI 服务。
 
+InputScheduler 已将 tmux 输入命令放入独立 blocking 工作任务，同一 Agent 串行、不同 Agent 按配置并发并轮转目标队列。每个 Agent 保有独立输入审计 journal；成功后推进 GatewayInbox，失败保留原项。正常退出需等待运行中的注入任务完成后再释放 journal/关闭 pane，该排空顺序仍需连接机器主循环与 finalizer。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
