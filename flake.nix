@@ -35,6 +35,12 @@
     in
     {
       lib.mkInfraGeneration = import ./nix/infra-generation.nix;
+      apps = forAllSystems (system: {
+        machine-runtime = {
+          type = "app";
+          program = "${self.packages.${system}.codex-rs}/bin/codex-machine-runtime";
+        };
+      });
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs {

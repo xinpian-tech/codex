@@ -8,6 +8,12 @@ license.workspace = true
 test = false
 doctest = false
 
+[[bin]]
+name = "codex-machine-runtime"
+path = "src/bin/codex-machine-runtime.rs"
+test = false
+bench = false
+
 [lints]
 workspace = true
 

@@ -1,11 +1,23 @@
 load("@crates//:defs.bzl", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
 
 rust_library(
     name = "runtime",
-    srcs = glob(["src/**/*.rs"]),
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**/*.rs"],
+    ),
     crate_name = "codex_infra_runtime",
     edition = "2024",
     visibility = ["//visibility:public"],
     deps = all_crate_deps(),
+)
+
+rust_binary(
+    name = "codex-machine-runtime",
+    srcs = ["src/bin/codex-machine-runtime.rs"],
+    crate_name = "codex_machine_runtime",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [":runtime"] + all_crate_deps(),
 )

@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+infra/runtime 增加独立 codex-machine-runtime 二进制，读取一个 machine-runtime.json 路径，打开并启动 MachineRuntime。标准输入采用带 request id 的逐行 JSON 控制元数据（directory、launch、agent_exited、stop），标准输出返回 Ready（真实 endpoint/root/hostid）、Response 和服务 Stopped；EOF 或显式 stop 走收尾，命令错误/输出错误也先尝试停止已启动服务。该接口不接收 Agent 语义消息，launch 仅登记实际已启动的 pane，创建 Agent 仍待宿主/受管工具装配。Cargo 二进制关闭 test/bench，Bazel 添加独立 binary target 并排除库 src/bin，flake 增加 machine-runtime app 指向构建产物。CLI 停止目前是服务交接，不代表最终 backlog/manifest 全部完成；信号退出、CLI 原始控制审计、generation 启动关联和完整 Agent finalizer 仍待实现。库/二进制 Clippy、Nix 语法解析及 Bazel 元数据刷新通过，锁文件无变化；未编写或运行测试，未执行该二进制或启动实装实验。
+
 新增可序列化 MachineLaunchConfig / MachinePrograms / MachineScheduling，承接 Team State flake 提供的程序、tmux 配置、仓库/spool、Root Session/hostid 和调度参数。open 在 blocking worker 中调用配置的 hostid 程序核对实际机器、打开单机器 Git SessionShard 与 MachineArchiveWriter，再创建动态 gateway/collector 的 TransportSession，返回由调用方继续 start 的 MachineRuntime。参数不定义固定端口；runtime 仍由现有 listener 动态分配。mkInfraGeneration 可选接收 machineRuntime 文件，复制为 generation 内的 machine-runtime.json，已有 generation 调用保持可用。CLI 参数/控制命令、启动记录与 generation 关联及 Nix 部署二进制仍待实现，未执行新启动路径。库级 Clippy 和 Nix 语法解析通过，未编写或运行测试，未启动实装实验。
 
 新增 MachineRuntime 作为单机器单 Root Session 的服务所有者，接收已打开的 TransportSession / MachineArchiveWriter，按顺序启动 archive writer actor、collector archiver、SessionActor、transport snapshot actor 和 shard archive actor；目录从实际 transport 获取，动态 endpoint 直接转出，控制接口复用现有 controller。start 使用可变所有权保留分阶段结果，打开后续服务失败或取消等待时，已启动组件仍在对象内，重试从缺失阶段继续。stop 由独立任务持有，依次交回 transport、请求停止 capture、停止各归档服务，最后停止 archive actor 并返回 session/writer 及阶段错误，未完成归档继续留在磁盘。此入口是服务装配和资源交接，不宣告 Session 完成；最终尾部提取/快照/远端回执 manifest、CLI/Nix 启动和全部 Agent finalizer 仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
