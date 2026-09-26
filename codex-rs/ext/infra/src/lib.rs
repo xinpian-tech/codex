@@ -3,6 +3,7 @@
 mod binding;
 mod checkpoints;
 mod context;
+mod hook_executor;
 mod host;
 mod process_activity;
 mod process_audit;
@@ -16,6 +17,7 @@ mod workspace_operations;
 
 pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
+pub use hook_executor::RecordedHookExecutor;
 pub use host::ManagedHost;
 pub use host::ManagedHostServices;
 pub use process_activity::ProcessActivity;

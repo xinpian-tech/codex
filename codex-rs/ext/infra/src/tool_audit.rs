@@ -206,7 +206,7 @@ impl ToolAudit {
         }
     }
 
-    async fn append(&self, event: io::Result<ToolAuditEvent>) -> Result<(), String> {
+    pub(crate) async fn append(&self, event: io::Result<ToolAuditEvent>) -> Result<(), String> {
         let writer = Arc::clone(&self.writer);
         self.pending.fetch_add(1, Ordering::SeqCst);
         let pending = PendingWrite(Arc::clone(&self.pending));
