@@ -19,6 +19,7 @@ use codex_infra_state::InboxEntry;
 use codex_infra_state::Journal;
 use codex_infra_state::OutboxEntry;
 use codex_infra_state::PresentedInput;
+use codex_infra_state::SpoolQueue;
 use codex_infra_tmux::FrameDecoder;
 use codex_infra_tmux::HostReady;
 use codex_infra_tmux::MessageAssembler;
@@ -26,6 +27,8 @@ use codex_infra_tmux::TransportFrame;
 use codex_infra_tmux::write_message;
 
 use crate::recorded_writer::RecordedWriter;
+
+mod publication;
 
 /// Owned by one Agent host. `stdout` is its terminal writer; `receive_stdin`
 /// consumes only bytes read from that host's terminal stdin. Methods are
@@ -35,6 +38,7 @@ pub struct HostMailbox<W: Write> {
     agent_id: AgentId,
     inbox: DurableInbox,
     outbox: DurableOutbox,
+    publications: SpoolQueue,
     assembler: MessageAssembler,
     decoder: FrameDecoder,
     input: Journal,
@@ -53,6 +57,7 @@ impl<W: Write> HostMailbox<W> {
             DurableInbox::open(&directory.join("inbox.journal"), root_session_id, agent_id)?;
         let outbox =
             DurableOutbox::open(&directory.join("outbox.journal"), root_session_id, agent_id)?;
+        let publications = SpoolQueue::open(&directory.join("publications.journal"))?;
         let assembler =
             MessageAssembler::open(directory.join("incoming"), root_session_id, agent_id)?;
         let input = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
@@ -62,6 +67,7 @@ impl<W: Write> HostMailbox<W> {
             agent_id,
             inbox,
             outbox,
+            publications,
             assembler,
             decoder: FrameDecoder::default(),
             input,
