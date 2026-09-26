@@ -3735,6 +3735,7 @@ dependencies = [
  "codex-infra-protocol",
  "codex-infra-state",
  "codex-infra-tmux",
+ "serde",
 ]
 
 [[package]]
