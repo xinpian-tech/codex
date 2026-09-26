@@ -645,6 +645,8 @@ tmux Agent window 现以 AgentId/launch ID 命名。创建重试先查询同一�
 
 LaunchCoordinator 已记录不可变 LaunchIntent，包括机器、Task、role、独立 worktree、初始 pushed commit、ConfigGeneration 及 Provider/account/model。意图先入 journal，再原子写入宿主 binding 文件；tmux 使用 `agent --binding <path>` 启动并记录存活 placement 或错误。重试核对原绑定并接续相同 launch。生成实际 generation、调度器调用、宿主命令入口和 Bootstrap 交付仍待连接；当前没有启动实际 Agent 进程。
 
+NixTaskResolver 已提供可复用 LockedFlake 和 `realize_generation`：generation 作为明确的 build Task 实现固定 drv，从 `out/generation.json` 读取输入元数据，从实际构建结果附加 drv/store path，并核对双仓库 commit、锁文件摘要、Nix system 和 `out/config.toml` 的实际摘要。Team State 锁文件须引用所选 Source commit。生成 manifest 不包含自身输出路径。对应 flake 产物、上游配置分层合并与启动 CLI 尚待实现；此入口目前仅完成编译，未执行 generation 构建实验。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
