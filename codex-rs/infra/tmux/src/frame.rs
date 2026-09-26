@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 const PREFIX: &[u8] = b"\x1eCX1 ";
-const CHUNK_BYTES: usize = 16 * 1024;
+pub(crate) const CHUNK_BYTES: usize = 16 * 1024;
 const MAX_LINE_BYTES: usize = 32 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

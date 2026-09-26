@@ -1,10 +1,12 @@
 //! Framing and tmux control-mode decoding for managed Agent pane traffic.
 
+mod assembly;
 mod client;
 mod control;
 mod frame;
 mod socket;
 
+pub use assembly::MessageAssembler;
 pub use client::AgentLaunch;
 pub use client::PanePlacement;
 pub use client::TmuxClient;
