@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::archive::ControlArchive;
+use super::archive::read_prepared;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct ControlIdentity {
@@ -43,18 +44,19 @@ impl ControlIdentity {
 /// Owns the run lock while repairing interrupted journals and preparing jobs.
 /// A live output owner or input reader keeps that lock, so discovery skips it.
 pub(super) fn recover_control(directory: &Path) -> io::Result<Vec<ArchiveJob>> {
+    let prepared = read_prepared(directory)?;
     let lock = match OpenOptions::new()
         .read(true)
         .write(true)
         .open(directory.join("run.lock"))
     {
         Ok(lock) => lock,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(prepared),
         Err(error) => return Err(error),
     };
     match lock.try_lock() {
         Ok(()) => {}
-        Err(TryLockError::WouldBlock) => return Ok(Vec::new()),
+        Err(TryLockError::WouldBlock) => return Ok(prepared),
         Err(TryLockError::Error(error)) => return Err(error),
     }
     let mut identity = match JournalReader::open(
@@ -62,47 +64,47 @@ pub(super) fn recover_control(directory: &Path) -> io::Result<Vec<ArchiveJob>> {
         JournalPosition::default(),
     ) {
         Ok(reader) => reader,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(prepared),
         Err(error) => return Err(error),
     };
     let Some(record) = identity.next_record()? else {
-        return Ok(Vec::new());
+        return Ok(prepared);
     };
     let identity: ControlIdentity = serde_json::from_slice(&record.payload)?;
-    // A prepared record is immutable: preserve the original job IDs and avoid
-    // appending to streams whose final positions may already be published.
-    match JournalReader::open(
-        &directory.join("archive.journal"),
-        JournalPosition::default(),
-    ) {
-        Ok(mut reader) => {
-            if let Some(record) = reader.next_record()? {
-                return serde_json::from_slice(&record.payload).map_err(io::Error::other);
-            }
+    // Re-read under the lock: the former owner may have prepared jobs between
+    // the first read and releasing its lock. Published streams remain closed.
+    let prepared = read_prepared(directory)?;
+    let mut positions = Vec::new();
+    for name in ["stdout", "stdin", "lifecycle", "stdin-lifecycle"] {
+        if prepared
+            .iter()
+            .any(|job| job.stream.name == format!("machine-control-{name}"))
+        {
+            continue;
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
+        let mut journal = Journal::open(&directory.join(format!("{name}.journal")), |_| Ok(()))?;
+        match name {
+            "stdin-lifecycle" => {
+                journal.append(b"reader_recovered_after_owner_exit")?;
+            }
+            "lifecycle" => {
+                journal.append(&serde_json::to_vec(&serde_json::json!({
+                    "event": "control_recovered_after_owner_exit",
+                    "detail": (),
+                }))?)?;
+            }
+            _ => {}
+        }
+        positions.push((name, journal.position()));
     }
-    let output = Journal::open(&directory.join("stdout.journal"), |_| Ok(()))?;
-    let input = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
-    let mut input_lifecycle =
-        Journal::open(&directory.join("stdin-lifecycle.journal"), |_| Ok(()))?;
-    let mut lifecycle = Journal::open(&directory.join("lifecycle.journal"), |_| Ok(()))?;
-    input_lifecycle.append(b"reader_recovered_after_owner_exit")?;
-    lifecycle.append(&serde_json::to_vec(&serde_json::json!({
-        "event": "control_recovered_after_owner_exit",
-        "detail": { "input": input.position(), "output": output.position() },
-    }))?)?;
+    if positions.is_empty() {
+        return Ok(prepared);
+    }
     ControlArchive {
         directory: directory.canonicalize()?,
         root_session_id: identity.root_session_id,
         machine_id: identity.machine_id,
         run_id: identity.run_id,
     }
-    .prepare(&[
-        ("stdout", output.position()),
-        ("stdin", input.position()),
-        ("lifecycle", lifecycle.position()),
-        ("stdin-lifecycle", input_lifecycle.position()),
-    ])
+    .prepare(&positions)
 }

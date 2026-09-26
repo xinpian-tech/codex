@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+控制日志的 archive.journal 现在保存可追加的完整任务清单：prepare 重放已有清单，沿用已有任务 IDs，只为新增流创建任务并持久化新清单；同一流请求不同结束位置返回错误。恢复扫描读取最后一份完整清单，在取得 run.lock 后再次读取，逐条补齐缺失的 stdout/stdin/lifecycle/stdin-lifecycle；已列入清单的流不重开、不追加，已有远端回执和结束位置保持有效。这样 stdin 当时未返回完成位置而仅准备两条输出流的运行，也能在后续确认 owner 退出后补归档输入流。恢复中断时沿用最后完整清单，未完整写入的尾部由 Journal 重开修复。旧版无运行锁的清单仍可重放，其缺失流迁移、运行中周期快照、stderr 和整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
+
 机器控制运行新增持久 identity.journal 与 run.lock，ControlAudit 和 InputAudit 共同持有锁，准备最终任务期间继续保留所有权。启动扫描对缺少完整 archive.journal 的运行尝试非阻塞获取锁；仍存活的运行直接跳过。已退出运行通过 Journal 重放和既有尾部修复取得四条日志的确认位置，记录 reader_recovered_after_owner_exit / control_recovered_after_owner_exit，再保存最终归档任务。已准备的任务保持原 IDs 与结束位置，不追加已封口的源；恢复中再次退出可重新获取锁并继续准备。旧版本没有 run.lock/身份记录的未完成运行仍保留供迁移处理；已有旧版归档批次继续重放。运行中周期快照、缺失输入完成位置但已经准备了部分流的补归档、stderr 及整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
 
 InputWorker 启动改为一次性所有权交接：先建立停止 socket/复制 stdin/创建线程，再通过有界通道将 InputAudit 和请求 sender 交给线程。任一步骤失败，InputStartFailure 同时返回原始启动错误与 close_unstarted 的确认位置或关闭错误；CLI 保留原启动错误作为控制结果，并将已确认的输入日志纳入后续归档。线程创建失败不再因闭包销毁而丢失日志 owner，未启动状态与 EOF 仍分别记录。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。运行中周期归档、异常退出恢复、stderr 覆盖及整体 finalizer 仍待完成。

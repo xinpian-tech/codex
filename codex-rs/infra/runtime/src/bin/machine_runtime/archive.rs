@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 
 use codex_infra_protocol::MachineId;
@@ -34,29 +35,56 @@ impl ControlArchive {
     ) -> io::Result<Vec<ArchiveJob>> {
         let receipts = self.directory.join("receipts");
         std::fs::create_dir_all(&receipts)?;
-        let jobs: Vec<_> = positions
-            .iter()
-            .map(|(name, position)| ArchiveJob {
-                job_id: MessageId::new(),
-                stream: ArchiveStream {
-                    root_session_id: self.root_session_id,
-                    machine_id: self.machine_id.clone(),
-                    producer: ArchiveProducer::Machine {
-                        machine_run_id: self.run_id,
-                    },
-                    name: format!("machine-control-{name}"),
+        let mut jobs = Vec::<ArchiveJob>::new();
+        let mut prepared = Journal::open(&self.directory.join("archive.journal"), |record| {
+            jobs = serde_json::from_slice(&record.payload)?;
+            Ok(())
+        })?;
+        let previous_count = jobs.len();
+        for (name, position) in positions {
+            let stream = ArchiveStream {
+                root_session_id: self.root_session_id,
+                machine_id: self.machine_id.clone(),
+                producer: ArchiveProducer::Machine {
+                    machine_run_id: self.run_id,
                 },
+                name: format!("machine-control-{name}"),
+            };
+            if let Some(existing) = jobs.iter().find(|job| job.stream == stream) {
+                if existing.target != ArchiveTarget::ProducerFinished(*position) {
+                    return Err(io::Error::other("control archive final position changed"));
+                }
+                continue;
+            }
+            jobs.push(ArchiveJob {
+                job_id: MessageId::new(),
+                stream,
                 source: self.directory.join(format!("{name}.journal")),
                 receipt_journal: receipts.join(format!("{name}.journal")),
                 target: ArchiveTarget::ProducerFinished(*position),
-            })
-            .collect();
-        let mut prepared = Journal::open(&self.directory.join("archive.journal"), |_| {
-            Err(io::Error::other("control archive already prepared"))
-        })?;
-        prepared.append(&serde_json::to_vec(&jobs)?)?;
+            });
+        }
+        if jobs.len() != previous_count {
+            prepared.append(&serde_json::to_vec(&jobs)?)?;
+        }
         Ok(jobs)
     }
+}
+
+pub(super) fn read_prepared(directory: &Path) -> io::Result<Vec<ArchiveJob>> {
+    let mut reader = match JournalReader::open(
+        &directory.join("archive.journal"),
+        JournalPosition::default(),
+    ) {
+        Ok(reader) => reader,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut jobs = Vec::new();
+    while let Some(record) = reader.next_record()? {
+        jobs = serde_json::from_slice(&record.payload)?;
+    }
+    Ok(jobs)
 }
 
 /// Re-admit one saved run at a time without loading historical journal bodies.
@@ -75,23 +103,7 @@ pub(super) async fn replay_control_archives(
         let (returned, jobs) = tokio::task::spawn_blocking(move || {
             let jobs = match entries.next().transpose()? {
                 None => None,
-                Some(entry) => {
-                    let path = entry.path().join("archive.journal");
-                    let jobs = match JournalReader::open(&path, JournalPosition::default()) {
-                        Ok(mut reader) => match reader.next_record()? {
-                            Some(record) => {
-                                serde_json::from_slice::<Vec<ArchiveJob>>(&record.payload)
-                                    .map_err(io::Error::other)?
-                            }
-                            None => recover_control(&entry.path())?,
-                        },
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                            recover_control(&entry.path())?
-                        }
-                        Err(error) => return Err(error),
-                    };
-                    Some(jobs)
-                }
+                Some(entry) => Some(recover_control(&entry.path())?),
             };
             Ok::<_, io::Error>((entries, jobs))
         })
