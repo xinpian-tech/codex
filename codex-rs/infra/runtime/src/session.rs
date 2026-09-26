@@ -38,8 +38,10 @@ use crate::IngressSpool;
 use crate::InputScheduler;
 use crate::PaneReadiness;
 use crate::PeerScheduler;
+use crate::ReceptionEvent;
 
 mod archive;
+mod shutdown;
 
 pub struct TransportSessionConfig {
     pub directory: PathBuf,
@@ -81,6 +83,7 @@ pub struct TransportSession {
     current_attachment: MessageId,
     attachments: BTreeMap<MessageId, Attachment>,
     reception: GatewayReception,
+    pending_reception: Option<ReceptionEvent>,
     ingress: IngressSpool,
     inbox: GatewayInbox,
     injector: InputScheduler,
@@ -196,6 +199,7 @@ impl TransportSession {
             current_attachment: id,
             attachments,
             reception,
+            pending_reception: None,
             ingress,
             inbox,
             injector,
@@ -279,9 +283,11 @@ impl TransportSession {
         }
         self.finish_work()?;
         for _ in 0..self.config.event_batch.get() {
+            self.record_pending_reception()?;
             match self.reception.try_event() {
                 Ok(event) => {
-                    self.ingress.record(&event)?;
+                    self.pending_reception = Some(event);
+                    self.record_pending_reception()?;
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {

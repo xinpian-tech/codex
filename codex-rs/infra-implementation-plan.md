@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+GatewayReception::stop_reading 改为显式通知 listener/readers 停止新 accept 和 frame read，已完整解码且等待有界通道的帧继续完成交接，各 reader 发出关闭记录后由管理任务等待退出；listener 失败也走 reader 收尾。普通 Drop 仍是放弃接收器的退出路径，不能代替显式 drain。TransportSession::stop_network 在 SessionActor 交还所有权后排空并持久化接收事件，再将 ingress 已记录帧转入 durable inbox；该操作不等同于 Agent 投递或 collector 结束。普通 tick 和网络关闭共用 pending_reception，先保存取出的事件再写 journal，写入错误不会立即丢弃内存中的事件；journal 写入故障仍按既有 reopen/recovery 语义处理。取消关闭等待后可继续排空，停止请求不撤销。其余 transport worker、collector 关闭与最终归档汇总尚待串联。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 CollectorArchiveActor 新增有界完成查询入口 completion(attachment_id)，从持久准备队列读取该 attachment 的最终批次，逐项查询 ArchiveController 的精确回执；只有全部结束流已归档时，先持久化本地队列完成，再返回可序列化的 CollectorArchiveCompletion（attachment、原 jobs、receipts）。运行中快照使用独立 key，不会满足最终批次查询；尚未准备最终批次或回执不齐时返回 None。查询取消仅取消等待，不取消后台归档；actor 退出时等待者收到错误。该接口供 finalizer 保存明确证据，尚未把 transport/collector 停止、全部 attachment 清单核对和整机终态串联起来。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 collector 增量归档已接入自动扫描：stdout/stderr capture 在 Journal append 确认后发布各自位置，stdin/lifecycle 在对应写入路径更新位置；每条位置记录携带 attachment/流身份，通过临时文件 fsync、原子替换及目录同步发布，不依据增长中的源文件长度判断 durable prefix。CollectorArchiveJobs 支持四条运行中 Snapshot 或原有五条 ProducerFinished，旧五项任务数组的序列化形式保持可读取。worker 每个 attachment 同时保留一批待归档任务，等待其回执后再采样最新位置，以位置组合去重未变化快照；完成记录出现后按同一 lane 接续最终 seal。每次输出记录额外执行位置文件持久化，其实际开销留待实现完成后的实装观察；缺少新位置记录的旧运行中 collector 仍需完成记录或恢复核对。机器 CLI、其余 machine producer、原始 Provider 流和完整 finalizer 尚待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

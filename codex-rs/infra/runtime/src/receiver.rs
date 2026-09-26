@@ -8,6 +8,7 @@ use codex_infra_tmux::TransportFrame;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::task::JoinSet;
 
@@ -42,6 +43,7 @@ pub enum ReceptionEvent {
 pub struct GatewayReception {
     endpoint: SocketAddr,
     events: mpsc::Receiver<ReceptionEvent>,
+    stop: watch::Sender<bool>,
     task: JoinHandle<()>,
 }
 
@@ -49,10 +51,12 @@ impl GatewayReception {
     pub fn start(listener: GatewayListener, capacity: NonZeroUsize) -> io::Result<Self> {
         let endpoint = listener.endpoint()?;
         let (sender, events) = mpsc::channel(capacity.get());
-        let task = tokio::spawn(receive_connections(listener, sender));
+        let (stop, _) = watch::channel(false);
+        let task = tokio::spawn(receive_connections(listener, sender, stop.clone()));
         Ok(Self {
             endpoint,
             events,
+            stop,
             task,
         })
     }
@@ -71,10 +75,11 @@ impl GatewayReception {
         self.events.try_recv()
     }
 
-    /// Stops network reads. Drain `next_event` through None to persist events
-    /// already handed off; unacknowledged messages remain in sending hosts.
+    /// Stops new accepts and frame reads. Drain `next_event` through None so
+    /// decoded frames waiting on the bounded channel and final close events can
+    /// finish handoff. Unacknowledged messages remain in sending hosts.
     pub fn stop_reading(&self) {
-        self.task.abort();
+        self.stop.send_replace(true);
     }
 }
 
@@ -84,16 +89,32 @@ impl Drop for GatewayReception {
     }
 }
 
-async fn receive_connections(listener: GatewayListener, sender: mpsc::Sender<ReceptionEvent>) {
+async fn receive_connections(
+    listener: GatewayListener,
+    sender: mpsc::Sender<ReceptionEvent>,
+    stop: watch::Sender<bool>,
+) {
+    let mut stopped = stop.subscribe();
     let mut readers = JoinSet::new();
     loop {
         tokio::select! {
+            biased;
+            _ = async { let _ = stopped.wait_for(|stopped| *stopped).await; } => break,
+            _ = sender.closed() => return,
+            finished = readers.join_next(), if !readers.is_empty() => {
+                if let Some(Err(error)) = finished
+                    && sender.send(ReceptionEvent::WorkerFailed { error: error.to_string() }).await.is_err()
+                {
+                    return;
+                }
+            }
             accepted = listener.accept() => {
                 let (connection, peer) = match accepted {
                     Ok(accepted) => accepted,
                     Err(error) => {
                         let _ = sender.send(ReceptionEvent::ListenerFailed { error: error.to_string() }).await;
-                        return;
+                        stop.send_replace(true);
+                        break;
                     }
                 };
                 let connection_id = MessageId::new();
@@ -101,11 +122,19 @@ async fn receive_connections(listener: GatewayListener, sender: mpsc::Sender<Rec
                     return;
                 }
                 let output = sender.clone();
+                let mut reader_stopped = stop.subscribe();
                 readers.spawn(async move {
                     let (_writer, mut reader) = connection.split();
                     let mut sequence = 0_u64;
                     loop {
-                        let frame = match reader.receive().await {
+                        let received = tokio::select! {
+                            biased;
+                            _ = async { let _ = reader_stopped.wait_for(|stopped| *stopped).await; } => {
+                                Err(io::Error::other("network reader stopped"))
+                            }
+                            received = reader.receive() => received,
+                        };
+                        let frame = match received {
                             Ok(frame) => frame,
                             Err(error) => {
                                 let _ = output.send(ReceptionEvent::Closed {
@@ -129,14 +158,21 @@ async fn receive_connections(listener: GatewayListener, sender: mpsc::Sender<Rec
                     }
                 });
             }
-            finished = readers.join_next(), if !readers.is_empty() => {
-                if let Some(Err(error)) = finished
-                    && sender.send(ReceptionEvent::WorkerFailed { error: error.to_string() }).await.is_err()
-                {
-                    return;
-                }
-            }
-            _ = sender.closed() => return,
+        }
+    }
+    drop(listener);
+    // Readers finish any already decoded frame and their close record before
+    // dropping the channel. The owner drains events concurrently into its spool.
+    while let Some(finished) = readers.join_next().await {
+        if let Err(error) = finished
+            && sender
+                .send(ReceptionEvent::WorkerFailed {
+                    error: error.to_string(),
+                })
+                .await
+                .is_err()
+        {
+            return;
         }
     }
 }
