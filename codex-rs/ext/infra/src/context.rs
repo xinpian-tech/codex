@@ -14,6 +14,7 @@ use codex_extension_api::WorldStateContributionInput;
 use codex_extension_api::WorldStateSectionContribution;
 use codex_infra_state::CheckpointPhase;
 use codex_infra_state::RecordedCheckpoint;
+use codex_infra_state::WorkspaceBinding;
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -33,7 +34,23 @@ struct ContextSnapshot {
     checkpoint_sequence: Option<u64>,
 }
 
+impl ContextSnapshot {
+    fn matches_workspace(&self, workspace: &WorkspaceBinding) -> bool {
+        workspace.agent_id.to_string() == self.identity.agent_id
+            && workspace.root_session_id.to_string() == self.identity.root_session_id
+            && workspace.worktree.to_str() == Some(self.workspace.worktree.as_str())
+            && workspace.branch == self.workspace.branch
+    }
+}
+
 impl AgentContext {
+    pub(crate) fn validate_workspace(&self, workspace: &WorkspaceBinding) -> io::Result<()> {
+        if !self.current.borrow().matches_workspace(workspace) {
+            return Err(io::Error::other("workspace does not match Agent context"));
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(
         identity: ExecutionIdentity,
         workspace: ExecutionWorkspace,
@@ -55,10 +72,7 @@ impl AgentContext {
         };
         let mut result = Ok(());
         self.current.send_if_modified(|current| {
-            if attempt.workspace.agent_id.to_string() != current.identity.agent_id
-                || attempt.workspace.root_session_id.to_string() != current.identity.root_session_id
-                || attempt.workspace.worktree.to_str() != Some(current.workspace.worktree.as_str())
-                || attempt.workspace.branch != current.workspace.branch
+            if !current.matches_workspace(&attempt.workspace)
                 || attempt.operation_id != receipt.operation_id
                 || attempt.before != receipt.before
             {

@@ -663,6 +663,8 @@ AgentContext 已通过 ManagedHostServices 追加到默认扩展集合，使用�
 
 AgentContext 的公开启动入口现从 LaunchIntent 与已接收的 TaskSpec 构造绑定，核对 Task/Agent/目标机器，复用 worktree、branch、初始 commit、Provider/account/model 和 generation 的版本引用。CheckpointCoordinator 现公开带原始日志序号的 RecordedCheckpoint；上下文只应用 Completed，核对工作区归属，使用序号处理重复/过期结果，并呈现实际 pushed commit。工具自行创建 commit 后的正常 checkpoint 同样可更新，不要求其 before 等于上次推送值。恢复宿主可应用日志恢复出的最新完成记录；实际 CLI 与工具完成 Hook 调用仍待装配。此组合库目标已通过 Clippy，未进行运行实验。
 
+WorkspaceCheckpoints 已提供独立 blocking 任务中的串行 commit/push 服务，返回前完成远端确认、完成日志及 AgentContext 更新。等待方取消后，已开始的工作仍持有服务与上下文并继续完成。恢复入口复用原 pending operation ID/kind；Coordinator 另外保留最近 Completed 记录，使新的 pending 不覆盖模型恢复需要的已推送版本。执行前核对 workspace/context 归属，Coordinator 重试时核对原 worktree 绑定。库 Clippy 已通过。调用方仍需持有修改边界，等待前台工具与后台进程停止写入；现有 on_tool_finish 不代表后台进程结束，生产侧退出/输出排空通知、Hook 调用与最终收尾尚待接入。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。

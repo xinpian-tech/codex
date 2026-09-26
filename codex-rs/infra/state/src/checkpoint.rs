@@ -52,11 +52,13 @@ pub struct RecordedCheckpoint {
 pub struct CheckpointCoordinator {
     journal: Journal,
     phases: BTreeMap<AgentId, RecordedCheckpoint>,
+    completed: BTreeMap<AgentId, RecordedCheckpoint>,
 }
 
 impl CheckpointCoordinator {
     pub fn open(path: &Path) -> io::Result<Self> {
         let mut phases = BTreeMap::new();
+        let mut completed = BTreeMap::new();
         let journal = Journal::open(path, |record| {
             let phase: CheckpointPhase =
                 serde_json::from_slice(&record.payload).map_err(io::Error::other)?;
@@ -64,16 +66,21 @@ impl CheckpointCoordinator {
                 CheckpointPhase::Pending { attempt }
                 | CheckpointPhase::Completed { attempt, .. } => attempt.workspace.agent_id,
             };
-            phases.insert(
-                agent_id,
-                RecordedCheckpoint {
-                    sequence: record.sequence,
-                    phase,
-                },
-            );
+            let record = RecordedCheckpoint {
+                sequence: record.sequence,
+                phase,
+            };
+            if matches!(record.phase, CheckpointPhase::Completed { .. }) {
+                completed.insert(agent_id, record.clone());
+            }
+            phases.insert(agent_id, record);
             Ok(())
         })?;
-        Ok(Self { journal, phases })
+        Ok(Self {
+            journal,
+            phases,
+            completed,
+        })
     }
 
     pub fn phase(&self, agent_id: AgentId) -> Option<&CheckpointPhase> {
@@ -84,6 +91,11 @@ impl CheckpointCoordinator {
         self.phases.get(&agent_id)
     }
 
+    /// The last pushed result remains available while a later mutation is pending.
+    pub fn completed(&self, agent_id: AgentId) -> Option<&RecordedCheckpoint> {
+        self.completed.get(&agent_id)
+    }
+
     pub fn checkpoint(
         &mut self,
         workspace: &mut GitWorkspace,
@@ -91,6 +103,15 @@ impl CheckpointCoordinator {
         kind: CheckpointKind,
     ) -> io::Result<Checkpoint> {
         let agent_id = workspace.binding().agent_id;
+        if let Some(phase) = self.phase(agent_id) {
+            let attempt = match phase {
+                CheckpointPhase::Pending { attempt }
+                | CheckpointPhase::Completed { attempt, .. } => attempt,
+            };
+            if &attempt.workspace != workspace.binding() {
+                return Err(io::Error::other("checkpoint workspace binding changed"));
+            }
+        }
         let attempt = match self.phase(agent_id) {
             Some(CheckpointPhase::Completed { attempt, receipt })
                 if attempt.operation_id == operation_id && attempt.kind == kind =>
@@ -135,13 +156,12 @@ impl CheckpointCoordinator {
         let sequence = self
             .journal
             .append(&serde_json::to_vec(&completed).map_err(io::Error::other)?)?;
-        self.phases.insert(
-            agent_id,
-            RecordedCheckpoint {
-                sequence,
-                phase: completed,
-            },
-        );
+        let record = RecordedCheckpoint {
+            sequence,
+            phase: completed,
+        };
+        self.completed.insert(agent_id, record.clone());
+        self.phases.insert(agent_id, record);
         Ok(receipt)
     }
 }

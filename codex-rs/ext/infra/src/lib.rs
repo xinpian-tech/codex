@@ -1,11 +1,13 @@
 //! Managed Agent contributions and adapters for the existing Codex host.
 
 mod binding;
+mod checkpoints;
 mod context;
 mod host;
 mod store;
 mod store_audit;
 
+pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
 pub use host::ManagedHostServices;
 pub use store::AuditedThreadStore;
