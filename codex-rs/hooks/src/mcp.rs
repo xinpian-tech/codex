@@ -1,5 +1,7 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use codex_protocol::ThreadId;
 use codex_protocol::mcp::CallToolResult;
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -63,4 +65,27 @@ pub trait HookMcpExecutor: Send + Sync {
     fn execute_response(&self, call: HookMcpCall) -> BoxFuture<'_, anyhow::Result<HookMcpOutput>> {
         Box::pin(async move { self.execute(call).await.map(HookMcpOutput::Text) })
     }
+}
+
+/// Invocation-local ownership carried outside the public hook input schema.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookMcpContext {
+    pub thread_id: ThreadId,
+    pub tool_call_id: Option<String>,
+    pub event_json: String,
+}
+
+pub type HookMcpFuture = BoxFuture<'static, anyhow::Result<HookMcpOutput>>;
+
+/// Wraps the host's connected MCP executor with managed operation ownership.
+/// Preparation happens synchronously before queueing. The returned future
+/// owns its resources and delegate; implementations retain running calls and
+/// recording independently if the hook caller cancels its wait.
+pub trait ManagedHookMcpExecutor: Send + Sync {
+    fn prepare(
+        &self,
+        context: HookMcpContext,
+        call: HookMcpCall,
+        delegate: Arc<dyn HookMcpExecutor>,
+    ) -> HookMcpFuture;
 }

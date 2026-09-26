@@ -19,7 +19,7 @@ use super::ConfiguredHandlerKind;
 use super::HandlerRunResult;
 use super::HandlerSourcePath;
 use super::command_runner::run_command;
-use super::mcp_runner::run_mcp_tool;
+use super::managed_mcp;
 use crate::events::common::matches_matcher;
 
 #[derive(Debug)]
@@ -165,14 +165,25 @@ pub(crate) async fn execute_handlers_with_metadata<T: 'static>(
 
     if should_stop || !should_block {
         for handler in executor_handlers {
+            let prepared_mcp = managed_mcp::prepare(engine, &handler, &input_json, metadata);
             let task_engine = engine.clone();
             let input_json = input_json.clone();
             let cwd = cwd.to_path_buf();
             let metadata = metadata.cloned();
             engine.command_runtime.schedule_async_task(async move {
-                let result =
-                    execute_handler(&task_engine, &handler, &input_json, &cwd, metadata.as_ref())
-                        .await;
+                let result = match prepared_mcp {
+                    Some(prepared) => prepared.await,
+                    None => {
+                        execute_handler(
+                            &task_engine,
+                            &handler,
+                            &input_json,
+                            &cwd,
+                            metadata.as_ref(),
+                        )
+                        .await
+                    }
+                };
                 if let Some(error) = result.error {
                     tracing::warn!(
                         source_path = %handler.source_path,
@@ -206,21 +217,11 @@ async fn execute_handler(
             )
             .await
         }
-        ConfiguredHandlerKind::McpTool {
-            server,
-            tool,
-            input,
-        } => {
-            run_mcp_tool(
-                engine.mcp_executor.as_ref(),
-                handler,
-                server,
-                tool,
-                input,
-                input_json,
-                metadata,
-            )
-            .await
+        ConfiguredHandlerKind::McpTool { .. } => {
+            match managed_mcp::prepare(engine, handler, input_json, metadata) {
+                Some(prepared) => prepared.await,
+                None => unreachable!("MCP handler preparation always returns a future"),
+            }
         }
     }
 }

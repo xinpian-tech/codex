@@ -1,6 +1,7 @@
 pub(crate) mod command_runner;
 pub(crate) mod discovery;
 pub(crate) mod dispatcher;
+mod managed_mcp;
 pub(crate) mod mcp_runner;
 pub(crate) mod output_parser;
 pub(crate) mod schema_loader;

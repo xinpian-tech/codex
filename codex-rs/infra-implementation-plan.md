@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+hooks 包新增 ManagedHookMcpExecutor、拥有资源的 HookMcpFuture 和独立于公开 hook JSON 的 HookMcpContext。MCP 参数展开、executor metadata 合并已提取为共享准备逻辑。配置了受管实现时，同步 hook 与 executor-scoped 后台 hook 均传递 thread、实际 tool_call_id、完整事件输入、展开后的调用及原连接执行器；后台路径在入队前调用 prepare，以便先续持归属。Hooks 配置刷新保留受管实现，未安装时继续使用原执行器。此阶段仅接通准备与调度接口，独立扩展中的 MCP 审计/租约实现和宿主安装仍待完成。组合库 Clippy 已通过，未编写或运行测试。
+
 MCP hook 新增 HookMcpOutput 与 execute_response，CoreHookMcpExecutor 保留完整 CallToolResult 到 hook 解释入口，包括非文本 content、structured_content、is_error 和 _meta；文本提取及 MCP error 转换统一在 into_text 完成。现有只实现 execute 的执行器通过默认实现明确标记为 Text，不伪造完整 MCP 响应。HookMcpCall 和输出类型可序列化，供后续审计保存展开后的请求与完整响应。此阶段尚未写入 MCP hook 持久审计，也尚未接入异步入队前的操作续持和排空。组合库 Clippy 已通过，未编写或运行测试。
 
 HookCommandRequest 增加内部 tool_call_id，Hooks::for_tool_call 创建携带本次调用归属的副本并保留共享运行队列。Core 为 PreToolUse、PermissionRequest、PostToolUse 显式提供操作身份；审批重试/run ID 不作为租约键，网络审批从已有 trigger 取得原工具 ID。write_stdin 后置 hook 使用当前 write_stdin 操作归属，hook JSON 仍保留原命令的 tool_use_id，覆盖原命令 checkpoint 已完成后再次读取输出的情况。RecordedHookExecutor 仅从内部字段建立来源，不再解析 JSON 的展示 ID。无关联的 session/network hook 保留独立操作语义。MCP hook、legacy notify 与其他启动过程的归属仍待后续接入。最终组合库 Clippy 已通过，未编写或运行测试。

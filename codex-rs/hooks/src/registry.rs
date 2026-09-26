@@ -68,6 +68,15 @@ pub struct Hooks {
 }
 
 impl Hooks {
+    /// Installs managed preparation while retaining the connected MCP executor.
+    pub fn with_managed_mcp_executor(
+        mut self,
+        executor: Arc<dyn crate::ManagedHookMcpExecutor>,
+    ) -> Self {
+        self.engine.command_runtime.managed_mcp_executor = Some(executor);
+        self
+    }
+
     /// Clones invocation-local attribution while sharing the existing runtime
     /// and background task queue. Hook JSON keeps its original public IDs.
     pub fn for_tool_call(&self, call_id: &str) -> Self {

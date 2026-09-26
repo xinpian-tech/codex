@@ -53,7 +53,8 @@ const MAX_CONCURRENT_ASYNC_HOOKS: usize = 8;
 pub(crate) struct CommandHookRuntime {
     pub(crate) command_executor: Option<Arc<dyn crate::HookCommandExecutor>>,
     pub(crate) tool_call_id: Option<String>,
-    thread_id: ThreadId,
+    pub(crate) thread_id: ThreadId,
+    pub(crate) managed_mcp_executor: Option<Arc<dyn crate::ManagedHookMcpExecutor>>,
     shell: CommandShell,
     environment: Arc<Vec<(OsString, OsString)>>,
     result_sender: Sender<HookCompletedEvent>,
@@ -84,6 +85,7 @@ impl CommandHookRuntime {
     ) -> Self {
         Self {
             command_executor: None,
+            managed_mcp_executor: None,
             tool_call_id: None,
             thread_id,
             shell,
@@ -103,6 +105,7 @@ impl CommandHookRuntime {
     pub(crate) fn reconfigured(&self, shell: CommandShell) -> Self {
         Self {
             command_executor: self.command_executor.clone(),
+            managed_mcp_executor: self.managed_mcp_executor.clone(),
             tool_call_id: self.tool_call_id.clone(),
             thread_id: self.thread_id,
             shell,
