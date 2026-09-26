@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "infra/protocol",
+    "infra/state",
     "aws-auth",
     "analytics",
     "agent-graph-store",
@@ -168,6 +169,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 codex-infra-protocol = { path = "infra/protocol" }
+codex-infra-state = { path = "infra/state" }
 # Internal
 codex-realtime-webrtc = { path = "realtime-webrtc" }
 app_test_support = { path = "app-server/tests/common" }

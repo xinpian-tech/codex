@@ -3719,6 +3719,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-infra-state"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "codex-infra-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "codex-install-context"
 version = "0.0.0"
 dependencies = [
