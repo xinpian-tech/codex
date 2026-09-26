@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Provider attempt 新增持久 ProviderAttemptFinished，包含 attempt_id 与五条原始/生命周期 JournalPosition，并提供只读 completion.journal 读取入口。最外层 ClientResponse capture 读到结束后释放其上游流、记录该流 EOF，再在线程池内封闭共享 writer 并写完成记录；此后 record 不再追加。完成证据表示本地 body 生产链结束，不表示模型任务成功、客户端远端接收或 Git 归档完成。取消、读取错误、写入错误保留无完成标记的运行供恢复处理，未用文件长度推断结束。复用 serde workspace 依赖并刷新 Cargo.lock/Bazel 元数据，库级 Clippy 通过；未编写或运行测试，未启动服务或调用模型。异常 attempt 恢复、完成标记归档、周期快照和 usage 汇总仍待接入。
+
 Provider 入口改为直接接收 Request<Body>，创建 attempt 后先记录客户端 method/URI/headers，再逐块记录原始 body 并在 request_bytes 范围内聚合，不再依赖 Axum Bytes extractor 先聚合。超限块已收到的内容保留在 journal，另记 client_request_limit 并返回 413；读取失败与 EOF 沿既有 capture 分开记录。入口解析、工具转换、发送失败等路径返回的响应统一经过 client_response_headers 与 ClientResponse capture，避免早期错误 body 脱离审计；成功/供应商错误响应去掉内层重复输出记录。审计介质本身失败时仍返回错误，不宣称记录完整；连接取消、producer 结束恢复、远端归档及 usage 汇总继续待完成。库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
 
 Provider 前端增加必需 ProviderAuditConfig，按 root/machine/agent/launch 和唯一 attempt ID 创建 client-request/provider-request/provider-response/client-response/lifecycle 五条 Journal。客户端完整 body 在解析前记录，转换后的 body 只序列化一次，持久化后交给 HTTP request；发送前记录固定 InferenceBinding（含 credential_revision）、URL 和 request headers，收到响应记录 status/headers，发送失败另记事件。响应原始 body 块在 SSE 转换前落盘，转换帧在交给客户端 body 前落盘；非成功响应也保存上下游 body。写盘经 blocking worker 和同 attempt writer 所有权串行完成；流读取失败和自然 EOF 分别记录，取消不构造 EOF。Reqwest 内部 retry/redirect 关闭，由可观察请求路径承担重试。此处记录 HTTP 应用 body/解析后的 headers，不宣称 TCP/TLS 原帧；入口 body 尚经 Axum 聚合，超限/中断入口、早期错误输出、producer 结束/恢复/归档及 usage 汇总仍待接入。复用 infra-state，Cargo.lock/Bazel 元数据更新，库级 Clippy 通过；未编写或运行测试，未启动前端或调用模型。

@@ -13,6 +13,7 @@ mod tools;
 // adapter's versioned payload is plaintext provider reasoning, not ciphertext.
 pub(crate) const CHAT_REASONING_PREFIX: &str = "codex-infra-chat-reasoning-v1:";
 
+pub use audit::ProviderAttemptFinished;
 pub use audit::ProviderAuditConfig;
 pub use custom::CustomTools;
 pub use frontend::ChatFrontend;

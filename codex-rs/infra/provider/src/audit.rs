@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -11,8 +13,12 @@ use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::RootSessionId;
 use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
+use codex_infra_state::JournalReader;
 use futures::Stream;
 use futures::StreamExt;
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
 use serde_json::json;
 
@@ -50,7 +56,38 @@ impl WireLane {
 #[derive(Clone)]
 pub(crate) struct AttemptAudit {
     pub(crate) id: MessageId,
-    journals: Arc<Mutex<Vec<(WireLane, Journal)>>>,
+    journals: Arc<Mutex<AuditJournals>>,
+}
+
+struct AuditJournals {
+    entries: Vec<(WireLane, Journal)>,
+    completion: Journal,
+    closed: bool,
+}
+
+/// Local producer closure after the client response body finishes consumption.
+/// This records journal positions, not model success or remote delivery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderAttemptFinished {
+    pub attempt_id: MessageId,
+    pub positions: BTreeMap<String, JournalPosition>,
+}
+
+impl ProviderAttemptFinished {
+    pub fn read(directory: &Path) -> io::Result<Option<Self>> {
+        let mut reader = match JournalReader::open(
+            &directory.join("completion.journal"),
+            JournalPosition::default(),
+        ) {
+            Ok(reader) => reader,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        reader
+            .next_record()?
+            .map(|record| serde_json::from_slice(&record.payload).map_err(io::Error::other))
+            .transpose()
+    }
 }
 
 impl AttemptAudit {
@@ -85,7 +122,11 @@ impl AttemptAudit {
             }
             Ok(Self {
                 id,
-                journals: Arc::new(Mutex::new(journals)),
+                journals: Arc::new(Mutex::new(AuditJournals {
+                    entries: journals,
+                    completion: Journal::open(&directory.join("completion.journal"), |_| Ok(()))?,
+                    closed: false,
+                })),
             })
         })
         .await
@@ -98,7 +139,11 @@ impl AttemptAudit {
             let mut journals = journals
                 .lock()
                 .map_err(|_| io::Error::other("provider audit writer poisoned"))?;
+            if journals.closed {
+                return Err(io::Error::other("provider attempt journals closed"));
+            }
             let (_, journal) = journals
+                .entries
                 .iter_mut()
                 .find(|(candidate, _)| candidate.name() == lane.name())
                 .ok_or_else(|| io::Error::other("provider audit lane missing"))?;
@@ -117,6 +162,34 @@ impl AttemptAudit {
         .await
     }
 
+    async fn finish(&self) -> io::Result<()> {
+        let journals = Arc::clone(&self.journals);
+        let attempt_id = self.id;
+        tokio::task::spawn_blocking(move || {
+            let mut journals = journals
+                .lock()
+                .map_err(|_| io::Error::other("provider audit writer poisoned"))?;
+            if journals.closed {
+                return Err(io::Error::other("provider attempt already closed"));
+            }
+            journals.closed = true;
+            let finished = ProviderAttemptFinished {
+                attempt_id,
+                positions: journals
+                    .entries
+                    .iter()
+                    .map(|(lane, journal)| (lane.name().to_owned(), journal.position()))
+                    .collect(),
+            };
+            journals
+                .completion
+                .append(&serde_json::to_vec(&finished)?)?;
+            Ok(())
+        })
+        .await
+        .map_err(io::Error::other)?
+    }
+
     pub(crate) fn capture<S, E>(
         self,
         source: S,
@@ -127,7 +200,7 @@ impl AttemptAudit {
         E: Display + Send,
     {
         async_stream::try_stream! {
-            futures::pin_mut!(source);
+            let mut source = Box::pin(source);
             while let Some(chunk) = source.next().await {
                 let chunk = match chunk {
                     Ok(chunk) => chunk,
@@ -139,7 +212,11 @@ impl AttemptAudit {
                 self.record(lane, chunk.clone()).await?;
                 yield chunk;
             }
+            drop(source);
             self.event(json!({"event": "stream_eof", "stream": lane.name()})).await?;
+            if matches!(lane, WireLane::ClientResponse) {
+                self.finish().await?;
+            }
         }
     }
 }
