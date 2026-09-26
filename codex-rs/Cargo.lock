@@ -3755,6 +3755,7 @@ dependencies = [
 name = "codex-infra-runtime"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "codex-infra-protocol",
  "codex-infra-state",
  "codex-infra-tmux",

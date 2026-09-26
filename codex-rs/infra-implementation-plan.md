@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+MachineLaunchConfig 新增 read_generation，CLI 读取 machine-runtime.json 同目录的 generation.json/config.toml，核对机器配置与有效 Codex 配置的 BLAKE3 摘要后启动。MachineLaunchProvenance 保存实际配置路径、generation 目录、三份原始文件及 source/team-state commit、nix_system，opened 审计同时记录当前 executable 路径。mkInfraGeneration 为提供 machineRuntime 的输出计算 machine_runtime_digest；CLI 启动现在需要这份同 generation 的 manifest，而非单独机器 JSON。derivation 实现信息继续由既有 Nix resolver 负责，此处不从 store 目录名推造 drv；CLI 原始日志归档、stdin 最终交接和完整 finalizer 仍待完成。加入现有 workspace blake3 依赖并更新 Cargo.lock，Bazel 元数据已刷新且 MODULE 锁无变化；库/二进制 Clippy 与 Nix 语法解析通过，未编写或运行测试，未执行 CLI 或部署实验。
+
 机器 CLI 每次启动在 machine-control/<run_id> 建立 stdin/stdout/lifecycle/stdin-lifecycle journals。stdin recorder 位于缓冲和 JSON 解析之下，保留原始读取块（包括无效 UTF-8、半条输入）；stdout 先记录完整拟输出字节再写终端，输出失败另记生命周期。opened 保存实际读取的配置字节、规范化配置路径、Root Session 和期望 hostid，Ready 输出关联 control_run_id；信号注册、资源打开、服务启动/清理及停止错误均有相应记录。stdin EOF 与读失败由实际 reader 记录，阻塞中的 stdin 不因主控制循环停止而标记完成。新增日志尚未进入远端归档调度，stdin reader 最终交接、stderr 覆盖、generation 源提交关联及完整 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未运行该 CLI。
 
 机器 CLI 新增正常信号收尾：Unix 注册 SIGINT/SIGTERM，Windows 注册 Ctrl-C；在打开机器资源前注册，启动期间到达的信号保留到控制循环，再进入 MachineRuntime::stop。控制循环区分 Requested/StdinClosed/Interrupt/Terminate/ControlError，Stopped 输出增加 reason 和 control_error，同时保留各服务关闭错误。已提交的控制更新仍等待其响应，不因选择信号分支撤销已执行操作。Tokio 启用 signal feature，Bazel binary 显式列入信号模块与 crate_root。库/二进制 Clippy 和 Bazel 元数据刷新通过，锁文件无变化；未编写或运行测试，未运行二进制或发送实验信号。CLI 原始控制审计、启动/generation 关联及完整 finalizer 仍待接入。

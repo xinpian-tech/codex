@@ -4,10 +4,10 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Write;
-use std::path::Path;
 
 use codex_infra_protocol::MessageId;
 use codex_infra_runtime::MachineLaunchConfig;
+use codex_infra_runtime::MachineLaunchProvenance;
 use codex_infra_state::Journal;
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -29,8 +29,7 @@ pub(super) struct InputAudit {
 impl ControlAudit {
     pub(super) fn open(
         config: &MachineLaunchConfig,
-        path: &Path,
-        bytes: &[u8],
+        provenance: &MachineLaunchProvenance,
     ) -> io::Result<(Self, InputAudit)> {
         let run_id = MessageId::new();
         let directory = config
@@ -53,8 +52,8 @@ impl ControlAudit {
                 "run_id": run_id,
                 "root_session_id": config.root_session_id,
                 "expected_machine_id": config.machine_id,
-                "config_path": path,
-                "config_bytes": bytes,
+                "generation": provenance,
+                "executable": std::env::current_exe()?,
             }),
         )?;
         Ok((audit, input))

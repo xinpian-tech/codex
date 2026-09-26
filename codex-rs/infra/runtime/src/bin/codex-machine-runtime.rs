@@ -79,10 +79,8 @@ async fn main() -> io::Result<()> {
             "usage: codex-machine-runtime <machine-runtime.json>",
         ));
     }
-    let path = path.canonicalize()?;
-    let config_bytes = std::fs::read(&path)?;
-    let config: MachineLaunchConfig = serde_json::from_slice(&config_bytes)?;
-    let (mut audit, input_audit) = ControlAudit::open(&config, &path, &config_bytes)?;
+    let (config, provenance) = MachineLaunchConfig::read_generation(&path)?;
+    let (mut audit, input_audit) = ControlAudit::open(&config, &provenance)?;
     let mut signals = match ShutdownSignals::open() {
         Ok(signals) => signals,
         Err(error) => {

@@ -19,6 +19,7 @@ let
       "config_derivation"
       "config_store_path"
       "effective_config_digest"
+      "machine_runtime_digest"
       "source_flake_lock_hash"
       "state_flake_lock_hash"
     ] // {
@@ -47,9 +48,15 @@ pkgs.runCommand "codex-config-generation" {
   config_digest=$(b3sum --no-names "$out/config.toml")
   source_lock_digest=$(b3sum --no-names ${sourceFlake}/flake.lock)
   state_lock_digest=$(b3sum --no-names ${teamStateFlake}/flake.lock)
+  machine_runtime_digest=""
+  ${pkgs.lib.optionalString (machineRuntime != null) ''
+    machine_runtime_digest=$(b3sum --no-names "$out/machine-runtime.json")
+  ''}
   jq --arg config "blake3:$config_digest" \
      --arg source "blake3:$source_lock_digest" \
      --arg state "blake3:$state_lock_digest" \
-     '. + {effective_config_digest: $config, source_flake_lock_hash: $source, state_flake_lock_hash: $state}' \
+     --arg machine "$machine_runtime_digest" \
+     '. + {effective_config_digest: $config, source_flake_lock_hash: $source, state_flake_lock_hash: $state}
+      | if $machine == "" then . else . + {machine_runtime_digest: ("blake3:" + $machine)} end' \
      ${inputs} > "$out/generation.json"
 ''

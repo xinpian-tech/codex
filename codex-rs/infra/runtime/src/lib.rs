@@ -53,6 +53,7 @@ pub use input::PaneInputJournal;
 pub use launcher::LaunchCoordinator;
 pub use launcher::LaunchIntent;
 pub use machine::MachineLaunchConfig;
+pub use machine::MachineLaunchProvenance;
 pub use machine::MachinePrograms;
 pub use machine::MachineRuntime;
 pub use machine::MachineRuntimeConfig;

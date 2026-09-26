@@ -14,7 +14,9 @@ use crate::ShardArchiveActor;
 use crate::TransportArchiveActor;
 use crate::TransportSession;
 
+mod generation;
 mod launch;
+pub use generation::MachineLaunchProvenance;
 pub use launch::MachineLaunchConfig;
 pub use launch::MachinePrograms;
 pub use launch::MachineScheduling;
