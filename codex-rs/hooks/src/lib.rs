@@ -85,6 +85,7 @@ pub use events::user_prompt_submit::UserPromptSubmitRequest;
 pub use legacy_notify::legacy_notify_json;
 pub use mcp::HookMcpCall;
 pub use mcp::HookMcpExecutor;
+pub use mcp::HookMcpOutput;
 pub use registry::HookListOutcome;
 pub use registry::Hooks;
 pub use registry::HooksConfig;

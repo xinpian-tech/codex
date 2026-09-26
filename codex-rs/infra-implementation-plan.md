@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+MCP hook 新增 HookMcpOutput 与 execute_response，CoreHookMcpExecutor 保留完整 CallToolResult 到 hook 解释入口，包括非文本 content、structured_content、is_error 和 _meta；文本提取及 MCP error 转换统一在 into_text 完成。现有只实现 execute 的执行器通过默认实现明确标记为 Text，不伪造完整 MCP 响应。HookMcpCall 和输出类型可序列化，供后续审计保存展开后的请求与完整响应。此阶段尚未写入 MCP hook 持久审计，也尚未接入异步入队前的操作续持和排空。组合库 Clippy 已通过，未编写或运行测试。
+
 HookCommandRequest 增加内部 tool_call_id，Hooks::for_tool_call 创建携带本次调用归属的副本并保留共享运行队列。Core 为 PreToolUse、PermissionRequest、PostToolUse 显式提供操作身份；审批重试/run ID 不作为租约键，网络审批从已有 trigger 取得原工具 ID。write_stdin 后置 hook 使用当前 write_stdin 操作归属，hook JSON 仍保留原命令的 tool_use_id，覆盖原命令 checkpoint 已完成后再次读取输出的情况。RecordedHookExecutor 仅从内部字段建立来源，不再解析 JSON 的展示 ID。无关联的 session/network hook 保留独立操作语义。MCP hook、legacy notify 与其他启动过程的归属仍待后续接入。最终组合库 Clippy 已通过，未编写或运行测试。
 
 受管宿主现用同一 exec backend、ProcessAudit 和 ToolAudit 创建 RecordedHookExecutor，并通过 ExtensionRegistry 的可选执行器入口装配；Core 在 Hooks 构造后、首次 hook 运行前安装它，默认宿主保持原路径。registry 复制与 hooks 配置刷新均保留该装配。hook prepare 在同步接收边界取得 TaskTracker token，覆盖已准备但尚未开始执行的队列任务；shutdown 关闭新接收并等待这些任务执行或被队列释放。ManagedHost 先等待 hook，再关闭/排空进程请求，正常排空与 checkpoint 检查完成后仍返回 hook 错误。组合库 Clippy 已通过，依赖锁定维护已完成（MODULE.bazel.lock 无变化），未编写或运行测试。PermissionRequest 输入尚无 tool_use_id，其原操作归属还需补齐，避免工具等待 hook 时 hook 再等待同一工作区；MCP hook、legacy notify 和统一 finalizer 仍待完成。

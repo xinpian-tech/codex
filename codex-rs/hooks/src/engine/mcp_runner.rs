@@ -62,7 +62,7 @@ pub(crate) async fn run_mcp_tool(
                 .extend(metadata.clone());
         }
         executor
-            .execute(HookMcpCall {
+            .execute_response(HookMcpCall {
                 server: server.to_string(),
                 tool: tool.to_string(),
                 environment_id,
@@ -70,7 +70,8 @@ pub(crate) async fn run_mcp_tool(
                 input,
                 timeout: Duration::from_secs(handler.timeout_sec),
             })
-            .await
+            .await?
+            .into_text()
     }
     .await;
 
