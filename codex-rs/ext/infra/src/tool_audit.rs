@@ -7,6 +7,8 @@ use std::sync::atomic::Ordering;
 
 use codex_extension_api::ToolCallOutcome;
 use codex_extension_api::ToolCallSource;
+use codex_extension_api::ToolExecutionFuture;
+use codex_extension_api::ToolExecutionInput;
 use codex_extension_api::ToolFinishInput;
 use codex_extension_api::ToolLifecycleContributor;
 use codex_extension_api::ToolLifecycleFuture;
@@ -73,6 +75,9 @@ pub enum ToolAuditEvent {
         identity: StoreAuditIdentity,
         launch_id: MessageId,
     },
+    Admitted {
+        operation: ToolOperation,
+    },
     Started {
         operation: ToolOperation,
         root_turn_id: Option<String>,
@@ -99,9 +104,9 @@ struct Writer {
     activity: ToolActivity,
 }
 
-/// Durable operation provenance before execution and at handler completion.
-/// The host checks health before checkpoint/finalization because observer
-/// callbacks cannot prevent dispatch or report a tool execution error.
+/// Durable operation provenance before hooks and at handler completion.
+/// Admission failures stop dispatch. Later observation failures are retained
+/// for checkpoint/finalization checks because the tool may already be running.
 #[derive(Clone)]
 pub struct ToolAudit {
     writer: Arc<Mutex<Writer>>,
@@ -173,7 +178,7 @@ impl ToolAudit {
         }
     }
 
-    async fn append(&self, event: io::Result<ToolAuditEvent>) {
+    async fn append(&self, event: io::Result<ToolAuditEvent>) -> Result<(), String> {
         let writer = Arc::clone(&self.writer);
         self.pending.fetch_add(1, Ordering::SeqCst);
         let pending = PendingWrite(Arc::clone(&self.pending));
@@ -187,27 +192,59 @@ impl ToolAudit {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let result = event.and_then(|event| {
                 let _order = order.map_err(io::Error::other)?;
+                if matches!(&event, ToolAuditEvent::Admitted { .. })
+                    && let Some(error) = &writer.failure
+                {
+                    return Err(io::Error::other(error.clone()));
+                }
                 let bytes = serde_json::to_vec(&event)?;
                 let sequence = writer.journal.append(&bytes)?;
-                let _ = writer.activity.apply(sequence, &event);
+                let reconciled = writer.activity.apply(sequence, &event);
+                if matches!(&event, ToolAuditEvent::Admitted { .. }) {
+                    reconciled?;
+                }
                 Ok(sequence)
             });
-            if let Err(error) = result {
+            if let Err(error) = &result {
                 writer.failure.get_or_insert_with(|| error.to_string());
             }
+            result.map(|_| ())
         })
         .await;
-        if let Err(error) = result {
-            self.writer
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .failure
-                .get_or_insert_with(|| error.to_string());
+        match result {
+            Ok(result) => result.map_err(|error| error.to_string()),
+            Err(error) => {
+                self.writer
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .failure
+                    .get_or_insert_with(|| error.to_string());
+                Err(error.to_string())
+            }
         }
     }
 }
 
 impl ToolLifecycleContributor for ToolAudit {
+    fn acquire_tool_execution<'a>(
+        &'a self,
+        input: ToolExecutionInput<'a>,
+    ) -> ToolExecutionFuture<'a> {
+        Box::pin(async move {
+            self.append(Ok(ToolAuditEvent::Admitted {
+                operation: ToolOperation {
+                    thread_id: input.thread_id.to_owned(),
+                    turn_id: input.turn_id.to_owned(),
+                    call_id: input.call_id.to_owned(),
+                    tool_name: input.tool_name.to_string(),
+                    source: input.source.clone().into(),
+                },
+            }))
+            .await?;
+            Ok(None)
+        })
+    }
+
     fn on_tool_start<'a>(&'a self, input: ToolStartInput<'a>) -> ToolLifecycleFuture<'a> {
         Box::pin(async move {
             let payload = match input.payload {
@@ -221,19 +258,20 @@ impl ToolLifecycleContributor for ToolAudit {
                     input: input.clone(),
                 }),
             };
-            self.append(payload.map(|payload| ToolAuditEvent::Started {
-                operation: ToolOperation {
-                    thread_id: input.thread_store.level_id().to_owned(),
-                    turn_id: input.turn_id.to_owned(),
-                    call_id: input.call_id.to_owned(),
-                    tool_name: input.tool_name.to_string(),
-                    source: input.source.into(),
-                },
-                root_turn_id: input.root_turn_id.map(str::to_owned),
-                originating_item_id: input.originating_item_id.map(ToString::to_string),
-                payload,
-            }))
-            .await;
+            let _ = self
+                .append(payload.map(|payload| ToolAuditEvent::Started {
+                    operation: ToolOperation {
+                        thread_id: input.thread_store.level_id().to_owned(),
+                        turn_id: input.turn_id.to_owned(),
+                        call_id: input.call_id.to_owned(),
+                        tool_name: input.tool_name.to_string(),
+                        source: input.source.into(),
+                    },
+                    root_turn_id: input.root_turn_id.map(str::to_owned),
+                    originating_item_id: input.originating_item_id.map(ToString::to_string),
+                    payload,
+                }))
+                .await;
         })
     }
 
@@ -247,17 +285,18 @@ impl ToolLifecycleContributor for ToolAudit {
                 }
                 ToolCallOutcome::Aborted => ToolOutcome::Aborted,
             };
-            self.append(Ok(ToolAuditEvent::Finished {
-                operation: ToolOperation {
-                    thread_id: input.thread_store.level_id().to_owned(),
-                    turn_id: input.turn_id.to_owned(),
-                    call_id: input.call_id.to_owned(),
-                    tool_name: input.tool_name.to_string(),
-                    source: input.source.into(),
-                },
-                outcome,
-            }))
-            .await;
+            let _ = self
+                .append(Ok(ToolAuditEvent::Finished {
+                    operation: ToolOperation {
+                        thread_id: input.thread_store.level_id().to_owned(),
+                        turn_id: input.turn_id.to_owned(),
+                        call_id: input.call_id.to_owned(),
+                        tool_name: input.tool_name.to_string(),
+                        source: input.source.into(),
+                    },
+                    outcome,
+                }))
+                .await;
         })
     }
 }

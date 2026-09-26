@@ -12,13 +12,17 @@ use crate::ToolOutcome;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PendingTool {
-    started_sequence: u64,
+    #[serde(default)]
+    admitted_sequence: Option<u64>,
+    started_sequence: Option<u64>,
     operation: ToolOperation,
 }
 
 /// Handler completion to reconcile with the processes attributed to this call.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolSettlement {
+    #[serde(default)]
+    pub admitted_sequence: Option<u64>,
     pub started_sequence: Option<u64>,
     pub finished_sequence: u64,
     pub operation: ToolOperation,
@@ -97,35 +101,52 @@ impl ToolActivity {
                 self.binding = Some(binding);
                 None
             }
-            ToolAuditEvent::Started { operation, .. } => {
+            ToolAuditEvent::Admitted { operation } => {
                 let key = operation_key(operation)?;
                 if self.pending.contains_key(&key) {
-                    return Err(io::Error::other("tool operation already running"));
+                    return Err(io::Error::other("tool operation already admitted"));
                 }
                 self.pending.insert(
                     key,
                     PendingTool {
-                        started_sequence: sequence,
+                        admitted_sequence: Some(sequence),
+                        started_sequence: None,
                         operation: operation.clone(),
                     },
                 );
                 None
             }
+            ToolAuditEvent::Started { operation, .. } => {
+                let pending = self
+                    .pending
+                    .entry(operation_key(operation)?)
+                    .or_insert_with(|| PendingTool {
+                        admitted_sequence: None,
+                        started_sequence: None,
+                        operation: operation.clone(),
+                    });
+                if pending.started_sequence.is_some() || &pending.operation != operation {
+                    return Err(io::Error::other("tool start identity or phase mismatch"));
+                }
+                pending.started_sequence = Some(sequence);
+                None
+            }
             ToolAuditEvent::Finished { operation, outcome } => {
                 let pending = self.pending.remove(&operation_key(operation)?);
-                let started_sequence = match pending {
+                let (admitted_sequence, started_sequence) = match pending {
                     Some(pending) => {
                         if &pending.operation != operation {
                             return Err(io::Error::other("tool finish identity mismatch"));
                         }
-                        Some(pending.started_sequence)
+                        (pending.admitted_sequence, pending.started_sequence)
                     }
                     // MCP preparation can fail inside its handler before the
                     // start callback. Preserve missing provenance rather than
                     // infer an external invocation from the handler outcome.
-                    None => None,
+                    None => (None, None),
                 };
                 Some(ToolSettlement {
+                    admitted_sequence,
                     started_sequence,
                     finished_sequence: sequence,
                     operation: operation.clone(),

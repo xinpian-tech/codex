@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ToolAudit 已使用 acquire_tool_execution，在 pre-tool hooks 之前持久化 Admitted 操作身份并更新活动账本；写入或账本关联失败直接返回工具错误，已有审计故障也不会继续接受新操作。账本分别保存 admitted/started/finished 序号，覆盖 hooks 阶段取消或拒绝、MCP 准备失败，以及旧日志缺少 admission 的情况。开始/结束观察阶段失败仍保留给宿主收尾检查，不能撤销已运行工具。本阶段返回空资源租约，实际 worktree 互斥与后台进程续持仍待装配。组合库 Clippy 已通过，未编写或运行测试。
+
 通用工具生命周期接口现提供可失败的 acquire_tool_execution 与拥有资源的 ToolExecutionLease。Core 在 pre-tool hooks 和 handler 前通过独立 execution_scope 模块获取租约，正常 dispatch 及其结束回调完成后释放；获取失败记录未执行 handler 的失败并返回工具错误。取消会释放 dispatch 持有的租约，后台进程须另行续持所有权，不能从租约 Drop 推断 worktree 已停止变化。默认贡献者返回空租约，原工具行为保持不变。最终组合库 Clippy 已通过，未编写或运行测试。当前仅接通通用入口，独立扩展包的 worktree gate、code mode 外层/子调用协调及 checkpoint 所有权交接尚待实现。
 
 ToolActivity 已接入操作日志恢复与实时追加，宿主检查同时识别未落盘写入、审计故障和未结束工具。活动键包含 thread/turn/call 与 Direct/code mode 来源，账本只保存未结束操作的身份，完成后返回 ToolSettlement 并移出内存。没有开始记录的结束保留 started_sequence=None，包括 MCP handler 内部准备失败等路径，不从 handler outcome 推断外部调用已发生。ToolAudit 在交给 blocking pool 前串行取得写入许可，避免开始回调取消后结束记录抢先落盘。消费者仍需结合进程归属、停止工具调度和日志水位后推进 checkpoint；仅工具账本为空不代表 worktree 已停止变化。组合库 Clippy 已通过，未编写或运行测试。
