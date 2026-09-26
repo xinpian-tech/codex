@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
-use codex_infra_protocol::AgentId;
+use codex_infra_protocol::AgentDescriptor;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::RootSessionId;
 use codex_infra_state::QueueItem;
@@ -11,11 +11,9 @@ use codex_infra_state::SpoolQueue;
 use codex_infra_tmux::GatewayConnection;
 use codex_infra_tmux::GatewayReceiver;
 use codex_infra_tmux::GatewaySender;
-use codex_infra_tmux::TmuxClient;
 use codex_infra_tmux::TransportFrame;
 
 use crate::FrameRouter;
-use crate::PaneInputJournal;
 use crate::PaneReadiness;
 
 /// One directed machine-pair link. Receipts travel from the receiving host's
@@ -50,6 +48,12 @@ impl PeerLink {
 pub struct GatewayInbox {
     root_session_id: RootSessionId,
     queue: SpoolQueue,
+}
+
+pub(crate) struct PreparedPaneInput {
+    pub key: String,
+    pub target: AgentDescriptor,
+    pub frame: TransportFrame,
 }
 
 impl GatewayInbox {
@@ -95,23 +99,17 @@ impl GatewayInbox {
         self.queue.lanes()
     }
 
-    /// The runtime serializes injection per recipient, independently of network
-    /// reads. WouldBlock keeps the queued frame available until host readiness.
-    pub fn inject_next(
-        &mut self,
-        agent_id: AgentId,
+    pub(crate) fn prepare_input(
+        &self,
+        lane: &str,
         router: &FrameRouter<'_>,
         readiness: &PaneReadiness,
-        input: &mut PaneInputJournal,
-        tmux: &TmuxClient,
-    ) -> io::Result<bool> {
-        let keys = self.queue.pending_keys(
-            &agent_id.to_string(),
-            /*first_sequence*/ 0,
-            NonZeroUsize::MIN,
-        );
+    ) -> io::Result<Option<PreparedPaneInput>> {
+        let keys = self
+            .queue
+            .pending_keys(lane, /*first_sequence*/ 0, NonZeroUsize::MIN);
         let Some(key) = keys.first() else {
-            return Ok(false);
+            return Ok(None);
         };
         let item = self.queue.read(key)?;
         let frame: TransportFrame =
@@ -123,8 +121,16 @@ impl GatewayInbox {
                 "gateway router belongs to another Root Session",
             ));
         }
-        input.inject(router, readiness, tmux, &frame)?;
-        self.queue.complete(&item.key)?;
-        Ok(true)
+        let target = router.incoming(&frame)?;
+        readiness.require_ready(target)?;
+        Ok(Some(PreparedPaneInput {
+            key: item.key,
+            target: target.clone(),
+            frame,
+        }))
+    }
+
+    pub(crate) fn complete_input(&mut self, key: &str) -> io::Result<()> {
+        self.queue.complete(key)
     }
 }

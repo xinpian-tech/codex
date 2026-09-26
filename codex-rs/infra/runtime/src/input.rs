@@ -1,6 +1,7 @@
 use std::io;
 use std::path::Path;
 
+use codex_infra_protocol::AgentDescriptor;
 use codex_infra_protocol::AgentId;
 use codex_infra_protocol::RootSessionId;
 use codex_infra_state::Journal;
@@ -61,6 +62,15 @@ impl PaneInputJournal {
     ) -> io::Result<u64> {
         let target = router.incoming(frame)?;
         readiness.require_ready(target)?;
+        self.inject_resolved(target, client, frame)
+    }
+
+    pub(crate) fn inject_resolved(
+        &mut self,
+        target: &AgentDescriptor,
+        client: &TmuxClient,
+        frame: &TransportFrame,
+    ) -> io::Result<u64> {
         let mut bytes = Vec::new();
         frame.write(&mut bytes)?;
         let intended = PaneInputEvent::Intended {
