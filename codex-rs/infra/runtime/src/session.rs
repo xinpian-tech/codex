@@ -8,12 +8,16 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use codex_infra_protocol::AgentId;
 use codex_infra_protocol::DirectoryEvent;
+use codex_infra_protocol::DirectoryPublisher;
 use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::RootSessionId;
+use codex_infra_state::DirectoryFilter;
 use codex_infra_state::DirectoryStore;
 use codex_infra_state::Journal;
 use codex_infra_tmux::GatewayListener;
@@ -79,7 +83,7 @@ impl TransportSession {
     /// after the outer actor confirms collector attachment and persists binding.
     pub async fn open(config: TransportSessionConfig, tmux: Arc<TmuxClient>) -> io::Result<Self> {
         fs::create_dir_all(&config.directory)?;
-        let directory = DirectoryStore::open(
+        let mut directory = DirectoryStore::open(
             &config.directory.join("directory.journal"),
             config.root_session_id,
         )?;
@@ -97,8 +101,56 @@ impl TransportSession {
             config.input_concurrency,
         )?;
         let observations = Journal::open(&config.directory.join("transport.journal"), |_| Ok(()))?;
+        let readiness = PaneReadiness::open(
+            &config.directory.join("launches.journal"),
+            config.root_session_id,
+        )?;
         let listener = GatewayListener::bind(config.bind_address).await?;
         let reception = GatewayReception::start(listener, config.receive_capacity)?;
+        let endpoint = reception.endpoint();
+        let updated_at = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_secs(),
+        )
+        .map_err(io::Error::other)?;
+        let mut after = None;
+        loop {
+            let page: Vec<_> = directory
+                .query(
+                    DirectoryFilter {
+                        machine_id: Some(&config.machine_id),
+                        ..DirectoryFilter::default()
+                    },
+                    after,
+                    config.event_batch,
+                )
+                .into_iter()
+                .cloned()
+                .collect();
+            if page.is_empty() {
+                break;
+            }
+            for mut descriptor in page {
+                after = Some(descriptor.agent_id);
+                if descriptor.tmux_endpoint == endpoint {
+                    continue;
+                }
+                descriptor.tmux_endpoint = endpoint;
+                descriptor.revision = descriptor
+                    .revision
+                    .checked_add(1)
+                    .ok_or_else(|| io::Error::other("directory revision exhausted"))?;
+                descriptor.updated_at = updated_at;
+                directory.ingest(DirectoryEvent {
+                    source_machine_id: config.machine_id.clone(),
+                    publisher: DirectoryPublisher::Machine(config.machine_id.clone()),
+                    source_sequence: directory.next_source_sequence(&config.machine_id)?,
+                    descriptor,
+                })?;
+            }
+        }
         let collectors = config.directory.join("collectors");
         fs::create_dir_all(&collectors)?;
         let mut attachments = BTreeMap::new();
@@ -127,7 +179,7 @@ impl TransportSession {
         Ok(Self {
             config,
             directory,
-            readiness: PaneReadiness::default(),
+            readiness,
             collector,
             current_attachment: id,
             attachments,
@@ -157,12 +209,11 @@ impl TransportSession {
                 "launch belongs to another machine",
             ));
         }
-        self.readiness.register(agent, launch_id);
-        Ok(())
+        self.readiness.register(agent, launch_id)
     }
 
-    pub fn agent_exited(&mut self, agent_id: AgentId) {
-        self.readiness.exited(agent_id);
+    pub fn agent_exited(&mut self, agent_id: AgentId) -> io::Result<()> {
+        self.readiness.exited(agent_id)
     }
 
     /// Each source has a bounded processing slice. Network readers, pane capture,
