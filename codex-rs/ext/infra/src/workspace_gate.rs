@@ -1,5 +1,6 @@
 use std::io;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use codex_extension_api::ToolExecutionLease;
 use tokio::sync::Notify;
@@ -10,22 +11,64 @@ use tokio::sync::Semaphore;
 #[derive(Clone)]
 pub struct WorkspaceGate {
     semaphore: Arc<Semaphore>,
+    failure: Arc<Mutex<Option<String>>>,
+}
+
+pub(crate) enum GateReadiness {
+    Ready,
+    RecoveryRequired(String),
+}
+
+enum Admission {
+    Mutation,
+    Recovery,
 }
 
 impl WorkspaceGate {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(readiness: GateReadiness) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(/*permits*/ 1)),
+            failure: Arc::new(Mutex::new(match readiness {
+                GateReadiness::Ready => None,
+                GateReadiness::RecoveryRequired(reason) => Some(reason),
+            })),
         }
     }
 
     /// The controller retains one share for checkpoint handoff; handlers and
     /// child processes retain clones until they have stopped writing.
     pub async fn acquire(&self, operation_id: String) -> io::Result<WorkspaceLease> {
+        self.acquire_inner(operation_id, Admission::Mutation).await
+    }
+
+    /// Acquires exclusivity for retrying the service's pending checkpoint.
+    /// Recovery remains available while new mutation admission is suspended.
+    pub async fn acquire_recovery(&self, operation_id: String) -> io::Result<WorkspaceLease> {
+        self.acquire_inner(operation_id, Admission::Recovery).await
+    }
+
+    async fn acquire_inner(
+        &self,
+        operation_id: String,
+        admission: Admission,
+    ) -> io::Result<WorkspaceLease> {
         let permit = Arc::clone(&self.semaphore)
             .acquire_owned()
             .await
             .map_err(io::Error::other)?;
+        // Check after acquiring the permit, including requests queued before
+        // the preceding checkpoint failed. The failure is set before release.
+        if matches!(admission, Admission::Mutation)
+            && let Some(error) = self
+                .failure
+                .lock()
+                .map_err(|error| io::Error::other(error.to_string()))?
+                .as_ref()
+        {
+            return Err(io::Error::other(format!(
+                "workspace checkpoint requires recovery: {error}"
+            )));
+        }
         Ok(WorkspaceLease {
             inner: Some(Arc::new(LeaseState {
                 gate: Arc::clone(&self.semaphore),
@@ -52,11 +95,23 @@ impl WorkspaceGate {
         }
         // Own the handoff before the first wait. Cancelling the caller neither
         // releases exclusivity nor cancels a commit/push already in flight.
+        let failure = Arc::clone(&self.failure);
         tokio::spawn(async move {
             let lease = lease.into_exclusive().await?;
             tokio::task::spawn_blocking(move || {
-                let result = operation(&lease.operation_id);
-                drop(lease);
+                let mut attempt = CheckpointExecution {
+                    lease,
+                    failure,
+                    finished: false,
+                };
+                let result = operation(&attempt.lease.operation_id);
+                *attempt
+                    .failure
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    result.as_ref().err().map(ToString::to_string);
+                attempt.finished = true;
+                drop(attempt);
                 result
             })
             .await
@@ -64,6 +119,25 @@ impl WorkspaceGate {
         })
         .await
         .map_err(io::Error::other)?
+    }
+}
+
+struct CheckpointExecution {
+    lease: LeaseState,
+    failure: Arc<Mutex<Option<String>>>,
+    finished: bool,
+}
+
+impl Drop for CheckpointExecution {
+    fn drop(&mut self) {
+        if !self.finished {
+            // Record unwinding before dropping the lease's semaphore permit.
+            *self
+                .failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some("checkpoint execution ended before completion".to_owned());
+        }
     }
 }
 

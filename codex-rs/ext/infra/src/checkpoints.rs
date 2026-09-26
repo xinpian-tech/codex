@@ -11,10 +11,12 @@ use codex_infra_state::RecordedCheckpoint;
 use crate::AgentContext;
 use crate::WorkspaceGate;
 use crate::WorkspaceLease;
+use crate::workspace_gate::GateReadiness;
 
 struct CheckpointState {
     workspace: GitWorkspace,
     coordinator: CheckpointCoordinator,
+    retry: Option<(String, CheckpointKind)>,
 }
 
 /// Serializes one Agent's commit/push work off the async runtime. The service
@@ -40,13 +42,21 @@ impl WorkspaceCheckpoints {
         if let Some(record) = coordinator.completed(workspace.binding().agent_id) {
             context.apply_checkpoint(record)?;
         }
+        let readiness = match coordinator.phase(workspace.binding().agent_id) {
+            Some(CheckpointPhase::Pending { attempt }) => GateReadiness::RecoveryRequired(format!(
+                "pending operation {}",
+                attempt.operation_id
+            )),
+            Some(CheckpointPhase::Completed { .. }) | None => GateReadiness::Ready,
+        };
         Ok(Self {
             state: Arc::new(Mutex::new(CheckpointState {
                 workspace,
                 coordinator,
+                retry: None,
             })),
             context,
-            gate: WorkspaceGate::new(),
+            gate: WorkspaceGate::new(readiness),
         })
     }
 
@@ -72,13 +82,24 @@ impl WorkspaceCheckpoints {
                 let CheckpointState {
                     workspace,
                     coordinator,
+                    retry,
                 } = &mut *state;
+                if let Some((pending_id, pending_kind)) = retry.as_ref()
+                    && (pending_id != operation_id || *pending_kind != kind)
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "previous checkpoint requires recovery",
+                    ));
+                }
+                *retry = Some((operation_id.to_owned(), kind));
                 coordinator.checkpoint(workspace, operation_id, kind)?;
                 let record = coordinator
                     .completed(workspace.binding().agent_id)
                     .ok_or_else(|| io::Error::other("completed checkpoint record missing"))?
                     .clone();
                 context.apply_checkpoint(&record)?;
+                *retry = None;
                 Ok(record)
             })
             .await
@@ -87,6 +108,8 @@ impl WorkspaceCheckpoints {
     /// Reconciles a pending operation before admitting new work. The original
     /// operation ID/kind is reused, including after a successful push whose
     /// completion record was interrupted. No new finalization is invented.
+    /// Obtain this lease with `WorkspaceGate::acquire_recovery` while normal
+    /// mutation admission is suspended.
     pub async fn recover(&self, lease: WorkspaceLease) -> io::Result<Option<RecordedCheckpoint>> {
         let state = Arc::clone(&self.state);
         let context = Arc::clone(&self.context);
@@ -98,17 +121,24 @@ impl WorkspaceCheckpoints {
                 let CheckpointState {
                     workspace,
                     coordinator,
+                    retry,
                 } = &mut *state;
                 let agent_id = workspace.binding().agent_id;
-                if let Some(CheckpointPhase::Pending { attempt }) = coordinator.phase(agent_id) {
-                    let operation_id = attempt.operation_id.clone();
-                    let kind = attempt.kind;
+                let pending = match coordinator.phase(agent_id) {
+                    Some(CheckpointPhase::Pending { attempt }) => {
+                        Some((attempt.operation_id.clone(), attempt.kind))
+                    }
+                    Some(CheckpointPhase::Completed { .. }) | None => retry.clone(),
+                };
+                if let Some((operation_id, kind)) = pending {
+                    *retry = Some((operation_id.clone(), kind));
                     coordinator.checkpoint(workspace, &operation_id, kind)?;
                 }
                 let record = coordinator.completed(agent_id).cloned();
                 if let Some(record) = &record {
                     context.apply_checkpoint(record)?;
                 }
+                *retry = None;
                 Ok(record)
             })
             .await
