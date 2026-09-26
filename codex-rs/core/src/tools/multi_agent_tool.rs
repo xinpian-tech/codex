@@ -121,6 +121,13 @@ impl ToolExecutor<ToolInvocation> for MultiAgentV2ToolOverrides {
 }
 
 impl CoreToolRuntime for MultiAgentV2ToolOverrides {
+    fn execution_origin<'a>(
+        &'a self,
+        invocation: &'a ToolInvocation,
+    ) -> BoxFuture<'a, Option<codex_extension_api::ToolExecutionOrigin>> {
+        self.handler.execution_origin(invocation)
+    }
+
     fn wait_until_ready<'a>(&'a self, session: &'a Arc<Session>) -> Option<BoxFuture<'a, ()>> {
         self.handler.wait_until_ready(session)
     }

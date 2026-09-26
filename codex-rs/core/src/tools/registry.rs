@@ -54,6 +54,15 @@ pub use codex_tools::ToolExposure;
 /// Implementers provide the shared `ToolExecutor` behavior plus optional
 /// core-owned metadata for hooks, telemetry, tool search, and argument diffs.
 pub(crate) trait CoreToolRuntime: ToolExecutor<ToolInvocation> {
+    /// Observes the originating call for a process control operation before
+    /// lease admission. Implementations must use the host's process registry.
+    fn execution_origin<'a>(
+        &'a self,
+        _invocation: &'a ToolInvocation,
+    ) -> BoxFuture<'a, Option<codex_extension_api::ToolExecutionOrigin>> {
+        Box::pin(async { None })
+    }
+
     /// Whether this built-in control tool needs a structured tool-call event.
     fn is_builtin_control_tool(&self) -> bool {
         false
@@ -599,23 +608,29 @@ impl ToolRegistry {
             return Err(err);
         }
 
-        let _execution_scopes =
-            match super::execution_scope::acquire(&invocation, tool.execution_kind()).await {
-                Ok(scopes) => scopes,
-                Err(message) => {
-                    let error = FunctionCallError::RespondToModel(message);
-                    dispatch_trace.record_failed(&error);
-                    notify_tool_finish_if_unclaimed(
-                        &invocation,
-                        call_state.as_deref(),
-                        ToolCallOutcome::Failed {
-                            handler_executed: false,
-                        },
-                    )
-                    .await;
-                    return Err(error);
-                }
-            };
+        let execution_origin = tool.execution_origin(&invocation).await;
+        let _execution_scopes = match super::execution_scope::acquire(
+            &invocation,
+            tool.execution_kind(),
+            execution_origin.as_ref(),
+        )
+        .await
+        {
+            Ok(scopes) => scopes,
+            Err(message) => {
+                let error = FunctionCallError::RespondToModel(message);
+                dispatch_trace.record_failed(&error);
+                notify_tool_finish_if_unclaimed(
+                    &invocation,
+                    call_state.as_deref(),
+                    ToolCallOutcome::Failed {
+                        handler_executed: false,
+                    },
+                )
+                .await;
+                return Err(error);
+            }
+        };
 
         if let Some(pre_tool_use_payload) = tool.pre_tool_use_payload(&invocation) {
             match run_pre_tool_use_hooks(

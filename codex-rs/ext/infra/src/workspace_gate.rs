@@ -1,6 +1,7 @@
 use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::Weak;
 
 use codex_extension_api::ToolExecutionLease;
 use tokio::sync::Notify;
@@ -158,7 +159,30 @@ pub struct WorkspaceLease {
 
 impl ToolExecutionLease for WorkspaceLease {}
 
+/// A continuation lookup must not keep an otherwise finished operation alive.
+pub(crate) struct WorkspaceLeaseRef {
+    inner: Weak<LeaseState>,
+}
+
+impl WorkspaceLeaseRef {
+    pub(crate) fn upgrade(&self) -> Option<WorkspaceLease> {
+        self.inner
+            .upgrade()
+            .map(|inner| WorkspaceLease { inner: Some(inner) })
+    }
+
+    pub(crate) fn is_live(&self) -> bool {
+        self.inner.strong_count() != 0
+    }
+}
+
 impl WorkspaceLease {
+    pub(crate) fn downgrade(&self) -> WorkspaceLeaseRef {
+        WorkspaceLeaseRef {
+            inner: self.inner.as_ref().map(Arc::downgrade).unwrap_or_default(),
+        }
+    }
+
     async fn into_exclusive(mut self) -> io::Result<LeaseState> {
         loop {
             let inner = self
@@ -170,15 +194,21 @@ impl WorkspaceLease {
             tokio::pin!(notified);
             notified.as_mut().enable();
             if Arc::strong_count(inner) == 1 {
-                break;
+                let inner = self
+                    .inner
+                    .take()
+                    .ok_or_else(|| io::Error::other("workspace lease consumed"))?;
+                match Arc::try_unwrap(inner) {
+                    Ok(exclusive) => return Ok(exclusive),
+                    // A process interaction upgraded its lookup between the
+                    // count and unwrap. Retain the controller share and wait
+                    // for that interaction, including its post-tool hooks.
+                    Err(inner) => self.inner = Some(inner),
+                }
+                continue;
             }
             notified.await;
         }
-        let inner = self
-            .inner
-            .take()
-            .ok_or_else(|| io::Error::other("workspace lease consumed"))?;
-        Arc::try_unwrap(inner).map_err(|_| io::Error::other("workspace lease still shared"))
     }
 }
 

@@ -1,5 +1,6 @@
 use codex_tools::ToolCallSource;
 use codex_tools::ToolExecutionKind;
+use codex_tools::ToolExecutionOrigin;
 use codex_tools::ToolName;
 use codex_tools::ToolPayload;
 
@@ -14,6 +15,7 @@ pub struct ToolExecutionInput<'a> {
     pub tool_name: &'a ToolName,
     pub source: &'a ToolCallSource,
     pub kind: ToolExecutionKind,
+    pub origin: Option<&'a ToolExecutionOrigin>,
     pub payload: &'a ToolPayload,
 }
 

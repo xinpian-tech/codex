@@ -34,6 +34,7 @@ pub use codex_tools::ToolCall;
 pub use codex_tools::ToolCallSource;
 pub use codex_tools::ToolEnvironment;
 pub use codex_tools::ToolExecutionKind;
+pub use codex_tools::ToolExecutionOrigin;
 pub use codex_tools::ToolExecutor;
 pub use codex_tools::ToolExecutorFuture;
 pub use codex_tools::ToolName;

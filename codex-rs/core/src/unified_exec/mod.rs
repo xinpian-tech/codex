@@ -49,6 +49,7 @@ use codex_core_plugins::PluginMetricsSidecar;
 
 mod async_watcher;
 mod errors;
+mod execution_origin;
 mod head_tail_buffer;
 mod oneshot;
 mod process;

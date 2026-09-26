@@ -25,6 +25,14 @@ pub enum ToolExecutionKind {
     ExistingProcess,
 }
 
+/// Original tool call observed for an existing process interaction.
+/// This identity alone does not retain the process or its execution lease.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ToolExecutionOrigin {
+    pub thread_id: String,
+    pub call_id: String,
+}
+
 bitflags::bitflags! {
     /// Independent model-facing surfaces supported by a tool.
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

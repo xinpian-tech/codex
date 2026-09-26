@@ -126,6 +126,24 @@ impl WriteStdinHandler {
 }
 
 impl CoreToolRuntime for WriteStdinHandler {
+    fn execution_origin<'a>(
+        &'a self,
+        invocation: &'a ToolInvocation,
+    ) -> futures::future::BoxFuture<'a, Option<codex_extension_api::ToolExecutionOrigin>> {
+        Box::pin(async move {
+            let ToolPayload::Function { arguments } = &invocation.payload else {
+                return None;
+            };
+            let args: WriteStdinArgs = parse_arguments(arguments).ok()?;
+            invocation
+                .session
+                .services
+                .unified_exec_manager
+                .execution_origin(args.session_id)
+                .await
+        })
+    }
+
     fn matches_kind(&self, payload: &ToolPayload) -> bool {
         matches!(payload, ToolPayload::Function { .. })
     }

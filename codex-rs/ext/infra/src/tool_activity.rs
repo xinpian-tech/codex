@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 
 use codex_extension_api::ToolExecutionKind;
+use codex_extension_api::ToolExecutionOrigin;
 use codex_infra_protocol::MessageId;
 use serde::Deserialize;
 use serde::Serialize;
@@ -14,6 +15,8 @@ use crate::ToolOutcome;
 #[derive(Debug, Serialize, Deserialize)]
 struct PendingTool {
     #[serde(default)]
+    origin: Option<ToolExecutionOrigin>,
+    #[serde(default)]
     execution_kind: Option<ToolExecutionKind>,
     #[serde(default)]
     admitted_sequence: Option<u64>,
@@ -24,6 +27,8 @@ struct PendingTool {
 /// Handler completion to reconcile with the processes attributed to this call.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolSettlement {
+    #[serde(default)]
+    pub origin: Option<ToolExecutionOrigin>,
     #[serde(default)]
     pub execution_kind: Option<ToolExecutionKind>,
     #[serde(default)]
@@ -109,6 +114,7 @@ impl ToolActivity {
             ToolAuditEvent::Admitted {
                 operation,
                 execution_kind,
+                origin,
             } => {
                 let key = operation_key(operation)?;
                 if self.pending.contains_key(&key) {
@@ -117,6 +123,7 @@ impl ToolActivity {
                 self.pending.insert(
                     key,
                     PendingTool {
+                        origin: origin.clone(),
                         execution_kind: *execution_kind,
                         admitted_sequence: Some(sequence),
                         started_sequence: None,
@@ -130,6 +137,7 @@ impl ToolActivity {
                     .pending
                     .entry(operation_key(operation)?)
                     .or_insert_with(|| PendingTool {
+                        origin: None,
                         execution_kind: None,
                         admitted_sequence: None,
                         started_sequence: None,
@@ -143,7 +151,7 @@ impl ToolActivity {
             }
             ToolAuditEvent::Finished { operation, outcome } => {
                 let pending = self.pending.remove(&operation_key(operation)?);
-                let (admitted_sequence, started_sequence, execution_kind) = match pending {
+                let (admitted_sequence, started_sequence, execution_kind, origin) = match pending {
                     Some(pending) => {
                         if &pending.operation != operation {
                             return Err(io::Error::other("tool finish identity mismatch"));
@@ -152,14 +160,16 @@ impl ToolActivity {
                             pending.admitted_sequence,
                             pending.started_sequence,
                             pending.execution_kind,
+                            pending.origin,
                         )
                     }
                     // MCP preparation can fail inside its handler before the
                     // start callback. Preserve missing provenance rather than
                     // infer an external invocation from the handler outcome.
-                    None => (None, None, None),
+                    None => (None, None, None, None),
                 };
                 Some(ToolSettlement {
+                    origin,
                     execution_kind,
                     admitted_sequence,
                     started_sequence,
