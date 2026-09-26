@@ -10,6 +10,7 @@ mod store;
 mod store_audit;
 mod tool_activity;
 mod tool_audit;
+mod tool_workspace;
 mod workspace_gate;
 mod workspace_operations;
 
@@ -34,6 +35,7 @@ pub use tool_audit::ToolAuditEvent;
 pub use tool_audit::ToolOperation;
 pub use tool_audit::ToolOrigin;
 pub use tool_audit::ToolOutcome;
+pub use tool_workspace::ToolWorkspace;
 pub use workspace_gate::WorkspaceGate;
 pub use workspace_gate::WorkspaceLease;
 pub use workspace_operations::WorkspaceOperations;

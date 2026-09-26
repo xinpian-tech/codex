@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use crate::StoreAuditIdentity;
 use crate::ToolActivity;
+use crate::ToolWorkspace;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolOperation {
@@ -108,6 +109,7 @@ struct Writer {
     journal: Journal,
     failure: Option<String>,
     activity: ToolActivity,
+    workspace: Option<ToolWorkspace>,
 }
 
 /// Durable operation provenance before hooks and at handler completion.
@@ -161,8 +163,28 @@ impl ToolAudit {
                 journal,
                 failure: None,
                 activity,
+                workspace: None,
             })),
         })
+    }
+
+    /// Bind before starting the host. Its ProcessAudit must use the same
+    /// controller's operations to retain background process ownership.
+    pub fn with_workspace(self, workspace: ToolWorkspace) -> io::Result<Self> {
+        self.writer
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?
+            .workspace = Some(workspace);
+        Ok(self)
+    }
+
+    pub fn workspace(&self) -> io::Result<Option<ToolWorkspace>> {
+        Ok(self
+            .writer
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?
+            .workspace
+            .clone())
     }
 
     /// Call after tool dispatch is quiescent. Pending disk writes are not yet
@@ -208,6 +230,14 @@ impl ToolAudit {
                 let reconciled = writer.activity.apply(sequence, &event);
                 if matches!(&event, ToolAuditEvent::Admitted { .. }) {
                     reconciled?;
+                } else if let ToolAuditEvent::Finished { operation, .. } = &event {
+                    reconciled?;
+                    if let Some(error) = &writer.failure {
+                        return Err(io::Error::other(error.clone()));
+                    }
+                    if let Some(workspace) = &writer.workspace {
+                        workspace.finish(operation)?;
+                    }
                 }
                 Ok(sequence)
             });
@@ -237,19 +267,31 @@ impl ToolLifecycleContributor for ToolAudit {
         input: ToolExecutionInput<'a>,
     ) -> ToolExecutionFuture<'a> {
         Box::pin(async move {
+            let operation = ToolOperation {
+                thread_id: input.thread_id.to_owned(),
+                turn_id: input.turn_id.to_owned(),
+                call_id: input.call_id.to_owned(),
+                tool_name: input.tool_name.to_string(),
+                source: input.source.clone().into(),
+            };
             self.append(Ok(ToolAuditEvent::Admitted {
                 execution_kind: Some(input.kind),
                 origin: input.origin.cloned(),
-                operation: ToolOperation {
-                    thread_id: input.thread_id.to_owned(),
-                    turn_id: input.turn_id.to_owned(),
-                    call_id: input.call_id.to_owned(),
-                    tool_name: input.tool_name.to_string(),
-                    source: input.source.clone().into(),
-                },
+                operation: operation.clone(),
             }))
             .await?;
-            Ok(None)
+            match self.workspace().map_err(|error| error.to_string())? {
+                Some(workspace) => workspace
+                    .acquire(&input, operation)
+                    .await
+                    .map(|lease| {
+                        lease.map(|lease| {
+                            Box::new(lease) as Box<dyn codex_extension_api::ToolExecutionLease>
+                        })
+                    })
+                    .map_err(|error| error.to_string()),
+                None => Ok(None),
+            }
         })
     }
 

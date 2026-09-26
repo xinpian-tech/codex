@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+独立扩展包新增 ToolWorkspace 控制器，可通过 ToolAudit::with_workspace 在宿主启动前装配。普通工具取得独占操作，Delegating 外层由子工具各自管理，ExistingProcess 优先续持原操作；控制方登记与 handler 租约交付之间没有异步等待。Finished 记录成功落盘并归结后，写入任务自身移交 checkpoint，调用方取消等待不丢失调度。续持调用只释放份额，由原操作完成一次 checkpoint；后台进程、handler 和续持份额全部释放后才执行 Git。ManagedHost 自动将已装配控制器的登记表传入 ProcessAudit，收尾排空后等待 checkpoint 并检查任务错误。完成任务计数由拥有整个 guard 的 future 管理，异常退出也保留失败。组合库 Clippy 已通过，未编写或运行测试。该装配仍待 CLI 启用；系统启动/prewarm/hook 的进程归属、进程身份在实际交互时的复核、结果发布与 checkpoint 的等待关系、重启后的控制器恢复仍未完成。
+
 已有进程交互现从 unified exec 的实际 ProcessEntry 查询原始 thread/call，write_stdin runtime 将 ToolExecutionOrigin 提供给租约入口，操作审计及归结结果保存该关联；未知或旧记录保留空值。独立扩展的 WorkspaceOperations 可在原操作活跃或已移交 checkpoint 时续持同一租约，已移交项只保留弱引用并在登记、交接、续持时清理过期项。checkpoint 的独占转换与弱引用升级竞争时继续等待，成功取得独占权后原租约不再可续持，后续交互须申请新操作。身份查询本身不持有进程。工具控制器仍待装配，续持交互应归入原操作，由原控制方完成一次 checkpoint；不能为每个租约份额各自启动 checkpoint。组合库 Clippy 已通过，未编写或运行测试。
 
 工具 runtime 现通过 ToolExecutionKind 声明执行归属：默认 Operation，code mode execute/wait 为 Delegating，write_stdin 为 ExistingProcess；扩展和 multi-agent 包装器透传实际 runtime 的声明。Core 将分类和 hooks 前的原始 payload 传入执行租约入口，ToolAudit 的 Admitted 与 ToolActivity 的归结结果保存分类，旧记录缺失时保留未知值。分类用于后续租约装配：委托外层与子工具分别处理，已有进程控制须续持原操作直到输入处理和后置 hooks 完成。当前尚未自动启用 gate，也未建立 unified exec session ID 到原操作的续持映射。组合库 Clippy 已通过，未编写或运行测试。

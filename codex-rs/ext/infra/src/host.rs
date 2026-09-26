@@ -52,7 +52,11 @@ impl ManagedHost {
             .await
             .map_err(std::io::Error::other)?;
         self.processes.check_health()?;
-        self.tools.check_health()
+        self.tools.check_health()?;
+        if let Some(workspace) = self.tools.workspace()? {
+            workspace.drain().await?;
+        }
+        Ok(())
     }
 
     /// Stops admitting recorded starts/stdin and waits for existing requests.
@@ -82,6 +86,10 @@ impl ManagedHostServices {
         mut args: InProcessStartArgs,
         process_audit: ProcessAudit,
     ) -> std::io::Result<ManagedHost> {
+        let process_audit = match self.tools.workspace()? {
+            Some(workspace) => process_audit.with_operations(workspace.operations()),
+            None => process_audit,
+        };
         let local = args
             .environment_manager
             .try_local_environment()
