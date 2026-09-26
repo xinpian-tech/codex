@@ -1,5 +1,6 @@
 use std::io;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use codex_infra_protocol::AgentId;
@@ -10,6 +11,8 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
+use crate::TransportArchiveJobIds;
+use crate::TransportArchiveJobs;
 use crate::TransportSession;
 
 /// Control updates contain bindings and directory metadata. Semantic messages
@@ -26,6 +29,11 @@ pub enum SessionUpdate {
 }
 
 enum Command {
+    ArchiveSnapshot {
+        receipts: PathBuf,
+        ids: TransportArchiveJobIds,
+        reply: oneshot::Sender<io::Result<TransportArchiveJobs>>,
+    },
     Update {
         update: SessionUpdate,
         reply: oneshot::Sender<io::Result<()>>,
@@ -39,6 +47,27 @@ pub struct SessionController {
 }
 
 impl SessionController {
+    /// Samples writer acknowledgments on the owning transport actor. Remote Git
+    /// work is performed independently by the archive service after this reply.
+    pub async fn archive_snapshot(
+        &self,
+        receipts: PathBuf,
+        ids: TransportArchiveJobIds,
+    ) -> io::Result<TransportArchiveJobs> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(Command::ArchiveSnapshot {
+                receipts,
+                ids,
+                reply,
+            })
+            .await
+            .map_err(|_| io::Error::other("Session actor stopped"))?;
+        result
+            .await
+            .map_err(|_| io::Error::other("Session archive snapshot reply lost"))?
+    }
+
     pub async fn apply(&self, update: SessionUpdate) -> io::Result<()> {
         let (reply, result) = oneshot::channel();
         self.commands
@@ -90,6 +119,9 @@ impl SessionActor {
                     }
                     command = receiver.recv() => {
                         match command {
+                            Some(Command::ArchiveSnapshot { receipts, ids, reply }) => {
+                                let _ = reply.send(session.prepare_archive_snapshot(&receipts, ids));
+                            }
                             Some(Command::Update { update, reply }) => {
                                 let result = match update {
                                     SessionUpdate::Directory(event) => session.update_directory(*event).map(|_| ()),
@@ -106,6 +138,11 @@ impl SessionActor {
             receiver.close();
             while let Ok(command) = receiver.try_recv() {
                 match command {
+                    Command::ArchiveSnapshot { reply, .. } => {
+                        let _ = reply.send(Err(io::Error::other(
+                            "Session actor is handing off ownership",
+                        )));
+                    }
                     Command::Update { reply, .. } => {
                         let _ = reply.send(Err(io::Error::other(
                             "Session actor is handing off ownership",

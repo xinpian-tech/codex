@@ -18,6 +18,7 @@ mod routing;
 mod sender;
 mod session;
 mod session_actor;
+mod transport_archive;
 
 pub use archive_actor::ArchiveActor;
 pub use archive_actor::ArchiveController;
@@ -72,3 +73,4 @@ pub use session_actor::SessionActor;
 pub use session_actor::SessionController;
 pub use session_actor::SessionExit;
 pub use session_actor::SessionUpdate;
+pub use transport_archive::TransportArchiveActor;

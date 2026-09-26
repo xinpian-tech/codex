@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+SessionController 新增 archive_snapshot 控制请求，由持有 writer 的 SessionActor 采样七条 transport 日志位置；独立 TransportArchiveActor 定时请求快照，在 blocking worker 内先持久化 Prepared 批次，再提交 ArchiveController 并保存七项 Completed 回执。每次只持有一个未完成批次，重启重放原 IDs，位置未变化不生成新批次；后续批次保持流/源路径/receipt 路径绑定及位置单调。Session actor 停止后仍可推进已保存批次，读取失败仅影响新快照采样；远端提交和回执等待不占用 transport 的收发循环。stop 等待当前步骤，持久未完成任务留给重启，不把周期快照标为 producer 结束。机器 CLI 仍需创建并管理该服务；dispatch/pane-input 等分片日志、收尾之后的明确最终快照与整机 manifest 尚待接入。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 TransportSession 新增持久 TransportArchiveBinding，为实际 spool 保存 root/machine/machine_run_id，重启沿用同一机器流身份，collector 重连不影响；打开时将 spool 目录规范化，避免后续路径随工作目录变化。prepare_archive_snapshot 从 directory、readiness、network events/cursor、network inbox、transport observations 和 binding 七个实际 writer 采样已确认位置，生成可保存的 TransportArchiveJobs，复用 ArchiveController 提交及七项精确回执查询。此处仍是 Snapshot，后续目录更新、尾部提取和关闭审计可能继续发生；dispatch/pane-input 等分片日志、定期保存并提交这些快照、全部 producer 关闭和最终 manifest 尚待接入。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 TransportSession::stage_capture_tails 在当前 collector 显式停止后，以 attachment 游标分页、每项 event_batch 上限推进原始 stdout 的剩余提取，将语义帧写入既有 durable dispatch；不重新启动采集或隐式发送。CaptureTailPage 返回 AwaitingCompletion/Pending/Staged，Staged 必须精确达到持久 CollectorFinished 的 stdout position，并另报 pending_forwarding，不把入队等同于远端投递。此前已回收 attachment 已满足完成位置和空 dispatch 条件，未回收项继续保留。普通 tick 与尾部提取共用 Attachment::stage_next：若前次 stage 失败导致 reader 超前，按 dispatch 保存的 cursor 重开源 reader，沿原 key 重放，避免继续消费后续 batch；底层 journal 故障仍需按既有恢复流程处理。全部 attachment 完成证据、dispatch/inbox 等机器日志归档、最终 manifest 与 CLI 装配仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
