@@ -3710,6 +3710,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-infra-nix"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "codex-infra-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codex-infra-protocol"
 version = "0.0.0"
 dependencies = [
