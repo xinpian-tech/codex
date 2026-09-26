@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+codex-infra-provider 新增每 attempt 独立的 ChatStream，将已解码 Chat Completions chunks 转换为 Responses JSON 事件：普通文本 delta/done、按 index 聚合的 function 参数 delta/done、output_item added/done 和最终 completed/incomplete。保留 call_id、供应商 response ID，映射 prompt/completion/cache/reasoning token usage；完成理由到达后仍接收独立 usage chunk，仅显式 [DONE] 调用 finish，网络 EOF 不构造成功。截断/内容过滤不发工具 output_item.done；转换错误结束本次 attempt。调用者提供输出字节预算，转换累计受其约束。该组件尚未接入 SSE 字节解析与 HTTP 前端，reasoning 内容续接、custom/namespace 工具和实际供应商调用仍待完成。库级 Clippy 通过，未编写或运行测试，未执行供应商请求或实装实验。
+
 新增独立 codex-infra-provider crate，不依赖 codex-core，首批提供完整上下文 Responses 请求到流式 Chat Completions 请求的转换。已覆盖 instructions/developer 角色、文本消息、普通 function 工具定义、连续工具调用合并、原 call_id/参数字符串、工具结果回填、tool_choice 和基础生成参数；model 由调用者传入的已解析绑定提供。命名空间/custom 工具、reasoning continuation、非文本输入及 previous_response_id 尚未转换，当前返回明确的 Unsupported，不删除相关输入。此为协议转换基础，尚未接入动态端口 HTTP 前端、供应商请求、反向 SSE、账户/token 和实际 Agent 启动链路，不能视为 DeepSeek 已可运行。实现参考 [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/) 与 [Responses 工具调用事件](https://developers.openai.com/api/docs/guides/function-calling)，服务能力仍需由 Team State profile 解析。Cargo workspace/lock 与 Bazel crate target 已加入，Bazel 元数据刷新完成；仅运行库级 Clippy，未编写或运行测试，未调用供应商或进行实装实验。
 
 控制日志的 archive.journal 现在保存可追加的完整任务清单：prepare 重放已有清单，沿用已有任务 IDs，只为新增流创建任务并持久化新清单；同一流请求不同结束位置返回错误。恢复扫描读取最后一份完整清单，在取得 run.lock 后再次读取，逐条补齐缺失的 stdout/stdin/lifecycle/stdin-lifecycle；已列入清单的流不重开、不追加，已有远端回执和结束位置保持有效。这样 stdin 当时未返回完成位置而仅准备两条输出流的运行，也能在后续确认 owner 退出后补归档输入流。恢复中断时沿用最后完整清单，未完整写入的尾部由 Journal 重开修复。旧版无运行锁的清单仍可重放，其缺失流迁移、运行中周期快照、stderr 和整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
