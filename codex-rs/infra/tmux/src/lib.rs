@@ -12,6 +12,8 @@ mod terminal;
 pub use assembly::MessageAssembler;
 pub use client::AgentLaunch;
 pub use client::PanePlacement;
+pub use client::PaneProcess;
+pub use client::PaneProcessState;
 pub use client::TmuxClient;
 pub use codex_infra_protocol::DeliveryReceipt;
 pub use codex_infra_protocol::DeliveryStage;

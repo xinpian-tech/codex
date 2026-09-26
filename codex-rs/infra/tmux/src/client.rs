@@ -12,7 +12,7 @@ use codex_infra_protocol::RootSessionId;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanePlacement {
     pub session: String,
     pub window_id: String,
@@ -21,9 +21,24 @@ pub struct PanePlacement {
 
 pub struct AgentLaunch {
     pub agent_id: AgentId,
+    pub launch_id: MessageId,
     pub worktree: PathBuf,
     pub host_program: PathBuf,
     pub host_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneProcessState {
+    Alive,
+    Exited,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneProcess {
+    pub placement: PanePlacement,
+    pub pid: u32,
+    pub state: PaneProcessState,
 }
 
 /// A machine runtime supplies the tmux executable, configuration and keeper
@@ -75,6 +90,15 @@ impl TmuxClient {
     /// Only process bindings belong in argv. Task text and Bootstrap arrive
     /// through the new pane's stdin after placement and collection are ready.
     pub fn create_agent(&self, session: &str, launch: &AgentLaunch) -> io::Result<PanePlacement> {
+        if let Some(existing) = self.inspect_launch(session, launch.agent_id, launch.launch_id)? {
+            return match existing.state {
+                PaneProcessState::Alive => Ok(existing.placement),
+                PaneProcessState::Exited => Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "launch already exited; restart with a new launch ID",
+                )),
+            };
+        }
         if launch.host_args.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -82,7 +106,7 @@ impl TmuxClient {
             ));
         }
         let target = format!("{session}:");
-        let agent_name = launch.agent_id.to_string();
+        let agent_name = format!("{}:{}", launch.agent_id, launch.launch_id);
         let mut command = self.command([
             OsStr::new("new-window"),
             OsStr::new("-d"),
@@ -115,6 +139,61 @@ impl TmuxClient {
             window_id: window_id.to_owned(),
             pane_id: pane_id.to_owned(),
         })
+    }
+
+    /// The explicit window name is the process incarnation's binding. `-n`
+    /// disables automatic rename for this window (tmux's documented behavior).
+    /// The launcher serializes create/reconcile for each Agent.
+    pub fn inspect_launch(
+        &self,
+        session: &str,
+        agent_id: AgentId,
+        launch_id: MessageId,
+    ) -> io::Result<Option<PaneProcess>> {
+        let name = format!("{agent_id}:{launch_id}");
+        let target = format!("={session}");
+        let bytes = self.run([
+            "list-panes",
+            "-s",
+            "-t",
+            &target,
+            "-F",
+            "#{window_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_dead}",
+        ])?;
+        let output = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
+        let mut found = None;
+        for line in output.lines() {
+            let fields: Vec<_> = line.split('\t').collect();
+            if fields.first().copied() != Some(name.as_str()) {
+                continue;
+            }
+            if fields.len() != 5 || found.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "tmux launch must identify exactly one pane",
+                ));
+            }
+            let state = match fields[4] {
+                "0" => PaneProcessState::Alive,
+                "1" => PaneProcessState::Exited,
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid tmux pane_dead field",
+                    ));
+                }
+            };
+            found = Some(PaneProcess {
+                placement: PanePlacement {
+                    session: session.to_owned(),
+                    window_id: fields[1].to_owned(),
+                    pane_id: fields[2].to_owned(),
+                },
+                pid: fields[3].parse().map_err(io::Error::other)?,
+                state,
+            });
+        }
+        Ok(found)
     }
 
     /// The collector owns all three streams, journals raw output continuously,

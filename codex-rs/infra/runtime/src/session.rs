@@ -21,6 +21,7 @@ use codex_infra_state::DirectoryFilter;
 use codex_infra_state::DirectoryStore;
 use codex_infra_state::Journal;
 use codex_infra_tmux::GatewayListener;
+use codex_infra_tmux::PaneProcessState;
 use codex_infra_tmux::TmuxClient;
 use serde::Serialize;
 use tokio::task::Id;
@@ -215,6 +216,21 @@ impl TransportSession {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "launch belongs to another machine",
+            ));
+        }
+        let process = self
+            .tmux
+            .inspect_launch(&agent.tmux_session, agent_id, launch_id)?
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "launch process missing from tmux")
+            })?;
+        if process.state != PaneProcessState::Alive
+            || process.placement.pane_id != agent.tmux_pane
+            || process.placement.window_id != agent.tmux_window
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "live launch does not match Agent placement",
             ));
         }
         self.readiness.register(agent, launch_id)
