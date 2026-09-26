@@ -3740,6 +3740,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-infra-tmux"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "codex-infra-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codex-install-context"
 version = "0.0.0"
 dependencies = [
