@@ -42,8 +42,8 @@ pub struct CaptureTailPage {
 impl TransportSession {
     /// After stop_capture, stages a bounded slice from each selected remaining
     /// attachment into its durable dispatch queue. Does not reconnect capture,
-    /// send messages or inject input. Repeat Pending entries; paginate the stable
-    /// attachment map with next_cursor. Previously retired attachments already
+    /// send messages or inject input. Repeat Pending entries; paginate remaining
+    /// attachments with next_cursor. Previously retired attachments already
     /// reached their completion positions with empty dispatch queues.
     pub fn stage_capture_tails(
         &mut self,
@@ -105,6 +105,26 @@ impl TransportSession {
                 .next()
                 .map(|_| entry.attachment_id)
         });
+        for entry in &entries {
+            if matches!(
+                entry.state,
+                CaptureTailState::Staged {
+                    pending_forwarding: false,
+                    ..
+                }
+            ) && let Some(attachment) = self.attachments.get(&entry.attachment_id)
+            {
+                attachment.dispatch.record_retirement(
+                    &self
+                        .config
+                        .directory
+                        .join("collectors")
+                        .join(entry.attachment_id.to_string())
+                        .join("dispatch-completion.journal"),
+                )?;
+                self.attachments.remove(&entry.attachment_id);
+            }
+        }
         Ok(CaptureTailPage {
             entries,
             next_cursor,

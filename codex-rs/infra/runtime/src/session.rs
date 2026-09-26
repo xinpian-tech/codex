@@ -44,12 +44,15 @@ mod archive;
 mod archive_binding;
 mod archive_jobs;
 mod collector;
+mod dispatch_archive;
 mod shutdown;
 mod tails;
 use archive_binding::TransportArchiveBinding;
 pub use archive_jobs::TransportArchiveJobIds;
 pub use archive_jobs::TransportArchiveJobs;
 use collector::CollectorOwner;
+pub use dispatch_archive::DispatchArchiveJobIds;
+pub use dispatch_archive::DispatchArchiveJobs;
 pub use tails::CaptureTailEntry;
 pub use tails::CaptureTailPage;
 pub use tails::CaptureTailState;
@@ -352,6 +355,16 @@ impl TransportSession {
             }
         }
         for id in retired {
+            if let Some(attachment) = self.attachments.get(&id) {
+                attachment.dispatch.record_retirement(
+                    &self
+                        .config
+                        .directory
+                        .join("collectors")
+                        .join(id.to_string())
+                        .join("dispatch-completion.journal"),
+                )?;
+            }
             self.attachments.remove(&id);
         }
         for (lane, error) in self

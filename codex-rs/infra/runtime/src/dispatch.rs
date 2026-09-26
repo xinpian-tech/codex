@@ -14,6 +14,9 @@ use crate::ControlBatch;
 use crate::ControlCursor;
 use crate::ObservedControl;
 
+mod completion;
+pub(crate) use completion::DispatchCompletion;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CapturedFrame {
     pub pane_id: String,
