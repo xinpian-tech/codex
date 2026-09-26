@@ -4,6 +4,7 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::path::PathBuf;
 
 use codex_infra_protocol::AgentId;
 use codex_infra_protocol::AgentMessage;
@@ -28,7 +29,10 @@ use codex_infra_tmux::write_message;
 
 use crate::recorded_writer::RecordedWriter;
 
+mod archive;
 mod publication;
+pub use archive::MailboxArchiveJobIds;
+pub use archive::MailboxArchiveJobs;
 
 /// Durable prefixes sampled together under the host's mailbox ownership.
 /// Positions describe recorded bytes/events, not remote delivery or processing.
@@ -45,6 +49,7 @@ pub struct MailboxPositions {
 /// consumes only bytes read from that host's terminal stdin. Methods are
 /// serialized by the host, including presentation at a Codex input boundary.
 pub struct HostMailbox<W: Write> {
+    directory: PathBuf,
     root_session_id: RootSessionId,
     agent_id: AgentId,
     inbox: DurableInbox,
@@ -88,6 +93,7 @@ impl<W: Write> HostMailbox<W> {
         let input = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
         let journal = Journal::open(&directory.join("stdout.journal"), |_| Ok(()))?;
         Ok(Self {
+            directory: directory.canonicalize()?,
             root_session_id,
             agent_id,
             inbox,

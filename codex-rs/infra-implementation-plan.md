@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+HostMailbox 新增 MailboxArchiveJobs，从实际打开的规范化 spool 目录及 flush 后的位置生成 stdin/stdout/inbox/outbox/publications 五条归档任务；使用固定 job IDs 和 launch 派生的 receipt journal，可序列化保存后重放提交。completion 按原 job IDs 查询全部远端归档回执；归档回执不代表消息投递或模型处理完成。prepare_archive_snapshot 供运行中采样，finish_archive 则消费 mailbox 所有权，完成最后 flush、关闭日志后返回 ProducerFinished 任务，供最终消息之后的尾部归档。调用方仍需先结束输入和 publication worker，并持久化返回的任务；关闭与持久化之间的中断恢复、完整 finalizer 及 CLI 装配尚待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 ext/infra 增加 HostShutdownJournal / HostShutdownPlan，先持久化 identity、launch、receipt 目录和固定 job IDs，再由独立任务执行 shutdown_and_snapshot，并在返回前保存完整 HostArchiveJobs。状态变更先核对计划/阶段再写日志；取消调用方等待不取消 worker 的快照记录。archive 重放原任务入队、查询三项精确回执并持久化 Archived，处理部分提交或确认返回丢失；status 提供 Requested/Draining/Prepared/Archived 及最近关闭错误。恢复时 Prepared/Archived 直接继续归档阶段，不重新采样；Requested 也可能是关闭已发生但快照尚未持久化的中断，仍需实际 host/audit 状态核对。此日志仅管理三条宿主审计快照，不表达完整 Agent 终态；最终消息、其余 producer、快照前中断恢复及 CLI 驱动仍待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 ManagedHost 新增 shutdown_and_snapshot，将等待式 inference shutdown、受管 hook 排空、backend 请求关闭、进程输出排空和 workspace checkpoint 等待按顺序装配；独立拥有的任务在调用方取消等待后继续收尾。前一步出错仍尝试后续独立 drain，全部成功后才从实际 audit writer 生成 HostArchiveJobs。任务返回 Snapshot 而非 ProducerFinished，不将该入口等同于全部 Session 流结束；外部线程创建与长进程退出由调用方先安排。finalizer 对收尾意图/准备结果的持久化、归档提交等待、最终消息和余下 producer tails 仍待接入。改动集中于 ext/infra，复用现有 jobs 准备逻辑，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

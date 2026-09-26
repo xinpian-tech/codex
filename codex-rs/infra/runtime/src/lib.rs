@@ -44,6 +44,8 @@ pub use input::PaneInputJournal;
 pub use launcher::LaunchCoordinator;
 pub use launcher::LaunchIntent;
 pub use mailbox::HostMailbox;
+pub use mailbox::MailboxArchiveJobIds;
+pub use mailbox::MailboxArchiveJobs;
 pub use mailbox::MailboxPositions;
 pub use readiness::PaneReadiness;
 pub use receiver::GatewayReception;
