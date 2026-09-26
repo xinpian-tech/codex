@@ -637,6 +637,8 @@ TransportSession 已装配单机器/Root Session 的传输推进步骤：打开 
 
 PaneReadiness 已持久保存 launch ID、placement、Ready 和退出记录。恢复时先保留已观察状态，待启动器核对存活进程绑定或 collector 再次观察该 launch 的 Ready 后启用输入；实际进程核对仍待启动器实现。TransportSession 重新监听后按页更新本机 Agent 的 endpoint、revision、时间和来源序号。跨机器的 Directory 增量交换及 Team State 发布仍待接入。
 
+TransportSession 检测到 collector 停止或采集线程结束时建立新的 control attachment，随后由后台任务 detach、排空和回收旧 collector。旧日志继续提取，只有对应采集任务结束且队列清空后才移除内存视图。重连关系与旧进程结果进入 transport journal。该机制尚未在真实运行中观察；启动握手、机器 actor 与完整退出收尾仍需接入。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
