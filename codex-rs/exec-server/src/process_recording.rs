@@ -9,6 +9,7 @@ use crate::ExecProcessEvent;
 use crate::ExecProcessFuture;
 use crate::protocol::ByteChunk;
 use crate::protocol::ExecParams;
+use crate::protocol::ExecResponse;
 use crate::protocol::JSONRPCErrorError;
 use crate::protocol::ProcessSandboxType;
 use crate::protocol::WriteParams;
@@ -80,6 +81,13 @@ pub trait ProcessInputRecorder: Send + Sync {
 /// Callbacks run inside the producer's ordering boundary and must not reenter
 /// the execution backend; subsequent work can consume the persisted records.
 pub trait ProcessRecorder: Send + Sync {
+    /// Records the outcome of this start attempt, independently of producer
+    /// failures. Output can arrive before the start response is recorded.
+    fn start_finished(
+        &self,
+        outcome: Result<ExecResponse, JSONRPCErrorError>,
+    ) -> ExecProcessFuture<'_, ()>;
+
     /// Persists the effective command before the backend attempts to spawn it.
     fn prepared(&self, command: PreparedProcessCommand) -> ExecProcessFuture<'_, ()>;
 
@@ -87,8 +95,8 @@ pub trait ProcessRecorder: Send + Sync {
 }
 
 /// Prepares a recorder before process creation or output consumption starts.
-/// The host owns correlation and storage layout. Repeated starts for the same
-/// process ID must reuse the recorder, matching exec-server's retry semantics.
+/// The host owns correlation and storage layout. Each attempt gets a distinct
+/// recorder: a rejected duplicate start must not fail the existing process.
 pub trait ProcessRecorderFactory: Send + Sync {
     /// Persists every stdin request, including retries and unknown process IDs.
     /// Each returned recorder correlates exactly one request with its outcome.

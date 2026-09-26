@@ -38,6 +38,7 @@ pub struct ManagedHost {
     pub client: InProcessClientHandle,
     exec_backend: Arc<dyn ExecBackend>,
     tools: Arc<ToolAudit>,
+    processes: ProcessAudit,
 }
 
 impl ManagedHost {
@@ -50,6 +51,7 @@ impl ManagedHost {
             .drain_recorded_processes()
             .await
             .map_err(std::io::Error::other)?;
+        self.processes.check_health()?;
         self.tools.check_health()
     }
 
@@ -92,7 +94,7 @@ impl ManagedHostServices {
             EnvironmentManager::recorded_local(
                 runtime_paths,
                 args.environment_manager.http_client_factory().clone(),
-                Arc::new(process_audit),
+                Arc::new(process_audit.clone()),
             )
             .map_err(std::io::Error::other)?,
         );
@@ -107,6 +109,7 @@ impl ManagedHostServices {
             client,
             exec_backend,
             tools,
+            processes: process_audit,
         })
     }
 }

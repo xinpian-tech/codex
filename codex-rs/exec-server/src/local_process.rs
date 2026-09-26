@@ -327,12 +327,15 @@ impl LocalProcess {
                 let result = backend
                     .start_process_recorded(params, telemetry, Some(recorder.clone()))
                     .await;
-                if let Err(error) = &result {
-                    recorder
-                        .record(ExecProcessEvent::Failed(error.message.clone()))
-                        .await
-                        .map_err(|error| internal_error(error.to_string()))?;
-                }
+                recorder
+                    .start_finished(
+                        result
+                            .as_ref()
+                            .map(|(response, _, _)| response.clone())
+                            .map_err(Clone::clone),
+                    )
+                    .await
+                    .map_err(|error| internal_error(error.to_string()))?;
                 result
             })
             .map_err(|error| internal_error(error.to_string()))?
