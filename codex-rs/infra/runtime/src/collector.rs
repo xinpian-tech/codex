@@ -19,6 +19,7 @@ mod archive;
 mod archive_actor;
 mod archive_worker;
 mod completion;
+mod progress;
 pub use archive::CollectorArchiveJobIds;
 pub use archive::CollectorArchiveJobs;
 pub use archive_actor::CollectorArchiveActor;
@@ -62,6 +63,14 @@ impl ControlCollector {
         let commands = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
         let mut lifecycle = Journal::open(&directory.join("lifecycle.journal"), |_| Ok(()))?;
         lifecycle.append(format!("attach {session}").as_bytes())?;
+        for (name, position) in [
+            ("stdout", stdout_journal.position()),
+            ("stderr", stderr_journal.position()),
+            ("stdin", commands.position()),
+            ("lifecycle", lifecycle.position()),
+        ] {
+            progress::publish(&directory, name, attachment_id, position)?;
+        }
         let mut child = client.attach_control(session)?;
         let input = child.stdin.take();
         let stdout = child
@@ -72,8 +81,26 @@ impl ControlCollector {
             .stderr
             .take()
             .ok_or_else(|| io::Error::other("control stderr missing"))?;
-        let stdout = thread::spawn(move || capture(stdout, stdout_journal));
-        let stderr = thread::spawn(move || capture(stderr, stderr_journal));
+        let stdout_directory = directory.clone();
+        let stdout = thread::spawn(move || {
+            capture(
+                stdout,
+                stdout_journal,
+                &stdout_directory,
+                "stdout",
+                attachment_id,
+            )
+        });
+        let stderr_directory = directory.clone();
+        let stderr = thread::spawn(move || {
+            capture(
+                stderr,
+                stderr_journal,
+                &stderr_directory,
+                "stderr",
+                attachment_id,
+            )
+        });
         Ok(Self {
             attachment_id,
             directory,
@@ -107,6 +134,12 @@ impl ControlCollector {
             self.commands.append(bytes)?;
             input.write_all(bytes)?;
             input.flush()?;
+            progress::publish(
+                &self.directory,
+                "stdin",
+                self.attachment_id,
+                self.commands.position(),
+            )?;
         }
         Ok(())
     }
@@ -125,6 +158,12 @@ impl ControlCollector {
             .map_err(|_| io::Error::other("control stderr recorder panicked"));
         self.lifecycle
             .append(format!("exit {status}; stdout={stdout:?}; stderr={stderr:?}").as_bytes())?;
+        progress::publish(
+            &self.directory,
+            "lifecycle",
+            self.attachment_id,
+            self.lifecycle.position(),
+        )?;
         let stdout = stdout??;
         let stderr = stderr??;
         let completed = CollectorCompletion {
@@ -159,7 +198,13 @@ struct CapturedStream {
     position: JournalPosition,
 }
 
-fn capture(mut stream: impl Read, mut journal: Journal) -> io::Result<CapturedStream> {
+fn capture(
+    mut stream: impl Read,
+    mut journal: Journal,
+    directory: &Path,
+    name: &str,
+    attachment_id: MessageId,
+) -> io::Result<CapturedStream> {
     let mut bytes = [0_u8; 64 * 1024];
     let mut total = 0_u64;
     loop {
@@ -175,6 +220,7 @@ fn capture(mut stream: impl Read, mut journal: Journal) -> io::Result<CapturedSt
             });
         }
         journal.append(&bytes[..length])?;
+        progress::publish(directory, name, attachment_id, journal.position())?;
         total = total
             .checked_add(length as u64)
             .ok_or_else(|| io::Error::other("control stream offset exhausted"))?;

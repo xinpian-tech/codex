@@ -10,7 +10,7 @@ use super::CollectorArchiveWorker;
 use crate::ArchiveController;
 use crate::ArchiveWorkerState;
 
-/// Discovers finished collectors and replays durable archive preparation. Stop
+/// Discovers collector prefixes and endings, replaying durable preparation. Stop
 /// waits for the active step and hands back the queue; it does not imply that
 /// every collector or remote archive job has finished.
 pub struct CollectorArchiveActor {
