@@ -7,6 +7,7 @@ mod hook_executor;
 mod host;
 mod process_activity;
 mod process_audit;
+mod publication;
 mod store;
 mod store_audit;
 mod tool_activity;

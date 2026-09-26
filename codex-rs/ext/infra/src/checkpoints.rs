@@ -13,7 +13,7 @@ use crate::WorkspaceGate;
 use crate::WorkspaceLease;
 use crate::workspace_gate::GateReadiness;
 
-struct CheckpointState {
+pub(super) struct CheckpointState {
     workspace: GitWorkspace,
     coordinator: CheckpointCoordinator,
     retry: Option<(String, CheckpointKind)>,
@@ -25,9 +25,9 @@ struct CheckpointState {
 /// This service does not interpret a yielded tool call as a process exit.
 #[derive(Clone)]
 pub struct WorkspaceCheckpoints {
-    state: Arc<Mutex<CheckpointState>>,
-    context: Arc<AgentContext>,
-    gate: WorkspaceGate,
+    pub(super) state: Arc<Mutex<CheckpointState>>,
+    pub(super) context: Arc<AgentContext>,
+    pub(super) gate: WorkspaceGate,
 }
 
 impl WorkspaceCheckpoints {
@@ -79,28 +79,7 @@ impl WorkspaceCheckpoints {
                 let mut state = state
                     .lock()
                     .map_err(|error| io::Error::other(error.to_string()))?;
-                let CheckpointState {
-                    workspace,
-                    coordinator,
-                    retry,
-                } = &mut *state;
-                if let Some((pending_id, pending_kind)) = retry.as_ref()
-                    && (pending_id != operation_id || *pending_kind != kind)
-                {
-                    return Err(io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        "previous checkpoint requires recovery",
-                    ));
-                }
-                *retry = Some((operation_id.to_owned(), kind));
-                coordinator.checkpoint(workspace, operation_id, kind)?;
-                let record = coordinator
-                    .completed(workspace.binding().agent_id)
-                    .ok_or_else(|| io::Error::other("completed checkpoint record missing"))?
-                    .clone();
-                context.apply_checkpoint(&record)?;
-                *retry = None;
-                Ok(record)
+                state.complete(&context, operation_id, kind)
             })
             .await
     }
@@ -142,5 +121,34 @@ impl WorkspaceCheckpoints {
                 Ok(record)
             })
             .await
+    }
+}
+
+impl CheckpointState {
+    pub(super) fn complete(
+        &mut self,
+        context: &AgentContext,
+        operation_id: &str,
+        kind: CheckpointKind,
+    ) -> io::Result<RecordedCheckpoint> {
+        if let Some((pending_id, pending_kind)) = &self.retry
+            && (pending_id != operation_id || *pending_kind != kind)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "previous checkpoint requires recovery",
+            ));
+        }
+        self.retry = Some((operation_id.to_owned(), kind));
+        self.coordinator
+            .checkpoint(&mut self.workspace, operation_id, kind)?;
+        let record = self
+            .coordinator
+            .completed(self.workspace.binding().agent_id)
+            .ok_or_else(|| io::Error::other("completed checkpoint record missing"))?
+            .clone();
+        context.apply_checkpoint(&record)?;
+        self.retry = None;
+        Ok(record)
     }
 }

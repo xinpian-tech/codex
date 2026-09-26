@@ -44,6 +44,24 @@ impl ContextSnapshot {
 }
 
 impl AgentContext {
+    pub(crate) fn validate_message_source(
+        &self,
+        message: &codex_infra_protocol::AgentMessage,
+    ) -> io::Result<()> {
+        let current = self.current.borrow();
+        if message.from.agent_id.to_string() != current.identity.agent_id
+            || message.root_session_id.to_string() != current.identity.root_session_id
+            || message.from.machine_id.to_string() != current.identity.machine_id
+            || message.from.role != current.identity.role
+            || message.repo != current.workspace.repo
+        {
+            return Err(io::Error::other(
+                "message source does not match Agent binding",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_workspace(&self, workspace: &WorkspaceBinding) -> io::Result<()> {
         if !self.current.borrow().matches_workspace(workspace) {
             return Err(io::Error::other("workspace does not match Agent context"));
