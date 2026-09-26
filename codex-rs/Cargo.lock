@@ -3714,6 +3714,8 @@ name = "codex-infra-extension"
 version = "0.0.0"
 dependencies = [
  "codex-app-server",
+ "codex-core",
+ "codex-extension-api",
  "codex-infra-protocol",
  "codex-infra-state",
  "codex-protocol",

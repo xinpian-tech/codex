@@ -1,5 +1,6 @@
 //! Context fragments injected into model input.
 
+mod agent_execution;
 mod agent_message_board_notification;
 mod approved_command_prefix_saved;
 mod apps_instructions;
@@ -53,6 +54,11 @@ mod user_shell_command;
 mod user_verification_notice;
 pub(crate) mod world_state;
 
+pub use agent_execution::AgentExecutionContext;
+pub use agent_execution::AgentExecutionFragment;
+pub use agent_execution::ExecutionIdentity;
+pub use agent_execution::ExecutionInference;
+pub use agent_execution::ExecutionWorkspace;
 pub(crate) use agent_message_board_notification::AgentMessageBoardNotification;
 pub(crate) use approved_command_prefix_saved::APPROVED_COMMAND_PREFIX_SAVED_MESSAGE_PREFIX;
 pub(crate) use approved_command_prefix_saved::ApprovedCommandPrefixSaved;

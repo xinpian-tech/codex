@@ -13,10 +13,12 @@ workspace = true
 
 [dependencies]
 codex-app-server = { workspace = true }
+codex-core = { workspace = true }
+codex-extension-api = { workspace = true }
 codex-infra-protocol = { workspace = true }
 codex-infra-state = { workspace = true }
 codex-protocol = { workspace = true }
 codex-thread-store = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "sync"] }

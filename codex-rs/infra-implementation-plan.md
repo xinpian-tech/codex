@@ -657,6 +657,10 @@ app-server 已增加独立 `HostServices` 契约及 `in_process::start_with_host
 
 StoreAudit 已实现宿主 HostServices，可在 journal 准备好之后直接传给 `in_process::start_with_host_services`，装饰该进程实际创建的默认 ThreadStore。组合后的库目标编译通过；实际 Agent CLI 启动、生产侧原始工具/请求采集和归档仍未装配，尚未进行运行实验。
 
+AgentContext 已通过 ManagedHostServices 追加到默认扩展集合，使用现有 World State 增量机制。`core/context/agent_execution.rs` 定义身份、工作区、推理/配置引用的类型化片段并实现 ContextualUserFragment；单片连同标记硬限 900 字节，三片合计至多 2,700 字节。整组绑定检查后原子发布，未变化且仍在历史中的片段不重复追加；缺少保留片段时重新呈现。历史上下文分类已识别新标记。该层接收宿主提供的绑定，实际 launch/checkpoint/generation 更新调用、Task/消息上下文及相关 Agent 名册仍待连接；未开展恢复或压缩运行实验。
+
+上述上下文装配已通过 `cargo clippy -p codex-infra-extension --lib --locked --offline`，Bazel 依赖元数据已更新且 MODULE.bazel.lock 内容未变化；未编写或运行测试。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
