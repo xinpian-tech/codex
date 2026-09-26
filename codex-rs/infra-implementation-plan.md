@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+infra/state 增加 JournalRestore：以确定的 ArchiveStream 打开恢复文件并持有独占锁，按原始偏移接收相邻/重叠段，逐块比较已有字节后追加并 fsync；重启部分恢复时从 offset 0 重放验证，缺段或内容冲突保留为未完成。finish 要求恢复范围和文件长度等于指定 producer completion position，再用 JournalReader 校验原始 frame、sequence/checksum 与最终字节偏移，不截断归档证据。SessionShard::read_segment 可从已获取的 Git receipt commit 读取段，并核对内容寻址名称。跨机器 Git fetch、流段目录/选择、机器级恢复编排仍待接入；该能力仅完成单条已选定流的还原。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 HostMailbox 新增 flush_positions，在 stdout 缓冲及底层终端 flush 完成后采样 stdin/stdout/inbox/outbox/publications 五条日志的 durable position；位置不代表远端接收或模型处理完成。底层 inbox/outbox/spool 提供各自 writer 的已确认位置。ControlCollector 的 capture worker 在 EOF 时返回真实 journal position，finish 等待两条输出线程并落盘退出记录后，一并返回 stdout/stderr/commands/lifecycle 完成位置，保留原始输出字节计数。JournalArchive 为初次归档的空日志发布包含流身份的零长度段，以便空流也有远端回执；后续相同位置不重复发布。生产者仍需由 finalizer 停止，machine writer 按这些位置归档的装配尚待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 受管宿主新增 HostAuditPositions / settled_audit_positions，直接从 process/tool/thread-store writer 返回已 fsync 的 JournalPosition，供后续归档核对使用；调用方先停止分发并排空相应生产者，采样本身不关闭宿主。ProcessAudit 与 ToolAudit 复用原活动账本和失败状态，在同一 writer 锁下核对完成并取得位置。StoreAudit 增加 Started/Finished 序号对账、待落盘写入计数和写入失败记录，重启重建未完成 store 操作；取消或缺失 Finished 的副作用留待恢复，不以文件存在作为完成依据。宿主保留自己的 StoreAudit 句柄；此集合明确不包含 Provider 传输、tmux/mailbox 和 machine 日志。新增逻辑均在 ext/infra，无依赖变化。producer 停止装配、未知 store 操作恢复及 finalizer 仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

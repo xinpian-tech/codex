@@ -33,6 +33,30 @@ pub struct SessionShard {
 }
 
 impl SessionShard {
+    /// Reads a content-addressed segment at its receipt commit. The caller
+    /// fetches the shard's Git objects before restoring on another machine.
+    pub fn read_segment(&self, receipt: &ArchiveReceipt) -> io::Result<crate::JournalSegment> {
+        if receipt.session_ref != self.session_ref {
+            return Err(io::Error::other(
+                "archive receipt belongs to another Session shard",
+            ));
+        }
+        let object = format!("{}:{}", receipt.commit, receipt.segment_name);
+        let output = self.command(["show", &object]).output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ));
+        }
+        let expected_name = format!("segments/{}.bin", blake3::hash(&output.stdout));
+        if receipt.segment_name != expected_name {
+            return Err(io::Error::other(
+                "archive segment content address differs from receipt",
+            ));
+        }
+        serde_json::from_slice(&output.stdout).map_err(io::Error::other)
+    }
+
     pub(crate) fn session_ref(&self) -> &str {
         &self.session_ref
     }

@@ -9,6 +9,7 @@ mod outbox;
 mod queue;
 mod session;
 mod stream_archive;
+mod stream_restore;
 mod tasks;
 mod workspace;
 
@@ -36,6 +37,7 @@ pub use stream_archive::ArchiveStream;
 pub use stream_archive::ArchivedRange;
 pub use stream_archive::JournalArchive;
 pub use stream_archive::JournalSegment;
+pub use stream_restore::JournalRestore;
 pub use tasks::TaskStore;
 pub use tasks::TaskStoreError;
 pub use workspace::Checkpoint;
