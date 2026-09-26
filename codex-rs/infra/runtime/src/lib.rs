@@ -64,6 +64,8 @@ pub use mailbox::HostMailbox;
 pub use mailbox::MailboxArchiveJobIds;
 pub use mailbox::MailboxArchiveJobs;
 pub use mailbox::MailboxPositions;
+pub use provider_archive::ProviderArchiveActor;
+pub use provider_archive::ProviderArchiveConfig;
 pub use provider_archive::ProviderArchiveJobs;
 pub use readiness::PaneReadiness;
 pub use receiver::GatewayReception;

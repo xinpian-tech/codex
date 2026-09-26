@@ -8,6 +8,8 @@ use crate::ArchiveActor;
 use crate::ArchiveController;
 use crate::CollectorArchiveActor;
 use crate::MachineArchiveWriter;
+use crate::ProviderArchiveActor;
+use crate::ProviderArchiveConfig;
 use crate::SessionActor;
 use crate::SessionController;
 use crate::ShardArchiveActor;
@@ -22,6 +24,7 @@ pub use launch::MachinePrograms;
 pub use launch::MachineScheduling;
 
 pub struct MachineRuntimeConfig {
+    pub provider_archives: ProviderArchiveConfig,
     pub transport_interval: Duration,
     pub archive_interval: Duration,
     pub command_capacity: NonZeroUsize,
@@ -41,6 +44,7 @@ pub struct MachineRuntime {
     collectors: Option<CollectorArchiveActor>,
     snapshots: Option<TransportArchiveActor>,
     shards: Option<ShardArchiveActor>,
+    providers: Option<ProviderArchiveActor>,
 }
 
 /// Resources returned for final snapshots, backlog reconciliation and restart.
@@ -68,6 +72,7 @@ impl MachineRuntime {
             collectors: None,
             snapshots: None,
             shards: None,
+            providers: None,
         }
     }
 
@@ -128,12 +133,17 @@ impl MachineRuntime {
             self.shards = Some(
                 ShardArchiveActor::start(
                     session,
-                    archive,
+                    archive.clone(),
                     self.directory.clone(),
                     self.directory.join("shard-archive"),
                     self.config.archive_interval,
                 )
                 .await?,
+            );
+        }
+        if self.providers.is_none() {
+            self.providers = Some(
+                ProviderArchiveActor::start(self.config.provider_archives.clone(), archive).await?,
             );
         }
         Ok(())
@@ -191,6 +201,11 @@ impl MachineRuntime {
                 && let Err(error) = collectors.stop().await
             {
                 failures.push(format!("collector archives: {error}"));
+            }
+            if let Some(providers) = self.providers.take()
+                && let Err(error) = providers.stop().await
+            {
+                failures.push(format!("provider archives: {error}"));
             }
             if let Some(archive) = self.archive.take() {
                 match archive.stop().await {

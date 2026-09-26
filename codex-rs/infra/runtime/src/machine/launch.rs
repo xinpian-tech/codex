@@ -19,6 +19,7 @@ use serde::Serialize;
 use super::MachineRuntime;
 use super::MachineRuntimeConfig;
 use crate::MachineArchiveWriter;
+use crate::ProviderArchiveConfig;
 use crate::TransportSession;
 use crate::TransportSessionConfig;
 
@@ -113,7 +114,7 @@ impl MachineLaunchConfig {
             TransportSessionConfig {
                 directory: spool.join("transport"),
                 root_session_id: config.root_session_id,
-                machine_id: config.machine_id,
+                machine_id: config.machine_id.clone(),
                 bind_address: config.bind_address,
                 event_batch: scheduling.event_batch,
                 receive_capacity: scheduling.receive_capacity,
@@ -134,6 +135,13 @@ impl MachineLaunchConfig {
             session,
             writer,
             MachineRuntimeConfig {
+                provider_archives: ProviderArchiveConfig {
+                    root_session_id: config.root_session_id,
+                    machine_id: config.machine_id,
+                    attempts: spool.join("provider-attempts"),
+                    directory: spool.join("provider-archive"),
+                    interval: Duration::from_millis(scheduling.archive_interval_ms.get()),
+                },
                 transport_interval: Duration::from_millis(scheduling.transport_interval_ms.get()),
                 archive_interval: Duration::from_millis(scheduling.archive_interval_ms.get()),
                 command_capacity: scheduling.command_capacity,

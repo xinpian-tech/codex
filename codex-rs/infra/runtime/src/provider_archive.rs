@@ -15,6 +15,10 @@ use crate::ArchiveController;
 use crate::ArchiveJob;
 use crate::ArchiveTarget;
 
+mod actor;
+pub use actor::ProviderArchiveActor;
+pub use actor::ProviderArchiveConfig;
+
 /// One completed attempt's five audit streams and producer completion marker.
 /// Job identities are persisted in the source spool before queue admission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
