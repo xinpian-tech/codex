@@ -15,6 +15,11 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+#[path = "machine_runtime/signals.rs"]
+mod signals;
+use signals::ShutdownSignals;
+use signals::StopReason;
+
 #[derive(Deserialize)]
 struct Request {
     id: String,
@@ -51,6 +56,8 @@ enum Output {
         error: Option<String>,
     },
     Stopped {
+        reason: StopReason,
+        control_error: Option<String>,
         failures: Vec<String>,
     },
 }
@@ -68,6 +75,7 @@ async fn main() -> io::Result<()> {
         ));
     }
     let config = MachineLaunchConfig::read(&path)?;
+    let mut signals = ShutdownSignals::open()?;
     let capacity = config.scheduling.command_capacity.get();
     let root_session_id = config.root_session_id;
     let machine_id = config.machine_id.clone();
@@ -98,7 +106,14 @@ async fn main() -> io::Result<()> {
             endpoint: machine.endpoint(),
         })?;
         let controller = machine.controller()?;
-        while let Some(request) = receive.recv().await {
+        loop {
+            let request = tokio::select! {
+                reason = signals.receive() => return reason,
+                request = receive.recv() => match request {
+                    Some(request) => request,
+                    None => return Ok(StopReason::StdinClosed),
+                },
+            };
             let Request { id, command } = request?;
             let update = match command {
                 ControlCommand::Directory { event } => SessionUpdate::Directory(event),
@@ -112,7 +127,7 @@ async fn main() -> io::Result<()> {
                 ControlCommand::AgentExited { agent_id } => SessionUpdate::AgentExited { agent_id },
                 ControlCommand::Stop => {
                     emit(Output::Response { id, error: None })?;
-                    break;
+                    return Ok(StopReason::Requested);
                 }
             };
             let error = controller
@@ -122,13 +137,14 @@ async fn main() -> io::Result<()> {
                 .map(|error| error.to_string());
             emit(Output::Response { id, error })?;
         }
-        Ok::<(), io::Error>(())
     }
     .await;
     drop(receive);
     let exit = machine.stop().await?;
     let failed = !exit.failures.is_empty();
     emit(Output::Stopped {
+        reason: result.as_ref().copied().unwrap_or(StopReason::ControlError),
+        control_error: result.as_ref().err().map(ToString::to_string),
         failures: exit.failures,
     })?;
     result?;
