@@ -64,6 +64,8 @@ pub use sender::ScheduleOutcome;
 pub use session::CaptureTailEntry;
 pub use session::CaptureTailPage;
 pub use session::CaptureTailState;
+pub use session::TransportArchiveJobIds;
+pub use session::TransportArchiveJobs;
 pub use session::TransportSession;
 pub use session::TransportSessionConfig;
 pub use session_actor::SessionActor;

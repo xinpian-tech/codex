@@ -33,6 +33,10 @@ pub struct DirectoryStore {
 }
 
 impl DirectoryStore {
+    pub fn position(&self) -> crate::JournalPosition {
+        self.journal.position()
+    }
+
     pub fn open(path: &Path, root_session_id: RootSessionId) -> io::Result<Self> {
         let mut agents = BTreeMap::new();
         let mut sources = BTreeMap::new();

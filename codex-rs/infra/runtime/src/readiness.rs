@@ -39,6 +39,10 @@ struct LaunchRecord {
 }
 
 impl PaneReadiness {
+    pub fn position(&self) -> codex_infra_state::JournalPosition {
+        self.journal.position()
+    }
+
     pub fn open(path: &Path, root: RootSessionId) -> io::Result<Self> {
         let mut launches = BTreeMap::new();
         let journal = Journal::open(path, |record| {

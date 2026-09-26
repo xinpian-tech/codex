@@ -19,6 +19,14 @@ pub struct IngressSpool {
 }
 
 impl IngressSpool {
+    pub fn event_position(&self) -> JournalPosition {
+        self.events.position()
+    }
+
+    pub fn checkpoint_position(&self) -> JournalPosition {
+        self.checkpoints.position()
+    }
+
     pub fn open(event_path: &Path, checkpoint_path: &Path) -> io::Result<Self> {
         let events = Journal::open(event_path, |record| {
             let _: ReceptionEvent =

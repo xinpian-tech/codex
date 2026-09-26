@@ -57,6 +57,10 @@ pub(crate) struct PreparedPaneInput {
 }
 
 impl GatewayInbox {
+    pub fn position(&self) -> codex_infra_state::JournalPosition {
+        self.queue.position()
+    }
+
     pub fn open(path: &Path, root_session_id: RootSessionId) -> io::Result<Self> {
         Ok(Self {
             root_session_id,

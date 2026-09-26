@@ -41,9 +41,14 @@ use crate::PeerScheduler;
 use crate::ReceptionEvent;
 
 mod archive;
+mod archive_binding;
+mod archive_jobs;
 mod collector;
 mod shutdown;
 mod tails;
+use archive_binding::TransportArchiveBinding;
+pub use archive_jobs::TransportArchiveJobIds;
+pub use archive_jobs::TransportArchiveJobs;
 use collector::CollectorOwner;
 pub use tails::CaptureTailEntry;
 pub use tails::CaptureTailPage;
@@ -81,6 +86,7 @@ struct TransportObservation<'a> {
 /// The outer machine actor serializes directory/launch updates with `tick`.
 pub struct TransportSession {
     config: TransportSessionConfig,
+    archive_binding: TransportArchiveBinding,
     directory: DirectoryStore,
     readiness: PaneReadiness,
     collector: CollectorOwner,
@@ -100,8 +106,13 @@ pub struct TransportSession {
 impl TransportSession {
     /// Called inside the machine's Tokio runtime. Agent launch is released only
     /// after the outer actor confirms collector attachment and persists binding.
-    pub async fn open(config: TransportSessionConfig, tmux: Arc<TmuxClient>) -> io::Result<Self> {
+    pub async fn open(
+        mut config: TransportSessionConfig,
+        tmux: Arc<TmuxClient>,
+    ) -> io::Result<Self> {
         fs::create_dir_all(&config.directory)?;
+        config.directory = config.directory.canonicalize()?;
+        let archive_binding = TransportArchiveBinding::open(&config)?;
         let mut directory = DirectoryStore::open(
             &config.directory.join("directory.journal"),
             config.root_session_id,
@@ -191,6 +202,7 @@ impl TransportSession {
         attachments.insert(id, open_attachment(collector.directory(), id, &config)?);
         Ok(Self {
             config,
+            archive_binding,
             directory,
             readiness,
             collector: CollectorOwner::Running(Box::new(collector)),
