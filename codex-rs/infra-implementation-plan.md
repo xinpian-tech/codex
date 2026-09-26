@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+stdin 现通过 ProcessInputRecorder 保存每次原始 WriteParams 及完整返回结果或 JSON-RPC 错误。请求先落盘，结果用请求 journal 序号关联；重复 write ID 仍由原队列入口去重。启用记录时独立任务持有输入操作和结果记录，调用方取消不取消已经开始的工作。Accepted 仅表示已送入写入队列，不代表子进程已读取；缺少结果时保留未知状态。最终代码通过 `cargo clippy -p codex-infra-extension --lib --locked --offline`，未编写或运行测试。宿主停机等待这些任务、实际 Environment 装配及 checkpoint 的修改边界关联仍待接入。
+
 实施从 `c015fc31d1` 开始，包含远端上游 `e72da2b538`。相对本文最初的源码核对基线，`ext/agent` 的启动调用已变为 `spawn_legacy_subagent`；`ContextualUserFragment` 的契约由独立 `context-fragments` 包导出。宿主仍在 `message_processor` 内装配 ThreadStore 与扩展，Memory consolidation 仍直接创建 thread。
 
 已形成以下独立基础实现，尚未连接生产 Agent 宿主：

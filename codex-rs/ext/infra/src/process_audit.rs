@@ -9,10 +9,14 @@ use codex_exec_server::ExecProcessEvent;
 use codex_exec_server::ExecProcessFuture;
 use codex_exec_server::ExecServerError;
 use codex_exec_server::ProcessId;
+use codex_exec_server::ProcessInputRecorder;
 use codex_exec_server::ProcessRecorder;
 use codex_exec_server::ProcessRecorderFactory;
 use codex_exec_server_protocol::ExecParams;
+use codex_exec_server_protocol::JSONRPCErrorError;
 use codex_exec_server_protocol::ProcessOutputChunk;
+use codex_exec_server_protocol::WriteParams;
+use codex_exec_server_protocol::WriteResponse;
 use codex_infra_protocol::MessageId;
 use codex_infra_state::Journal;
 use serde::Deserialize;
@@ -32,6 +36,13 @@ pub enum ProcessAuditEvent {
     },
     Requested {
         params: Box<ExecParams>,
+    },
+    InputRequested {
+        params: WriteParams,
+    },
+    InputFinished {
+        requested_sequence: u64,
+        outcome: Result<WriteResponse, JSONRPCErrorError>,
     },
     Output {
         process_id: ProcessId,
@@ -98,6 +109,32 @@ impl ProcessAudit {
 }
 
 impl ProcessRecorderFactory for ProcessAudit {
+    fn open_input<'a>(
+        &'a self,
+        params: &'a WriteParams,
+    ) -> ExecProcessFuture<'a, Arc<dyn ProcessInputRecorder>> {
+        let writer = Arc::clone(&self.writer);
+        let params = params.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let bytes = serde_json::to_vec(&ProcessAuditEvent::InputRequested { params })
+                    .map_err(recording_error)?;
+                let requested_sequence = writer
+                    .lock()
+                    .map_err(recording_error)?
+                    .journal
+                    .append(&bytes)
+                    .map_err(recording_error)?;
+                Ok(Arc::new(InputRecorder {
+                    writer,
+                    requested_sequence,
+                }) as Arc<dyn ProcessInputRecorder>)
+            })
+            .await
+            .map_err(recording_error)?
+        })
+    }
+
     fn open<'a>(
         &'a self,
         params: &'a ExecParams,
@@ -137,6 +174,39 @@ impl ProcessRecorderFactory for ProcessAudit {
 struct Recorder {
     process_id: ProcessId,
     writer: Arc<Mutex<Writer>>,
+}
+
+struct InputRecorder {
+    writer: Arc<Mutex<Writer>>,
+    requested_sequence: u64,
+}
+
+impl ProcessInputRecorder for InputRecorder {
+    fn finish(
+        &self,
+        outcome: Result<WriteResponse, JSONRPCErrorError>,
+    ) -> ExecProcessFuture<'_, ()> {
+        let writer = Arc::clone(&self.writer);
+        let requested_sequence = self.requested_sequence;
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let bytes = serde_json::to_vec(&ProcessAuditEvent::InputFinished {
+                    requested_sequence,
+                    outcome,
+                })
+                .map_err(recording_error)?;
+                writer
+                    .lock()
+                    .map_err(recording_error)?
+                    .journal
+                    .append(&bytes)
+                    .map_err(recording_error)?;
+                Ok(())
+            })
+            .await
+            .map_err(recording_error)?
+        })
+    }
 }
 
 impl ProcessRecorder for Recorder {

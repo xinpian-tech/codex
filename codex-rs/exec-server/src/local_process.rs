@@ -683,6 +683,29 @@ impl LocalProcess {
         &self,
         params: WriteParams,
     ) -> Result<WriteResponse, JSONRPCErrorError> {
+        let Some(factory) = self.recorder_factory.clone() else {
+            return self.write_input(params).await;
+        };
+        let backend = self.clone();
+        // Own both the queue operation and its recorded outcome after the
+        // requester drops its future. The existing write-id dedup stays atomic.
+        tokio::spawn(async move {
+            let recorder = factory
+                .open_input(&params)
+                .await
+                .map_err(|error| internal_error(error.to_string()))?;
+            let result = backend.write_input(params).await;
+            recorder
+                .finish(result.clone())
+                .await
+                .map_err(|error| internal_error(error.to_string()))?;
+            result
+        })
+        .await
+        .map_err(|error| internal_error(error.to_string()))?
+    }
+
+    async fn write_input(&self, params: WriteParams) -> Result<WriteResponse, JSONRPCErrorError> {
         let _input_bytes = params.chunk.0.len();
         if params.write_id.is_empty() {
             return Err(invalid_params("writeId must not be empty".to_string()));

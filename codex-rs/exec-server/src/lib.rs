@@ -141,6 +141,7 @@ pub use process::ExecProcessEvent;
 pub use process::ExecProcessEventReceiver;
 pub use process::ExecProcessFuture;
 pub use process::StartedExecProcess;
+pub use process_recording::ProcessInputRecorder;
 pub use process_recording::ProcessRecorder;
 pub use process_recording::ProcessRecorderFactory;
 pub use protocol::ByteChunk;
