@@ -14,6 +14,7 @@ use crate::AgentContext;
 use crate::AuditedThreadStore;
 use crate::ProcessAudit;
 use crate::StoreAudit;
+use crate::ToolAudit;
 
 // A prepared writer can be passed directly to start_with_host_services. The
 // default queue and extension assembly remain owned by the embedded app-server.
@@ -27,6 +28,7 @@ impl HostServices for StoreAudit {
 pub struct ManagedHostServices {
     audit: StoreAudit,
     context: Arc<AgentContext>,
+    tools: Arc<ToolAudit>,
 }
 
 /// The initialized app-server and its recorded execution lifecycle boundary.
@@ -35,16 +37,20 @@ pub struct ManagedHostServices {
 pub struct ManagedHost {
     pub client: InProcessClientHandle,
     exec_backend: Arc<dyn ExecBackend>,
+    tools: Arc<ToolAudit>,
 }
 
 impl ManagedHost {
     /// Waits for recorded requests and child output producers before checkpoint.
     /// A long-running child must finish or be terminated by the task owner.
+    /// The caller first quiesces tool dispatch; this checks tool audit health
+    /// but does not itself stop non-process tools or infer their completion.
     pub async fn drain_recorded_processes(&self) -> std::io::Result<()> {
         self.exec_backend
             .drain_recorded_processes()
             .await
-            .map_err(std::io::Error::other)
+            .map_err(std::io::Error::other)?;
+        self.tools.check_health()
     }
 
     /// Stops admitting recorded starts/stdin and waits for existing requests.
@@ -57,8 +63,12 @@ impl ManagedHost {
 }
 
 impl ManagedHostServices {
-    pub fn new(audit: StoreAudit, context: Arc<AgentContext>) -> Self {
-        Self { audit, context }
+    pub fn new(audit: StoreAudit, context: Arc<AgentContext>, tools: Arc<ToolAudit>) -> Self {
+        Self {
+            audit,
+            context,
+            tools,
+        }
     }
 
     /// Starts this Agent with a fresh recorded local execution environment.
@@ -91,10 +101,12 @@ impl ManagedHostServices {
             .try_local_environment()
             .ok_or_else(|| std::io::Error::other("recorded local environment unavailable"))?
             .get_exec_backend();
+        let tools = Arc::clone(&self.tools);
         let client = start_with_host_services(args, Arc::new(self)).await?;
         Ok(ManagedHost {
             client,
             exec_backend,
+            tools,
         })
     }
 }
@@ -110,6 +122,7 @@ impl HostServices for ManagedHostServices {
     ) -> Arc<ExtensionRegistry<Config>> {
         let mut builder = default.to_builder();
         builder.prompt_contributor(self.context.clone());
+        builder.tool_lifecycle_contributor(self.tools.clone());
         Arc::new(builder.build())
     }
 }

@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+独立扩展包增加 ToolAudit，并由 ManagedHostServices 注册到实际工具生命周期贡献者。每个 launch 的操作日志保存 thread/turn/call、工具名、Direct 或 code mode 的 cell/runtime call 来源；开始记录保留最终 ToolPayload、root turn 和 originating item，结束记录保留 Completed/Blocked/Failed/Aborted。未出现开始回调的结束也保留。写入使用 blocking 任务，已开始写入在等待方取消后继续，pending 写入与首个错误由宿主检查；生命周期观察回调返回 `()`，该层不能阻止工具执行。宿主须先停止工具调度，再检查操作审计和进程排空；操作/进程 ledger、修改串行化、checkpoint Hook 及完整 finalizer 仍待连接。该组合库 Clippy 已通过，未编写或执行测试。
+
 Prepared 记录现包含实际继承的 shell snapshot descriptor 编号及完整字节正文（复用 ByteChunk 的 base64 序列化）。Unix 宿主在 blocking 任务中按位置读取 materialize 后的文件，保留实际 descriptor 关闭前缀，不改变子进程的文件偏移；读取与 journal 保存完成后才尝试 spawn。旧 Prepared 记录缺少该字段时按未采集处理。组合库 Clippy 已通过，未编写或执行测试。此处采集的是传给子进程的 snapshot 文件，snapshot 捕获命令自身的原始流与平台 launcher 内部变换仍待接入。
 
 ProcessAudit 增加 Prepared 记录：在 shell snapshot/执行器准备完成后、spawn 前保存实际传入的 argv、绝对 cwd、env、arg0 与 sandbox 类型，先落盘再继续创建进程。原始 Requested 已保留 ExecMetadata 的 thread_id/tool_call_id，unified exec 现有路径提供这些值，后续操作关联复用它们。Prepared 表示准备后的 spawn 参数，不代表进程已经创建；继承 descriptor 内的 shell snapshot 正文及平台 launcher 内部变换仍需单独采集。该记录不进入模型上下文。组合库 Clippy 已通过，未编写或运行测试。

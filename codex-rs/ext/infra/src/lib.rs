@@ -7,6 +7,7 @@ mod host;
 mod process_audit;
 mod store;
 mod store_audit;
+mod tool_audit;
 
 pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
@@ -18,3 +19,9 @@ pub use store::AuditedThreadStore;
 pub use store_audit::StoreAudit;
 pub use store_audit::StoreAuditEvent;
 pub use store_audit::StoreAuditIdentity;
+pub use tool_audit::RecordedToolPayload;
+pub use tool_audit::ToolAudit;
+pub use tool_audit::ToolAuditEvent;
+pub use tool_audit::ToolOperation;
+pub use tool_audit::ToolOrigin;
+pub use tool_audit::ToolOutcome;
