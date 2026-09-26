@@ -3,6 +3,7 @@
 mod assembly;
 mod client;
 mod control;
+mod control_decoder;
 mod frame;
 mod socket;
 #[cfg(unix)]
@@ -17,6 +18,8 @@ pub use codex_infra_protocol::DeliveryStage;
 pub use codex_infra_protocol::FrameRoute;
 pub use control::PaneOutput;
 pub use control::parse_pane_output;
+pub use control_decoder::ControlDecoder;
+pub use control_decoder::ControlRecord;
 pub use frame::FrameChunk;
 pub use frame::FrameDecoder;
 pub use frame::TransportFrame;

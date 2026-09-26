@@ -93,7 +93,7 @@ pub fn write_message(writer: &mut impl Write, message: &AgentMessage) -> io::Res
 
 /// Incremental pane/stdin framing. Raw bytes are archived by the caller before
 /// parsing; ordinary terminal lines remain outside the semantic transport.
-#[derive(Default)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FrameDecoder {
     line: Vec<u8>,
     discarding_line: bool,
