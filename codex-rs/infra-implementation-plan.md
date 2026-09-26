@@ -623,6 +623,8 @@ FrameRouter 从当前 Directory 解析目标动态 endpoint，核对采集 pane 
 
 输入注入组件现通过 PaneReadiness 核对当前 launch ID、Agent 和 placement。宿主从自己的 stdout 发出 Ready frame，本机 collector 接收后更新就绪状态；Ready 不进入 TCP 转发。PaneInputJournal 在调用 tmux 前保存目标与完整输入字节，随后追加注入成功或错误记录。注入成功不代表 durable inbox 已接受消息。启动器仍需持久化 launch binding、装配 raw 模式与 Ready 发出顺序；机器事件循环、等待就绪的队列和网络重连仍待接入。
 
+SpoolQueue 的正文保存在 journal，内存维护 key、lane 和记录偏移；各目标可分别读取待转发项。ControlDispatch 按 collector attachment/source sequence/record/frame 位置生成稳定入队 key，先保存整个提取批次的 frame，再保存解析游标。中途退出后可重读原批次并幂等入队。Ready 使用本机处理队列，消息和回执按接收 Agent 分组。队列转发完成与接收宿主的 accepted/presented 回执分别记录，HostMailbox 的 outbox 仍承担回执前的消息重投。网络消费者和跨目标调度尚待连接。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
