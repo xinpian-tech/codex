@@ -3737,6 +3737,7 @@ dependencies = [
  "codex-infra-tmux",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

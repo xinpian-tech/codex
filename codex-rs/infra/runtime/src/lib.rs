@@ -9,6 +9,7 @@ mod mailbox;
 mod readiness;
 mod recorded_writer;
 mod routing;
+mod sender;
 
 pub use collector::CollectorCompletion;
 pub use collector::ControlCollector;
@@ -26,3 +27,6 @@ pub use mailbox::HostMailbox;
 pub use readiness::PaneReadiness;
 pub use routing::ForwardTarget;
 pub use routing::FrameRouter;
+pub use sender::ForwardReport;
+pub use sender::PeerScheduler;
+pub use sender::ScheduleOutcome;
