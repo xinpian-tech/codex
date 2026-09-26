@@ -3,6 +3,7 @@
 mod collector;
 mod dispatch;
 mod extraction;
+mod gateway;
 mod input;
 mod mailbox;
 mod readiness;
@@ -17,6 +18,8 @@ pub use extraction::ControlBatch;
 pub use extraction::ControlCursor;
 pub use extraction::ControlFrameReader;
 pub use extraction::ObservedControl;
+pub use gateway::GatewayInbox;
+pub use gateway::PeerLink;
 pub use input::PaneInputEvent;
 pub use input::PaneInputJournal;
 pub use mailbox::HostMailbox;
