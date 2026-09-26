@@ -615,6 +615,9 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 | `cd743853ed` | runtime：宿主 mailbox，checkpoint commit 标记、stdin/stdout 原始日志、收发与回执装配 |
 | `94b52cf60a` | tmux：Agent PTY raw 模式初始化和生命周期结束时恢复 |
 | `f242fb0a0b` | state：独立只读 JournalReader，完整记录跟随与消费者游标接续 |
+| `24fcaabcb1` | runtime/tmux：独立 control stdout/stderr 采集线程、attach 分流日志、增量 control 解码 |
+
+ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
 
@@ -622,4 +625,4 @@ tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型�
 
 五个包均已通过限定库目标的 Cargo 编译/Clippy，使用 Nix store 中的 Rust 1.95.0 和 C 工具链；Rust/Bazel 文件直接以 rustfmt/buildifier 格式化。tmux/runtime 的独立库构建仍有根目录 Clippy 配置引用未启用 Tokio sync 类型的三条警告。Cargo.lock 已维护。Bazel 9.0.0 的 `mod deps --lockfile_mode=update` 已成功执行，MODULE.bazel.lock 未产生内容差异。本机 NixOS 下使用临时目录中的适配 launcher/process-wrapper，以及同版本 Nix Cargo 的 repository override 完成元数据生成；这些本机构建工具路径没有进入项目配置。
 
-P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、完整原始流采集、Hook 装配和日志消费者尚待连接。P2 已有 tmux/传输、PTY raw 模式和宿主收发组件，collector 持续采集、宿主就绪协调、路由、重连与重投调度仍待连接。当前 inbox/outbox 物化视图保留历史消息正文，长 Session 所需的按需正文读取与索引维护尚待实现。P3–P7 的 Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
+P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、完整原始流采集、Hook 装配和日志消费者尚待连接。P2 已有 tmux/传输、PTY raw 模式、宿主收发、control 采集和日志提取组件，宿主就绪协调、路由、重连与重投调度仍待连接。当前 inbox/outbox 物化视图保留历史消息正文，长 Session 所需的按需正文读取与索引维护尚待实现。P3–P7 的 Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
