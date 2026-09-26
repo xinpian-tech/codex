@@ -18,6 +18,7 @@ use crate::StoreAudit;
 use crate::ToolAudit;
 
 mod archive;
+mod shutdown;
 pub use archive::HostArchiveJobIds;
 pub use archive::HostArchiveJobs;
 pub use archive::HostArchivePhase;

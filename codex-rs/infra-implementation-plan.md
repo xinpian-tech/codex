@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ManagedHost 新增 shutdown_and_snapshot，将等待式 inference shutdown、受管 hook 排空、backend 请求关闭、进程输出排空和 workspace checkpoint 等待按顺序装配；独立拥有的任务在调用方取消等待后继续收尾。前一步出错仍尝试后续独立 drain，全部成功后才从实际 audit writer 生成 HostArchiveJobs。任务返回 Snapshot 而非 ProducerFinished，不将该入口等同于全部 Session 流结束；外部线程创建与长进程退出由调用方先安排。finalizer 对收尾意图/准备结果的持久化、归档提交等待、最终消息和余下 producer tails 仍待接入。改动集中于 ext/infra，复用现有 jobs 准备逻辑，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 新增 InProcessClientHandle::shutdown_drained 作为受管关闭接入点，默认 shutdown 继续原有有界行为。显式 drained 请求通过内部关闭模式传递给 processor，等待已接收后台任务、已跟踪线程的 shutdown_and_wait 以及 processor/outbound worker，不执行这些层级的超时 abort；确认丢失、worker 异常和 thread shutdown 提交失败返回给宿主。ThreadManager 的等待式关闭放在独立子模块，完成后按实例匹配移除线程；调用方仍须先停止线程创建。新增逻辑分别在 core/thread_manager 与 app-server 的小模块中，既有大文件只增加模式分派和模块接入，无依赖变化。此处不证明所有 detached producer 已结束，也不保存关闭前后的完整原始 app-server 通知流；受管宿主顺序装配、进程/发送排空与最终归档仍待完成。组合库 Clippy 已通过，未编写或运行测试。
 
 ManagedHost 新增 prepare_archive_jobs，从实际打开的 process/tool/thread-store writer 的规范化路径、审计身份和 settled position 生成 HostArchiveJobs，按 Snapshot/ProducerFinished 表达目标；源路径与身份不由发送任务的调用方重新填写。宿主启动核对 AgentContext、三类 audit identity 和 process/tool launch ID 一致。准备结果可序列化，供 finalizer 在提交前持久化；submit 连接 ArchiveController，completion 按三个固定 job ID 查询持久回执，全部完成才返回 HostArchiveReceipts。receipt journal 路径由既有绝对目录和 launch/流名派生。仍需 finalizer 先实际停止生产者、保存准备结果，再提交并等待，同时补齐 Provider、mailbox 和 machine 流。新增逻辑均在 ext/infra，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

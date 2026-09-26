@@ -82,44 +82,66 @@ impl ManagedHost {
         ids: HostArchiveJobIds,
         phase: HostArchivePhase,
     ) -> io::Result<HostArchiveJobs> {
-        if !receipts.is_absolute() {
-            return Err(io::Error::other(
-                "archive receipt directory must be absolute",
-            ));
-        }
-        let positions = self.settled_audit_positions()?;
-        let identity = &self.processes.identity;
-        let launch_id = self.processes.launch_id;
-        let build = |name: &str, source, job_id, position| ArchiveJob {
-            job_id,
-            stream: ArchiveStream {
-                root_session_id: identity.root_session_id,
-                machine_id: identity.machine_id.clone(),
-                agent_id: identity.agent_id,
-                launch_id,
-                name: name.to_owned(),
-            },
-            source,
-            receipt_journal: receipts.join(format!("{launch_id}-{name}.journal")),
-            target: match phase {
-                HostArchivePhase::Snapshot => ArchiveTarget::Snapshot(position),
-                HostArchivePhase::ProducerFinished => ArchiveTarget::ProducerFinished(position),
-            },
-        };
-        Ok(HostArchiveJobs {
-            processes: build(
-                "processes",
-                self.processes.path.clone(),
-                ids.processes,
-                positions.processes,
-            ),
-            tools: build("tools", self.tools.path.clone(), ids.tools, positions.tools),
-            thread_store: build(
-                "thread-store",
-                self.store_audit.path.clone(),
-                ids.thread_store,
-                positions.thread_store,
-            ),
-        })
+        prepare_jobs(
+            &self.processes,
+            &self.tools,
+            &self.store_audit,
+            receipts,
+            ids,
+            phase,
+        )
     }
+}
+
+pub(super) fn prepare_jobs(
+    processes: &crate::ProcessAudit,
+    tools: &crate::ToolAudit,
+    store: &crate::StoreAudit,
+    receipts: &Path,
+    ids: HostArchiveJobIds,
+    phase: HostArchivePhase,
+) -> io::Result<HostArchiveJobs> {
+    if !receipts.is_absolute() {
+        return Err(io::Error::other(
+            "archive receipt directory must be absolute",
+        ));
+    }
+    let positions = super::HostAuditPositions {
+        processes: processes.settled_position()?,
+        tools: tools.settled_position()?,
+        thread_store: store.settled_position()?,
+    };
+    let identity = &processes.identity;
+    let launch_id = processes.launch_id;
+    let build = |name: &str, source, job_id, position| ArchiveJob {
+        job_id,
+        stream: ArchiveStream {
+            root_session_id: identity.root_session_id,
+            machine_id: identity.machine_id.clone(),
+            agent_id: identity.agent_id,
+            launch_id,
+            name: name.to_owned(),
+        },
+        source,
+        receipt_journal: receipts.join(format!("{launch_id}-{name}.journal")),
+        target: match phase {
+            HostArchivePhase::Snapshot => ArchiveTarget::Snapshot(position),
+            HostArchivePhase::ProducerFinished => ArchiveTarget::ProducerFinished(position),
+        },
+    };
+    Ok(HostArchiveJobs {
+        processes: build(
+            "processes",
+            processes.path.clone(),
+            ids.processes,
+            positions.processes,
+        ),
+        tools: build("tools", tools.path.clone(), ids.tools, positions.tools),
+        thread_store: build(
+            "thread-store",
+            store.path.clone(),
+            ids.thread_store,
+            positions.thread_store,
+        ),
+    })
 }
