@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 use std::time::Duration;
 
 use super::TransportSession;
@@ -7,6 +8,10 @@ use crate::CollectorArchiveActor;
 use crate::CollectorArchiveWorker;
 
 impl TransportSession {
+    pub(crate) fn spool_directory(&self) -> &Path {
+        &self.config.directory
+    }
+
     /// Binds background collector archival to this actual transport's machine,
     /// Root Session and spool directory. The machine owner retains this actor
     /// independently of gateway reconnects and stops it before the archive actor.
