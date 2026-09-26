@@ -16,9 +16,13 @@ use codex_infra_state::JournalPosition;
 use codex_infra_tmux::TmuxClient;
 
 mod archive;
+mod archive_actor;
+mod archive_worker;
 mod completion;
 pub use archive::CollectorArchiveJobIds;
 pub use archive::CollectorArchiveJobs;
+pub use archive_actor::CollectorArchiveActor;
+pub use archive_worker::CollectorArchiveWorker;
 pub use completion::CollectorFinished;
 
 /// One attachment has its own streams so a new control connection never joins

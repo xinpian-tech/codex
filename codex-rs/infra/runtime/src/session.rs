@@ -39,6 +39,8 @@ use crate::InputScheduler;
 use crate::PaneReadiness;
 use crate::PeerScheduler;
 
+mod archive;
+
 pub struct TransportSessionConfig {
     pub directory: PathBuf,
     pub root_session_id: RootSessionId,

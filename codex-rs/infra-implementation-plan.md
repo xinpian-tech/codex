@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+TransportSession::start_collector_archiver 使用当前 transport 的真实 root/machine/spool 绑定启动 CollectorArchiveActor。CollectorArchiveWorker 先持久化固定绑定，逐条遍历 attachment 目录，仅为已有完成记录的 collector 准备并落盘五项归档任务；重复扫描及重启沿用原 job IDs/positions，队列正文留在磁盘。actor 定时驱动发现、按 attachment 轮转提交及精确回执查询，五项均完成后才写本地队列完成；部分提交或完成确认丢失通过原任务重放。发现错误不阻断已准备任务推进，journal/目录操作在 blocking worker 中执行；stop 等待当前步骤并交回持久队列，不声称所有 collector 已结束。该 actor 由机器宿主独立持有，gateway 连接重建不重置归档；机器 CLI 创建/关闭服务、运行中 collector 增量归档、其他机器日志与完整 finalizer 尚待接入。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 ArchiveStream 的 producer 改为显式 ArchiveProducer::Agent / Machine，机器流使用 machine_run_id，不虚构 Agent 身份。Agent 分支通过 flatten 保持已有 agent_id/launch_id 字段及序列化顺序，继续使用原有内容派生目录键；host、mailbox 和 shutdown journal 同步使用 Agent 分支。CollectorArchiveJobs 从已持久化的 CollectorFinished 生成 stdout/stderr/stdin/lifecycle/completion 五项 ProducerFinished 任务，使用 attachment ID 作为机器运行实例，连完成记录自身一起归档；缺失完成记录时不产生结束任务。任务可保存、原样提交 ArchiveController，并按固定 ID 查询五项精确回执。实际 machine runtime 的任务准备/持久化/提交循环以及其他机器日志归档仍待接入；此处未完成整个 Session 的终态。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 ControlCollector 在真实子进程退出、stdout/stderr capture worker 完成及 lifecycle 最后一条记录落盘后，持久化 CollectorFinished 到独立 completion.journal，再返回 finish 结果。记录包含 attachment ID、可移植退出信息、原始字节计数和四条日志的精确完成位置；只读恢复入口对缺失/未完整写入记录返回未完成，不以文件长度推断 producer 已结束。TransportSession 仅在完成记录存在、stdout cursor 达到记录位置且 dispatch 队列为空时回收旧 attachment，修正重启后仅凭暂时 EOF 停止跟踪旧 collector 的路径。collector 属于机器的 Root Session，尚未接入机器归属的归档任务；缺失完成记录的旧 attachment 继续保留跟踪，退出后写完成记录前的中断仍需恢复核对。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
