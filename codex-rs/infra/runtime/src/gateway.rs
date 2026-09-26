@@ -45,7 +45,7 @@ impl PeerLink {
 }
 
 /// Frames received over TCP wait here until their own destination host is ready.
-/// Every network occurrence gets a new queue key: replay must reach the host so
+/// Every network occurrence has its own queue key: replay must reach the host so
 /// its inbox can return a receipt that may have been lost on an earlier delivery.
 pub struct GatewayInbox {
     root_session_id: RootSessionId,
@@ -60,7 +60,12 @@ impl GatewayInbox {
         })
     }
 
-    pub fn stage(&mut self, frame: &TransportFrame) -> io::Result<String> {
+    pub fn stage(
+        &mut self,
+        connection_id: MessageId,
+        sequence: u64,
+        frame: &TransportFrame,
+    ) -> io::Result<String> {
         let (route, recipient) = match frame {
             TransportFrame::Chunk(chunk) => (&chunk.route, chunk.route.to_agent_id),
             TransportFrame::Receipt(receipt) => (&receipt.route, receipt.route.from_agent_id),
@@ -77,7 +82,7 @@ impl GatewayInbox {
                 "gateway frame belongs to another Root Session",
             ));
         }
-        let key = MessageId::new().to_string();
+        let key = format!("{connection_id}:{sequence}");
         self.queue.enqueue(QueueItem {
             key: key.clone(),
             lane: recipient.to_string(),
