@@ -23,6 +23,8 @@ use codex_infra_state::Journal;
 use codex_infra_tmux::GatewayListener;
 use codex_infra_tmux::TmuxClient;
 use serde::Serialize;
+use tokio::task::Id;
+use tokio::task::JoinSet;
 
 use crate::ControlCollector;
 use crate::ControlDispatch;
@@ -69,6 +71,9 @@ pub struct TransportSession {
     directory: DirectoryStore,
     readiness: PaneReadiness,
     collector: ControlCollector,
+    tmux: Arc<TmuxClient>,
+    retiring: BTreeMap<Id, MessageId>,
+    reapers: JoinSet<String>,
     current_attachment: MessageId,
     attachments: BTreeMap<MessageId, Attachment>,
     reception: GatewayReception,
@@ -181,6 +186,9 @@ impl TransportSession {
             directory,
             readiness,
             collector,
+            tmux,
+            retiring: BTreeMap::new(),
+            reapers: JoinSet::new(),
             current_attachment: id,
             attachments,
             reception,
@@ -220,7 +228,51 @@ impl TransportSession {
     /// peer sends and blocking input commands continue in their own workers.
     pub fn tick(&mut self) -> io::Result<()> {
         if self.collector.needs_attention()? {
-            return Err(io::Error::other("tmux collector requires reconnection"));
+            let session = self.tmux.ensure_session(self.config.root_session_id)?;
+            let replacement = ControlCollector::attach(
+                &self.tmux,
+                &session,
+                &self.config.directory.join("collectors"),
+            )?;
+            let id = replacement
+                .directory()
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| io::Error::other("collector ID missing"))?
+                .parse()
+                .map_err(io::Error::other)?;
+            let attachment = open_attachment(replacement.directory(), id, &self.config)?;
+            let mut previous = std::mem::replace(&mut self.collector, replacement);
+            let previous_id = std::mem::replace(&mut self.current_attachment, id);
+            self.attachments.insert(id, attachment);
+            let handle = self.reapers.spawn_blocking(move || {
+                let detached = previous.detach();
+                let completed = previous.finish();
+                format!("detach={detached:?}; finish={completed:?}")
+            });
+            self.retiring.insert(handle.id(), previous_id);
+            record(
+                &mut self.observations,
+                "collector_reconnected",
+                &id.to_string(),
+                format!("previous={previous_id}"),
+            )?;
+        }
+        while let Some(completion) = self.reapers.try_join_next_with_id() {
+            let (task_id, outcome) = match completion {
+                Ok((task_id, outcome)) => (task_id, outcome),
+                Err(error) => (error.id(), error.to_string()),
+            };
+            let id = self
+                .retiring
+                .remove(&task_id)
+                .ok_or_else(|| io::Error::other("collector reaper binding missing"))?;
+            record(
+                &mut self.observations,
+                "collector_retired",
+                &id.to_string(),
+                outcome,
+            )?;
         }
         for _ in 0..self.config.event_batch.get() {
             match self.reception.try_event() {
@@ -276,6 +328,7 @@ impl TransportSession {
                 )?;
             }
             if *id != self.current_attachment
+                && !self.retiring.values().any(|retiring| retiring == id)
                 && source_exhausted
                 && attachment.dispatch.lanes().next().is_none()
             {
