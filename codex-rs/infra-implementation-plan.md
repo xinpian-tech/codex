@@ -661,6 +661,8 @@ AgentContext 已通过 ManagedHostServices 追加到默认扩展集合，使用�
 
 上述上下文装配已通过 `cargo clippy -p codex-infra-extension --lib --locked --offline`，Bazel 依赖元数据已更新且 MODULE.bazel.lock 内容未变化；未编写或运行测试。
 
+独立扩展包现提供 ProcessAudit，实现 exec-server 的 ProcessRecorderFactory。每个宿主 launch 使用独立 journal，恢复时核对 Root Session/Agent/机器及 launch 绑定；启动请求、原始输出、Exited、Closed 和失败事件在 blocking 任务中追加并落盘。重复请求保留记录，活跃进程复用 recorder，内存索引仅持有弱引用。Requested 不代表进程已创建，Exited 不代表输出已排空。库 Clippy 已通过，Cargo.lock 和 Bazel 依赖元数据已维护；stdin、实际 Environment 装配、进程与工具修改边界关联及 Closed 后 checkpoint 仍待实现，尚未开展运行实验。
+
 AgentContext 的公开启动入口现从 LaunchIntent 与已接收的 TaskSpec 构造绑定，核对 Task/Agent/目标机器，复用 worktree、branch、初始 commit、Provider/account/model 和 generation 的版本引用。CheckpointCoordinator 现公开带原始日志序号的 RecordedCheckpoint；上下文只应用 Completed，核对工作区归属，使用序号处理重复/过期结果，并呈现实际 pushed commit。工具自行创建 commit 后的正常 checkpoint 同样可更新，不要求其 before 等于上次推送值。恢复宿主可应用日志恢复出的最新完成记录；实际 CLI 与工具完成 Hook 调用仍待装配。此组合库目标已通过 Clippy，未进行运行实验。
 
 WorkspaceCheckpoints 已提供独立 blocking 任务中的串行 commit/push 服务，返回前完成远端确认、完成日志及 AgentContext 更新。等待方取消后，已开始的工作仍持有服务与上下文并继续完成。恢复入口复用原 pending operation ID/kind；Coordinator 另外保留最近 Completed 记录，使新的 pending 不覆盖模型恢复需要的已推送版本。执行前核对 workspace/context 归属，Coordinator 重试时核对原 worktree 绑定。库 Clippy 已通过。调用方仍需持有修改边界，等待前台工具与后台进程停止写入；现有 on_tool_finish 不代表后台进程结束，生产侧退出/输出排空通知、Hook 调用与最终收尾尚待接入。

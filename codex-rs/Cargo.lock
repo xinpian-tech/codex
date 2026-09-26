@@ -3715,6 +3715,8 @@ version = "0.0.0"
 dependencies = [
  "codex-app-server",
  "codex-core",
+ "codex-exec-server",
+ "codex-exec-server-protocol",
  "codex-extension-api",
  "codex-infra-protocol",
  "codex-infra-runtime",
