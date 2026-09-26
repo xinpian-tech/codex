@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+InputWorker 启动改为一次性所有权交接：先建立停止 socket/复制 stdin/创建线程，再通过有界通道将 InputAudit 和请求 sender 交给线程。任一步骤失败，InputStartFailure 同时返回原始启动错误与 close_unstarted 的确认位置或关闭错误；CLI 保留原启动错误作为控制结果，并将已确认的输入日志纳入后续归档。线程创建失败不再因闭包销毁而丢失日志 owner，未启动状态与 EOF 仍分别记录。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。运行中周期归档、异常退出恢复、stderr 覆盖及整体 finalizer 仍待完成。
+
 机器 CLI 的信号注册失败、资源打开失败和服务启动失败统一进入 fail_startup：保存具体阶段错误，消费未启动的 InputAudit 并记录 reader_not_started，以实际空输入和生命周期位置准备归档。服务部分启动时先停止已启动组件，拿到 writer 后继续发布；尚无 writer 时仅保存固定 IDs 的归档批次，由后续启动重放，不将本地准备解释为远端完成。正常控制循环后的 MachineRuntime::stop 若整体报错，也尝试关闭控制审计并保存批次，返回原关闭错误和记录/归档错误。读取线程启动失败后的输入恢复、运行中周期快照、进程异常退出恢复、stderr 及整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
 
 机器 CLI 正常控制循环结束后，先记录最终 Stopped 输出与 control_closed，再消费 ControlAudit 并按实际 writer 确认位置保存 machine-control 归档任务。stdout/lifecycle 始终参与这一收尾；stdin/stdin-lifecycle 仅在读取线程交回完成位置时加入 ProducerFinished。任务先以固定 IDs 写入本次运行的 archive.journal，再交给已停止 actor 返回的 MachineArchiveWriter；归档工作在线程池执行，逐项确认持久远端回执后返回。输出报告失败仍尝试该归档步骤。CLI 启动时逐目录重放历史已准备批次，保留原任务 IDs，已有回执的任务跳过；每次只读取一个运行的任务清单，不加载其原始日志正文。归档错误保留本地任务，未准备完成的异常退出日志仍待 producer 恢复流程；启动失败分支、运行中周期快照、stderr 覆盖及整体 finalizer 尚待接入。库/二进制 Clippy 通过，未编写或运行测试，未执行 CLI 或部署实验。

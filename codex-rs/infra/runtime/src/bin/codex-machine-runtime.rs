@@ -142,7 +142,7 @@ async fn main() -> io::Result<()> {
     let result = async {
         input_worker
             .as_ref()
-            .map_err(|error| io::Error::other(error.to_string()))?;
+            .map_err(|failure| io::Error::other(failure.error.to_string()))?;
         replay_control_archives(
             control_directory,
             machine.archive_controller()?,
@@ -193,7 +193,7 @@ async fn main() -> io::Result<()> {
     drop(receive);
     let input_stopped = match input_worker {
         Ok(worker) => worker.stop().await,
-        Err(error) => Err(error),
+        Err(failure) => failure.completion,
     };
     let input_recorded = match &input_stopped {
         Ok(positions) => audit.event("stdin_stopped", positions),

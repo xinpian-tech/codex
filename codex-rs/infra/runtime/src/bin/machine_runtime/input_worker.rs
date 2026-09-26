@@ -23,35 +23,70 @@ pub(super) struct InputWorker {
     task: thread::JoinHandle<io::Result<InputCompletion>>,
 }
 
+pub(super) struct InputStartFailure {
+    pub(super) error: io::Error,
+    pub(super) completion: io::Result<InputCompletion>,
+}
+
+impl InputStartFailure {
+    fn new(error: io::Error, audit: InputAudit) -> Self {
+        Self {
+            error,
+            completion: audit.close_unstarted(),
+        }
+    }
+}
+
 impl InputWorker {
     pub(super) fn start(
         audit: InputAudit,
         sender: mpsc::Sender<io::Result<Request>>,
-    ) -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            use std::os::fd::FromRawFd;
-            let (stop, wake) = std::os::unix::net::UnixStream::pair()?;
-            let minimum_fd: libc::c_int = 0;
-            // SAFETY: fcntl borrows stdin and duplicates it with close-on-exec,
-            // returning an owned descriptor or -1. The command takes one int.
-            let fd = unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_DUPFD_CLOEXEC, minimum_fd) };
-            if fd < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            // SAFETY: fd is the newly duplicated descriptor, owned exactly once.
-            let input = unsafe { std::fs::File::from_raw_fd(fd) };
+    ) -> Result<Self, InputStartFailure> {
+        // Retain journals in the caller until the OS has created the worker.
+        // A failed spawn drops its closure, so moving audit into it would lose
+        // the only owner able to record the producer's final positions.
+        let (handoff, receive) = std::sync::mpsc::sync_channel(1);
+        let started = (|| -> io::Result<Self> {
+            #[cfg(unix)]
+            let (stop, input) = {
+                use std::os::fd::FromRawFd;
+                let (stop, wake) = std::os::unix::net::UnixStream::pair()?;
+                let minimum_fd: libc::c_int = 0;
+                // SAFETY: fcntl borrows stdin and duplicates it with close-on-exec,
+                // returning an owned descriptor or -1. The command takes one int.
+                let fd =
+                    unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_DUPFD_CLOEXEC, minimum_fd) };
+                if fd < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                // SAFETY: fd is the newly duplicated descriptor, owned exactly once.
+                let input = unsafe { std::fs::File::from_raw_fd(fd) };
+                (stop, InterruptibleInput { input, wake })
+            };
             let task = thread::Builder::new()
                 .name("machine-stdin".to_owned())
-                .spawn(move || audit.read_requests(sender, InterruptibleInput { input, wake }))?;
-            Ok(Self { stop, task })
-        }
-        #[cfg(not(unix))]
-        {
-            let task = thread::Builder::new()
-                .name("machine-stdin".to_owned())
-                .spawn(move || audit.read_requests(sender, io::stdin().lock()))?;
-            Ok(Self { task })
+                .spawn(move || {
+                    let (audit, sender): (InputAudit, _) =
+                        receive.recv().map_err(io::Error::other)?;
+                    #[cfg(not(unix))]
+                    let input = io::stdin().lock();
+                    audit.read_requests(sender, input)
+                })?;
+            Ok(Self {
+                #[cfg(unix)]
+                stop,
+                task,
+            })
+        })();
+        match started {
+            Ok(worker) => match handoff.send((audit, sender)) {
+                Ok(()) => Ok(worker),
+                Err(error) => Err(InputStartFailure::new(
+                    io::Error::other("stdin worker ended before journal handoff"),
+                    error.0.0,
+                )),
+            },
+            Err(error) => Err(InputStartFailure::new(error, audit)),
         }
     }
 
