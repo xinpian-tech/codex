@@ -1,6 +1,7 @@
 //! Durable machine-local records backing Git Session publication.
 
 mod checkpoint;
+mod directory;
 mod inbox;
 mod journal;
 mod journal_reader;
@@ -13,6 +14,8 @@ pub use checkpoint::CheckpointAttempt;
 pub use checkpoint::CheckpointCoordinator;
 pub use checkpoint::CheckpointKind;
 pub use checkpoint::CheckpointPhase;
+pub use directory::DirectoryFilter;
+pub use directory::DirectoryStore;
 pub use inbox::DurableInbox;
 pub use inbox::InboxEntry;
 pub use inbox::PresentedInput;

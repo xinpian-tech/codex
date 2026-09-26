@@ -2,6 +2,7 @@
 
 mod contribution;
 mod delivery;
+mod directory;
 mod identity;
 mod message;
 mod specification;
@@ -14,6 +15,11 @@ pub use contribution::ContributionStatus;
 pub use delivery::DeliveryReceipt;
 pub use delivery::DeliveryStage;
 pub use delivery::FrameRoute;
+pub use directory::AgentDescriptor;
+pub use directory::AgentStatus;
+pub use directory::DirectoryEvent;
+pub use directory::DirectoryPublisher;
+pub use directory::RoleDefinition;
 pub use identity::AgentId;
 pub use identity::AssignmentId;
 pub use identity::CommitId;
