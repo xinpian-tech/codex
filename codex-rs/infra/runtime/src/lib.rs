@@ -18,6 +18,7 @@ mod routing;
 mod sender;
 mod session;
 mod session_actor;
+mod shard_archive;
 mod transport_archive;
 
 pub use archive_actor::ArchiveActor;
@@ -75,4 +76,5 @@ pub use session_actor::SessionActor;
 pub use session_actor::SessionController;
 pub use session_actor::SessionExit;
 pub use session_actor::SessionUpdate;
+pub use shard_archive::ShardArchiveActor;
 pub use transport_archive::TransportArchiveActor;

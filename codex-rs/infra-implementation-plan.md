@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增 ShardArchiveActor，将 dispatch/pane-input 的准备入口接入自动发现与归档。blocking worker 交替扫描 collectors 和 pane-input，每步读取一个目录项，向拥有 writer 的 SessionController 请求对应任务；源目录绑定持久化，任务先进入磁盘 SpoolQueue 再提交机器归档服务。每个分片同时保留一批待确认任务，以流身份/位置/结束类型去重，重启重放原 IDs；待归档 lane 轮转，全部任务查询到持久远端回执后才完成本地队列。忙碌/后台恢复返回 WouldBlock 留待重扫，准备失败不阻断已持久任务推进，Session 停止后已保存批次仍可归档。actor 停止只等待当前步骤，不宣告所有分片结束。机器 CLI 服务装配、停止后的新最终快照提交、归档清单及 Agent/整机 finalizer 仍待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 pane-input 历史 writer 恢复移至 InputScheduler 持有的 blocking worker，archive_source 只检查完成任务和现有 writer；未打开的 journal 启动后台 replay/fsync 后返回 WouldBlock，下一轮取得恢复结果，不再在 SessionActor 请求处理过程中扫描大 journal。恢复与输入执行共享并发上限及 Agent busy 绑定，恢复中不重复打开同一 Agent 的 writer；查询取消不取消恢复，缺失/错误结果保留给后续查询，实际输入启动会清除旧恢复结果。finish_next 同时接回恢复 writer，is_idle 包含恢复任务，transport 收尾因此等待它们结束。周期分片发现/持久化/提交、最终归档汇总及机器 CLI 仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 pane-input 新增 prepare_input_archive：InputScheduler 为指定 Agent 取得闲置 writer，使用其确认位置及规范化实际路径生成机器归属 Snapshot。历史 journal 尚未打开时按既有 Journal replay/fsync 恢复后取位置；不存在返回 None，输入 worker 正在执行时返回 WouldBlock，不把忙碌或无记录解释为投递/归档完成。流名带目标 Agent ID，归属稳定的 transport machine_run_id，因为同一输入日志跨 Agent launch 追加。SessionController 增加 dispatch_archive/input_archive 请求，由 SessionActor 在持有相应对象时准备任务，远端提交仍由独立归档服务完成。历史大 journal 重开目前仍在该准备调用中完成，后续分片服务需处理其恢复成本；周期分片发现/持久化/提交、全部 producer 的最终关闭及 CLI 装配仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
