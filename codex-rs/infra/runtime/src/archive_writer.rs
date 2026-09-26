@@ -15,6 +15,9 @@ use codex_infra_state::SpoolQueue;
 use serde::Deserialize;
 use serde::Serialize;
 
+mod receipts;
+use receipts::ArchiveReceipts;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "position", rename_all = "snake_case")]
 pub enum ArchiveTarget {
@@ -52,6 +55,7 @@ pub struct MachineArchiveWriter {
     last_lane: Option<String>,
     chunk_bytes: NonZeroUsize,
     streams: BTreeMap<String, ActiveArchive>,
+    receipts: ArchiveReceipts,
 }
 
 struct ActiveArchive {
@@ -68,7 +72,14 @@ impl MachineArchiveWriter {
             last_lane: None,
             chunk_bytes,
             streams: BTreeMap::new(),
+            receipts: ArchiveReceipts::open(&queue.with_extension("results.journal"))?,
         })
+    }
+
+    /// Returns the exact completed job's remote receipt, including after restart
+    /// or after its original caller disappeared. None means not yet completed.
+    pub fn completion(&self, job_id: MessageId) -> io::Result<Option<ArchiveReceipt>> {
+        self.receipts.get(job_id)
     }
 
     /// Reuse the same job ID and payload to retry admission. Requests for one
@@ -89,8 +100,8 @@ impl MachineArchiveWriter {
 
     /// None means no admitted jobs remain. Errors retain the durable job and
     /// advance the lane cursor so the next call can service another stream.
-    /// A completed job stays on disk; its receipt can be re-read from its
-    /// JournalArchive after a caller loses the returned completion report.
+    /// A completed job's exact receipt stays in the completion journal and can
+    /// be queried after a caller loses the returned completion report.
     pub fn advance_one(&mut self) -> io::Result<Option<ArchiveAdvance>> {
         let lane = self
             .jobs
@@ -114,6 +125,16 @@ impl MachineArchiveWriter {
             || lane != serde_json::to_string(&job.stream).map_err(io::Error::other)?
         {
             return Err(io::Error::other("archive job identity differs from queue"));
+        }
+        if let Some(receipt) = self.receipts.get(job.job_id)? {
+            self.jobs.complete(&key)?;
+            if matches!(job.target, ArchiveTarget::ProducerFinished(_)) {
+                self.streams.remove(&lane);
+            }
+            return Ok(Some(ArchiveAdvance::Completed {
+                job_id: job.job_id,
+                receipt,
+            }));
         }
         if !self.streams.contains_key(&lane) {
             self.streams.insert(
@@ -152,6 +173,7 @@ impl MachineArchiveWriter {
             ArchiveTarget::Snapshot(_) => range.receipt.clone(),
             ArchiveTarget::ProducerFinished(_) => archive.seal(position, &mut self.shard)?,
         };
+        self.receipts.record(job.job_id, receipt.clone())?;
         self.jobs.complete(&key)?;
         if matches!(job.target, ArchiveTarget::ProducerFinished(_)) {
             self.streams.remove(&lane);

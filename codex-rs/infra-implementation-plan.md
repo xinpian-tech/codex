@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+MachineArchiveWriter 新增按 job ID 索引的持久完成回执日志，内存只保留日志位置；先记录精确远端回执再完成队列任务，恢复时处理两次写入间的中断窗口，不重新生成已完成 job 的回执。ArchiveActor 通过有界命令通道接收持久入队和完成查询，定时推进流轮转；所有 writer/Git 操作放入 blocking worker，当前操作执行期间保留唯一 writer 所有权。controller 可主动读取最近调度状态，actor 关闭或异常退出后显示 Stopped。stop 等待当前操作并交还 writer，未完成任务仍在磁盘，不宣告归档排空。实际宿主向 actor 提交 producer 位置、finalizer 等待所需 job 集合，以及机器 CLI 启动装配尚待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 infra/runtime 增加 MachineArchiveWriter，拥有单机器 SessionShard 和持久化 SpoolQueue。ArchiveJob 保存 host-local source/receipt journal 路径、流身份及 Snapshot/ProducerFinished 目标位置；相同 job ID/内容重试入队幂等。advance_one 在各流 lane 间轮转，每次最多推进一个数据段，同流按队列顺序处理；完整覆盖目标后记录队列完成，ProducerFinished 另完成 seal。错误保留任务并推进轮转游标，其他流可继续；任务正文仍在磁盘，活跃流缓存 JournalArchive 以避免每段重放全部历史，结束后释放。该服务为阻塞接口，需由机器 runtime 在异步执行器外调用；真实 producer 位置提交、后台调度和 finalizer 等待尚待装配。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 JournalArchive 新增 seal 与 StreamCompletion，将 producer 明确结束的位置、流身份及最终归档回执关联。只有 required position 与完整归档 end/durable 一致时才记录 CompletionRequested；此后停止接受该流的新段，失败或重启继续相同结束请求。SessionShard 将结束记录写入 stream-completions/<流身份摘要>.json 并 push 确认，随后本地记录 Completed 回执。read_stream_completion 在指定 revision 读取结束位置并核对所引用末段；完整 prefix 仍由 restore_journal 验证。此处表达单流结束，不代表 Agent/Task 已结束；停止实际 producer、汇总全部必需流、最终消息及 machine 终态仍待 finalizer 装配。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
