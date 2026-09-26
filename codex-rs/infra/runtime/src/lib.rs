@@ -1,5 +1,6 @@
 //! Machine and Agent runtime services, independent of the Codex inference engine.
 
+mod archive_writer;
 mod collector;
 mod dispatch;
 mod extraction;
@@ -17,6 +18,10 @@ mod sender;
 mod session;
 mod session_actor;
 
+pub use archive_writer::ArchiveAdvance;
+pub use archive_writer::ArchiveJob;
+pub use archive_writer::ArchiveTarget;
+pub use archive_writer::MachineArchiveWriter;
 pub use collector::CollectorCompletion;
 pub use collector::ControlCollector;
 pub use dispatch::CapturedFrame;

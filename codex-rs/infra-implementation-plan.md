@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+infra/runtime 增加 MachineArchiveWriter，拥有单机器 SessionShard 和持久化 SpoolQueue。ArchiveJob 保存 host-local source/receipt journal 路径、流身份及 Snapshot/ProducerFinished 目标位置；相同 job ID/内容重试入队幂等。advance_one 在各流 lane 间轮转，每次最多推进一个数据段，同流按队列顺序处理；完整覆盖目标后记录队列完成，ProducerFinished 另完成 seal。错误保留任务并推进轮转游标，其他流可继续；任务正文仍在磁盘，活跃流缓存 JournalArchive 以避免每段重放全部历史，结束后释放。该服务为阻塞接口，需由机器 runtime 在异步执行器外调用；真实 producer 位置提交、后台调度和 finalizer 等待尚待装配。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 JournalArchive 新增 seal 与 StreamCompletion，将 producer 明确结束的位置、流身份及最终归档回执关联。只有 required position 与完整归档 end/durable 一致时才记录 CompletionRequested；此后停止接受该流的新段，失败或重启继续相同结束请求。SessionShard 将结束记录写入 stream-completions/<流身份摘要>.json 并 push 确认，随后本地记录 Completed 回执。read_stream_completion 在指定 revision 读取结束位置并核对所引用末段；完整 prefix 仍由 restore_journal 验证。此处表达单流结束，不代表 Agent/Task 已结束；停止实际 producer、汇总全部必需流、最终消息及 machine 终态仍待 finalizer 装配。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 Session Git 归档新增 stream-heads/<流身份摘要>.bin，每次 journal segment 发布时与内容地址、范围目录一起提交，引用同一 blob。list_streams 在固定 revision 下分页发现 ArchiveStream 身份、最近发布范围、当时观测到的 durable position 和读取回执；每次读取一个段正文，页面只保留元数据。段目录与流目录复用逐条读取路径的分页实现。ArchivedStreamHead 明确只表达最近发布段，不表达 producer 结束或该 durable position 已全部归档，最终关闭仍需专门完成记录。旧版归档目录迁移、machine writer 与 finalizer 装配尚待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
