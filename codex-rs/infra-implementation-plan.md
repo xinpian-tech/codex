@@ -627,6 +627,8 @@ SpoolQueue 的正文保存在 journal，内存维护 key、lane 和记录偏移�
 
 PeerLink 已提供按动态 endpoint 复用的定向连接，写入错误或取消时丢弃当前连接，下次尝试重新连接。GatewayInbox 将每次网络到达分别持久化，按接收 Agent 排队，并连接 readiness、当前目录 placement 和 PaneInputJournal；宿主尚未就绪时保留待注入项。重投再次进入宿主，从而能补回丢失的回执。机器主循环仍需装配独立连接收取任务、按 peer 并发发送、注入调度和重试时机。
 
+PeerScheduler 已实现按机器并发发送和同一 peer 的串行写包，支持配置并发数、发送超时及失败重试间隔。每轮轮转首个成功调度的目标队列，Ready 在本机处理。发送任务结束后推进转发队列；失败保留原队列项并返回可记录的结果。接收连接任务、注入线程与机器主循环仍待装配，当前编译未替代真实运行观察。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。
