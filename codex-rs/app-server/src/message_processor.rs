@@ -270,6 +270,13 @@ impl MessageProcessor {
     /// Create a new `MessageProcessor`, retaining a handle to the outgoing
     /// `Sender` so handlers can enqueue messages to be written to stdout.
     pub(crate) fn new(args: MessageProcessorArgs) -> Self {
+        Self::new_with_host_services(args, &crate::host_services::DefaultHostServices)
+    }
+
+    pub(crate) fn new_with_host_services(
+        args: MessageProcessorArgs,
+        host_services: &dyn crate::host_services::HostServices,
+    ) -> Self {
         let MessageProcessorArgs {
             outgoing,
             analytics_events_client,
@@ -299,7 +306,10 @@ impl MessageProcessor {
         // The thread store is intentionally process-scoped. Config reloads can
         // affect per-thread behavior, but they must not move newly started,
         // resumed, or forked threads to a different persistence backend/root.
-        let thread_store = codex_core::thread_store_from_config(config.as_ref(), state_db.clone());
+        let thread_store = host_services.thread_store(codex_core::thread_store_from_config(
+            config.as_ref(),
+            state_db.clone(),
+        ));
         // Queue persistence requires SQLite, so in-memory thread stores and
         // app servers without a state database do not have a queue backend.
         let queue_store: Option<Arc<dyn QueueStore>> = match &config.experimental_thread_store {
@@ -338,7 +348,7 @@ impl MessageProcessor {
                 codex_core::CodexAppsToolsCache::default(),
                 session_source,
                 environment_manager,
-                thread_extensions(ThreadExtensionDependencies {
+                host_services.extensions(thread_extensions(ThreadExtensionDependencies {
                     event_sink: Arc::clone(&extension_event_sink),
                     auth_manager: auth_manager.clone(),
                     state_db: state_db.clone(),
@@ -351,7 +361,7 @@ impl MessageProcessor {
                     http_client_factory: config.http_client_factory(),
                     queue_service: queue_service.clone(),
                     turn_start_admission: Some(Arc::clone(&turn_start_admission)),
-                }),
+                })),
                 Arc::new(CodexHomeUserInstructionsProvider::new(
                     config.codex_home.clone(),
                 )),

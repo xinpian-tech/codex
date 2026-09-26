@@ -649,6 +649,10 @@ NixTaskResolver 已提供可复用 LockedFlake 和 `realize_generation`：genera
 
 Source flake 已导出 `lib.mkInfraGeneration`，供独立 Team State flake 传入配置、roles、providers、accounts、skills 和 memory；函数生成布局及实际配置/锁文件摘要，与 Rust generation 入口对应。Source 构建和开发环境按 rust-toolchain.toml 选择 Rust 1.95.0，rust-overlay 已更新固定 revision；补齐当前 Cargo.lock 的 MXC/h3 Git 内容 hash，构建与安装检查显式关闭。已完成 Nix 语法解析及 aarch64-linux Source package drv 求值，尚未构建完整二进制或实例化团队 generation。
 
+app-server 已增加独立 `HostServices` 契约及 `in_process::start_with_host_services` 入口。宿主在进程启动时接收默认 ThreadStore 和扩展集合，可装饰存储并通过 `to_builder()` 追加贡献者；返回的服务用于该进程内的新建、恢复和 fork。原启动参数及默认入口保留，队列存储继续按现有配置装配。实际审计 adapter、扩展包、AgentGraphStore 与账户视图注入尚待接入，此入口本身不代表完整 Session 留存已完成。
+
+该入口已通过 `cargo check -p codex-app-server --lib --locked --offline`，使用 Nix Rust/C 工具链及 Source flake 对应的 OpenSSL、pkg-config、CMake、Clang 开发依赖。仅编译库目标，未编写或执行测试。后续 ThreadStore adapter 还需保留现有能力查询与本地存储迁移路径；当前迁移入口通过 `as_any()` 识别 LocalThreadStore。
+
 ControlFrameReader 从 collector 日志增量还原 pane 原始输出及 frame。消费者游标保存 control 半行和各 pane 的 frame 解析状态，重启可从已保存游标接续；下游持久化与游标保存仍需由 gateway/runtime 装配。collector 不进行网络发送，新的 control attachment 使用独立流目录。退出记录包含进程状态与采集结果，Agent pane 生命周期独立于 observer detach。
 
 tmux frame 现统一承载消息分块和回执，TCP 使用同一数据类型。消息先进入发送端日志；只有接收或呈现回执持久化后才退出待重投视图。接收端重复接受相同消息、重复确认相同呈现/处理结果时返回原日志序号。runtime 的 HostMailbox 已将 frame writer/reader 与 inbox/outbox 连接，记录解析前 stdin 和写出前 stdout，并提供原消息重投以补回丢失的回执。Codex 宿主启动入口尚未装配这些组件，thread history 与 inbox 呈现记录的对账仍待接入。

@@ -374,7 +374,23 @@ impl InProcessClientHandle {
 /// This function sends `initialize` followed by `initialized` before returning
 /// the handle, so callers receive a ready-to-use runtime. If initialize fails,
 /// the runtime is shut down and an `InvalidData` error is returned.
-pub async fn start(mut args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+pub async fn start(args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+    start_with_optional_services(args, /*host_services*/ None).await
+}
+
+/// Starts an initialized runtime with process-scoped host services.
+/// The existing startup configuration and initialization handshake are preserved.
+pub async fn start_with_host_services(
+    args: InProcessStartArgs,
+    host_services: Arc<dyn crate::host_services::HostServices>,
+) -> IoResult<InProcessClientHandle> {
+    start_with_optional_services(args, Some(host_services)).await
+}
+
+async fn start_with_optional_services(
+    mut args: InProcessStartArgs,
+    host_services: Option<Arc<dyn crate::host_services::HostServices>>,
+) -> IoResult<InProcessClientHandle> {
     if let Ok(Some(err)) = check_execpolicy_for_warnings(&args.config.config_layer_stack).await {
         let (path, range) = crate::exec_policy_warning_location(&err);
         args.config_warnings.push(ConfigWarningNotification {
@@ -385,7 +401,10 @@ pub async fn start(mut args: InProcessStartArgs) -> IoResult<InProcessClientHand
         });
     }
     let initialize = args.initialize.clone();
-    let client = Box::pin(start_uninitialized(args)).await?;
+    let client = match host_services {
+        Some(services) => Box::pin(start_uninitialized_with_services(args, services)).await?,
+        None => Box::pin(start_uninitialized(args)).await?,
+    };
 
     let initialize_response = client
         .request(ClientRequest::Initialize {
@@ -424,7 +443,15 @@ async fn run_outbound_router(
     }
 }
 
-async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+    start_uninitialized_with_services(args, Arc::new(crate::host_services::DefaultHostServices))
+        .await
+}
+
+async fn start_uninitialized_with_services(
+    mut args: InProcessStartArgs,
+    host_services: Arc<dyn crate::host_services::HostServices>,
+) -> IoResult<InProcessClientHandle> {
     let config_manager = ConfigManager::new(
         args.config.codex_home.to_path_buf(),
         args.cli_overrides,
@@ -494,7 +521,7 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
         let processor_outgoing = Arc::clone(&outgoing_message_sender);
         let (processor_tx, mut processor_rx) = mpsc::channel::<ProcessorCommand>(channel_capacity);
         let mut processor_handle = tokio::spawn(async move {
-            let processor = Arc::new(MessageProcessor::new(MessageProcessorArgs {
+            let processor_args = MessageProcessorArgs {
                 outgoing: Arc::clone(&processor_outgoing),
                 analytics_events_client,
                 arg0_paths: args.arg0_paths,
@@ -515,7 +542,11 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                 rpc_transport: AppServerRpcTransport::InProcess,
                 remote_control_handle: None,
                 plugin_startup_tasks: Some(PluginStartupConfig::Current),
-            }));
+            };
+            let processor = Arc::new(MessageProcessor::new_with_host_services(
+                processor_args,
+                host_services.as_ref(),
+            ));
             let mut thread_created_rx = processor.thread_created_receiver();
             let session = Arc::new(ConnectionSessionState::new(
                 crate::transport::ConnectionOrigin::InProcess,
