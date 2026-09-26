@@ -7,8 +7,8 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-const HEADER_LEN: usize = 52;
-const MAGIC: &[u8; 4] = b"CXJ1";
+pub(crate) const HEADER_LEN: usize = 52;
+pub(crate) const MAGIC: &[u8; 4] = b"CXJ1";
 
 /// A record's sequence is its stable offset in the machine writer's stream.
 #[derive(Debug)]

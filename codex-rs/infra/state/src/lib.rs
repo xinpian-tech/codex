@@ -3,6 +3,7 @@
 mod checkpoint;
 mod inbox;
 mod journal;
+mod journal_reader;
 mod outbox;
 mod session;
 mod tasks;
@@ -17,6 +18,8 @@ pub use inbox::InboxEntry;
 pub use inbox::PresentedInput;
 pub use journal::Journal;
 pub use journal::JournalRecord;
+pub use journal_reader::JournalPosition;
+pub use journal_reader::JournalReader;
 pub use outbox::DurableOutbox;
 pub use outbox::OutboxEntry;
 pub use session::ArchiveReceipt;
