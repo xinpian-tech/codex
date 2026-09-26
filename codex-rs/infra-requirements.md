@@ -47,6 +47,20 @@
 
 新增能力构建在现有模块及其扩展点之上，通过新 crate 或独立模块实现，并减少对 `codex-core` 的修改。现有 rollout、session 和 app-server 接口的兼容性需要保留。
 
+### 1.3 实施方式：最高约束
+
+整个实现期间禁止编写或执行任何测试。该约束优先于本项目沿用的仓库测试要求，适用于源码实现、接入修改、后续 bug 修复及参与这些工作的 Subagent。
+
+- 不新增或运行单元测试、集成测试、快照测试、回归测试、基准或压测，不构造 mock、测试 fixture 或测试 runner。
+- 完成实现与必要编译后直接实装，使用真实机器、账户、Provider 和任务开展实验。
+- 在真实任务运行中发现 bug，修改实现、重新构建和部署，再继续实际任务。
+- 构建与流水线入口遵守同一约束，项目构建关闭测试阶段。
+- 实验任务、运行过程、问题与修复 commit 全部进入 Session 留存。
+
+### 1.4 架构设计指标
+
+100 台机器、1,000 个 Agent 是架构设计指标，用于确定多机器、分片、通信和资源管理边界。实施和实装实验按当前真实工作负载开展，机器与 Agent 数量由实际任务需要决定。
+
 ## 2. Git 仓库分离
 
 ### 2.1 Codex Source Repository
@@ -200,6 +214,7 @@ ConfigGeneration
 ├── model_id
 ├── credential_revision
 ├── role_registry_revision
+├── cooperation_protocol_revision
 ├── skills_revision
 └── memory_revision
 ```
@@ -216,6 +231,9 @@ Codex 在执行每个 Task 前必须形成明确的 `TaskSpec`：
 TaskSpec
 ├── task_id
 ├── objective
+├── scope
+├── owner_machine_id
+├── revision
 ├── repo
 ├── source_commit
 ├── flake_uri
@@ -257,6 +275,16 @@ build_target = none
 ```
 
 Task 解析完成后进入命令执行阶段。
+
+### 4.3 Task 认领与依赖推进
+
+Agent 的 parent/child 关系记录启动来源；Task 的依赖图记录工作如何衔接，两者分别维护。主 Agent 确定总体目标、工作范围、跨模块决策、升级与最终交付；执行 Agent 在分配范围内提出子任务、查询符合自身 role 的就绪任务、认领工作并直接协调依赖。
+
+每个 Task 保存 scope、dependencies、owner_machine_id、revision 和 assignment 历史。每次分配保存 assignment_id、AgentId、认领状态、开始/结束事件和结果引用。负责该 Task 的机器 runtime 串行确认认领与 revision；Agent 收到确认后执行。任务正文、认领理由和协作结论通过 tmux 交付，确认状态作为控制元数据记录。
+
+Task 的技术状态由所属 runtime 管理，工作选择由 Agent 按角色作出。一个 Task 同时具有明确的当前执行归属；重新分配保留前次 assignment，并记录交接。归属转移记录新的管理机器与代次，由接续 runtime 恢复状态。以上能力属于现有机器 runtime。
+
+依赖可以指向任务结果或已整合的贡献。依赖满足后，相关 Agent 接收定向通知并继续工作。Agent 可在当前范围内连续领取相关工作；扩大范围或改变跨模块约定时向负责该事项的角色发送请求。
 
 ## 5. 机器模型
 
@@ -523,6 +551,14 @@ Tmux gateway 和 Agent Directory 处理非语义控制信息，例如 AgentId、
 
 tmux 消息传输需要能够标识消息边界、发送和接收 Agent、消息顺序和交付状态。断线恢复过程识别待交付消息，并将完整消息写入 Session。`capture-pane` 用于观察和恢复，gateway control stream 用于可靠消息传输。
 
+### 9.5 到达、呈现与处理时机
+
+消息分别记录 tmux 到达、宿主持久接收、进入模型上下文和处理结果。接收确认表示已持久接收；处理完成由关联的 turn/outcome 表达。
+
+与当前工作直接相关的依赖变化、交接和需要及时处理的请求，在下一次工具完成或模型输入边界呈现。普通进度和贡献就绪通知在下一轮合并呈现摘要，同时保留逐条原消息及来源。正在运行的 shell 命令沿用自身执行生命周期。
+
+相关性由 Task、role、明确目的地和订阅决定。其他记录保存在 Session 中供按需查询。等待中的 Agent 由匹配的消息、依赖变化或用户输入唤醒；消息呈现复用现有 Codex 输入与类型化上下文接口。
+
 ## 10. Role、Agent Directory 与路由认知
 
 ### 10.1 Role Registry
@@ -682,6 +718,12 @@ Agent 发送消息前必须：
 8. 通过 tmux 和目标 gateway 定向发送。
 
 Role 用于确定合法的路由方向，实际投递解析为具体 AgentId。每条消息使用明确的目标；多个目标对应多条分别带有 `to_agent_id` 的定向消息。
+
+### 10.8 版本化协作约定
+
+团队在 RoleDefinition、Skill 和配置中维护任务拆解、认领范围、协作对象、发现发布、失败描述、升级交接及贡献整合职责。每个目标分支在当前协作中具有明确的整合负责人，可由已有角色承担。
+
+协作约定 revision 与有效角色指令进入 ConfigGeneration、Bootstrap 和 Session。运行中的约定变更作为新版本与增量输入记录。Rust 实现身份绑定、认领确认、tmux 传输、贡献状态、worktree、Hook 与留存；团队通过角色指令和 Skill 调整协作策略。
 
 ## 11. Agent 消息身份
 
@@ -890,6 +932,16 @@ Commit 和 push 全部成功后，checkpoint 进入 completed 状态。在此之
 
 消息中的 commit 必须在接收方收到消息时已经可以从 remote 获取。
 
+### 13.6 贡献与整合状态
+
+每次修改继续执行 checkpoint commit/push。作者另外发布 Contribution，说明一项可交付工作已就绪；push 完成、作者交付就绪、整合完成分别记录。
+
+Contribution 至少保存 contribution_id、TaskId、assignment_id、author_agent_id、repo、base_commit、head_commit、依赖贡献、目标 branch、状态、整合负责人及 integration_commit。其正文、就绪通知和整合结果通过 tmux 传递，消息头始终引用发送者自身 repo 与当前已 push HEAD；正文可另外引用贡献提交。
+
+整合负责人在自己的独立 worktree 中 merge/cherry-pick，并执行相同的 checkpoint 与最终 Hook。整合记录保存原 head_commit 与目标分支 integration_commit 的关系；目标提交完成 push 后发布 integrated 状态，依赖该贡献的任务据此推进。
+
+Agent 结束、贡献整合和总体任务完成具有独立状态。总体 Task 按约定输出与依赖完成情况收敛，已满足依赖的工作持续推进。贡献整合使用已有角色与 runtime。
+
 ## 14. Agent 结束 Hook
 
 ### 14.1 强制最终 Hook
@@ -972,6 +1024,22 @@ InferenceBinding
 ```
 
 该绑定是 `AgentExecution` 的必要组成部分。
+
+### 15.4 当前工作负载与默认路由
+
+当前约一个 Codex 账户支持主 Agent，默认调用 DeepSeek v4.1 Flash Subagent。只有 DeepSeek 无法解决任务时，才升级到使用 Codex 的 Subagent。
+
+主 Agent 与升级后的 Codex Subagent 可以使用同一个 Codex 账户；DeepSeek 请求使用其自身 Provider 凭据。具体模型 ID、endpoint、账户和路由策略由 Team State 配置提供，多账户管理及其他 Provider 的通用能力继续保留。
+
+升级记录任务、原 Agent、未解决事项、已尝试方案、升级原因和已 push 的交接 commit。接续 Agent 仍满足独立 tmux 生命周期、独立 worktree、启动时推理绑定与完整 Session 留存要求；任务和结果正文经 tmux 交付。
+
+### 15.5 升级交接内容与接续方式
+
+升级请求记录：Task/assignment、已完成部分、尚未解决的具体步骤、尝试方法及结果、证据与源事件、期望协助方式、repo 和已 push 的交接 commit。
+
+首期实现完整交接：DeepSeek Agent 完成当前尝试的最终 Hook，主 Agent 创建新的 Codex Subagent 和 assignment，新 Agent 在自身 worktree 中接续同一 Task。前次尝试、交接消息、后续结果和双方费用均保留。
+
+后续可根据实装需要增加局部协助：Codex Subagent 处理明确的难点并返回建议或贡献，原 DeepSeek Agent 接收结果后继续其工作。协助 Agent 同样在启动时固定 Provider、Account、Model，拥有独立生命周期与 worktree。升级依据任务求解困难；网络重试和额度等待沿用请求处理流程。
 
 ## 16. 多账户
 
@@ -1169,6 +1237,16 @@ model_id
 - 输出 derivation 和 store path。
 - 最终产物。
 
+#### 协作状态
+
+- Task 归属、revision、assignment 认领与交接历史。
+- 依赖满足与就绪事件。
+- 工作记忆各版本及源事件引用。
+- Contribution 状态与 base/head/integration commit。
+- 消息到达、持久接收、上下文呈现和处理结果。
+- 升级请求、交接记录和相关用量。
+- 协作约定 revision 与实际生效指令。
+
 ### 18.3 tmux 原始记录
 
 Session 同时保存完整 tmux 原始输入输出和解析后的结构化字段。
@@ -1220,6 +1298,16 @@ Codex 已有 Skill 目录、`SKILL.md`、Skill 加载器、Memory 数据结构�
 
 负责分析 Session、整理 Memory 和 Skill 的 Agent 也必须满足相同的 Nix、MachineId、tmux、worktree、branch、Provider、Account、Model、commit/push Hook、最终 Hook 和 Session 留存要求。
 
+### 19.5 Session 工作记忆
+
+Session 工作记忆承接正在进行的协作，保存任务认领、实际观察、带证据和适用范围的当前结论、附带执行条件的未成功尝试，以及贡献摘要。原始 Session、Session 工作记忆、正式团队 Memory/Skill 分别保存原始事实、当前协作认识和已整理发布的知识。
+
+每条 WorkingContextEntry 保存 entry_id、kind、author_agent_id、TaskId/assignment_id、repo/commit、Nix/配置 generation、源消息/事件、正文和 revision。修正通过追加新版本并引用 supersedes 表达，保留原记录。
+
+发布和查询按 Task、role、主题与来源定位，采用分页、有界摘要和原文引用。在线语义发布、查询回答及订阅通知统一经过发送者 stdout → tmux → socket → 接收者 tmux stdin。查询工具返回控制状态与引用；包含其他 Agent 语义内容的回答由负责该记录的受管 Agent 宿主经 tmux 交付，并保留原作者与事件归因。Git 分片和本地索引用于留存、检索及明确的历史恢复。
+
+工作记忆的相关更新定向交付给负责的 Agent，按消息呈现时机进入模型上下文。正式 Memory/Skill 继续采用已有的候选、团队确认、发布 revision 流程。
+
 ## 20. 核心数据绑定
 
 每个生产 Agent 必须具有完整的 `AgentExecution`：
@@ -1233,6 +1321,7 @@ AgentExecution
 ├── responsibility
 ├── RoleBinding
 ├── TaskSpec
+├── TaskAssignment
 ├── AgentDirectoryBinding
 ├── MachineContext
 ├── AgentWorkspace
@@ -1252,6 +1341,7 @@ AgentExecution
 RoleBinding
 ├── role_id
 ├── role_registry_revision
+├── cooperation_protocol_revision
 ├── responsibility
 ├── input_sources[]
 ├── output_destinations[]
@@ -1277,7 +1367,7 @@ GitSessionIdentity
 4. 读取该 role 的 `RoleDefinition`。
 5. 读取当前 Agent Directory。
 6. 明确 input sources、output destinations 和 subscribed events。
-7. 解析 `TaskSpec`。
+7. 解析 `TaskSpec`，由任务所属 runtime 确认 assignment 与工作范围，关联依赖和协作约定 revision。
 8. 确定 repo 和 base commit。
 9. 选择目标 MachineId。
 10. 确认目标机器当前 `hostid`。
@@ -1309,6 +1399,10 @@ GitSessionIdentity
 10. Agent 状态、职责、routing、repo、commit 和 endpoint 变化形成 Directory 更新。
 11. Directory 更新定向通知相关 Agent。
 12. 工具、消息、构建、Directory 更新和 Git 操作写入 Session。
+13. 在职责范围内认领就绪任务、发布工作记忆并直接协调依赖。
+14. 将交付就绪的工作登记为 Contribution，由整合负责人推进至 integrated。
+15. 按消息类别和相关性，在工具完成或下一轮输入时呈现通知。
+16. 遇到未解决步骤时发送结构化升级请求，关联原 assignment 和交接 commit。
 
 ### 21.3 结束阶段
 
@@ -1323,6 +1417,8 @@ GitSessionIdentity
 9. 将最终结果写入 Session。
 10. 将 Agent Directory 状态更新为 completed。
 11. 关闭对应 tmux window 和 pane。
+
+作者结束后，贡献整合状态与总体 Task 状态继续由相应负责人推进。Session 同时保存认领历史、工作记忆各版本、贡献与整合关系、消息呈现事件及升级记录。
 
 ## 22. 需要新增或扩展的组件
 
@@ -1350,6 +1446,15 @@ AgentDirectory
 AgentMessageTransport
   按 role 和 AgentId 通过 tmux stdout、socket、stdin 定向传递消息
 
+TaskCoordination
+  确认认领、保存 assignment 历史、推进依赖并定向通知
+
+SessionWorkingContext
+  索引带来源的工作记忆，组织经 tmux 交付的查询与更新
+
+ContributionRegistry
+  保存交付与整合状态、负责人和提交关联
+
 GitAccountStore
   管理多个 Provider 和多个账户
 
@@ -1370,3 +1475,5 @@ GitSessionAdapter
 ```
 
 这些组件连接现有 Codex 模块，并复用现有 Agent、Session、Hook、Skill 和 Memory 系统。
+
+TaskCoordination、SessionWorkingContext 和 ContributionRegistry 优先作为既有基础设施 Rust 包内模块实现；上述组件名称表达职责。
