@@ -3710,6 +3710,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-infra-protocol"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "codex-install-context"
 version = "0.0.0"
 dependencies = [
