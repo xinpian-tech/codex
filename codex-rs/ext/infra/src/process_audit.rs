@@ -8,6 +8,7 @@ use std::sync::Weak;
 use codex_exec_server::ExecProcessEvent;
 use codex_exec_server::ExecProcessFuture;
 use codex_exec_server::ExecServerError;
+use codex_exec_server::PreparedProcessCommand;
 use codex_exec_server::ProcessId;
 use codex_exec_server::ProcessInputRecorder;
 use codex_exec_server::ProcessRecorder;
@@ -36,6 +37,10 @@ pub enum ProcessAuditEvent {
     },
     Requested {
         params: Box<ExecParams>,
+    },
+    Prepared {
+        process_id: ProcessId,
+        command: Box<PreparedProcessCommand>,
     },
     InputRequested {
         params: WriteParams,
@@ -210,6 +215,29 @@ impl ProcessInputRecorder for InputRecorder {
 }
 
 impl ProcessRecorder for Recorder {
+    fn prepared(&self, command: PreparedProcessCommand) -> ExecProcessFuture<'_, ()> {
+        let writer = Arc::clone(&self.writer);
+        let process_id = self.process_id.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let bytes = serde_json::to_vec(&ProcessAuditEvent::Prepared {
+                    process_id,
+                    command: Box::new(command),
+                })
+                .map_err(recording_error)?;
+                writer
+                    .lock()
+                    .map_err(recording_error)?
+                    .journal
+                    .append(&bytes)
+                    .map_err(recording_error)?;
+                Ok(())
+            })
+            .await
+            .map_err(recording_error)?
+        })
+    }
+
     fn record(&self, event: ExecProcessEvent) -> ExecProcessFuture<'_, ()> {
         Box::pin(async move {
             let process_id = self.process_id.clone();

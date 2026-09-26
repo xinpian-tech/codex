@@ -455,13 +455,26 @@ impl LocalProcess {
         if prepared.command.is_empty() {
             return Err(invalid_params("argv must not be empty".to_string()));
         }
-        let sandbox_type = match prepared.sandbox {
-            SandboxType::None => Some(ProcessSandboxType::None),
-            SandboxType::MacosSeatbelt => Some(ProcessSandboxType::MacosSeatbelt),
-            SandboxType::LinuxSeccomp => Some(ProcessSandboxType::LinuxSeccomp),
-            SandboxType::WindowsRestrictedToken => Some(ProcessSandboxType::WindowsRestrictedToken),
-            SandboxType::WindowsMxc => Some(ProcessSandboxType::WindowsMxc),
+        let sandbox = match prepared.sandbox {
+            SandboxType::None => ProcessSandboxType::None,
+            SandboxType::MacosSeatbelt => ProcessSandboxType::MacosSeatbelt,
+            SandboxType::LinuxSeccomp => ProcessSandboxType::LinuxSeccomp,
+            SandboxType::WindowsRestrictedToken => ProcessSandboxType::WindowsRestrictedToken,
+            SandboxType::WindowsMxc => ProcessSandboxType::WindowsMxc,
         };
+        let sandbox_type = Some(sandbox);
+        if let Some(recorder) = &recorder {
+            recorder
+                .prepared(crate::PreparedProcessCommand {
+                    command: prepared.command.clone(),
+                    cwd: prepared.cwd.clone(),
+                    env: prepared.env.clone(),
+                    arg0: prepared.arg0.clone(),
+                    sandbox,
+                })
+                .await
+                .map_err(|error| internal_error(error.to_string()))?;
+        }
 
         let start = Arc::new(ProcessStart);
         {
