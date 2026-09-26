@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增独立 codex-infra-provider crate，不依赖 codex-core，首批提供完整上下文 Responses 请求到流式 Chat Completions 请求的转换。已覆盖 instructions/developer 角色、文本消息、普通 function 工具定义、连续工具调用合并、原 call_id/参数字符串、工具结果回填、tool_choice 和基础生成参数；model 由调用者传入的已解析绑定提供。命名空间/custom 工具、reasoning continuation、非文本输入及 previous_response_id 尚未转换，当前返回明确的 Unsupported，不删除相关输入。此为协议转换基础，尚未接入动态端口 HTTP 前端、供应商请求、反向 SSE、账户/token 和实际 Agent 启动链路，不能视为 DeepSeek 已可运行。实现参考 [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/) 与 [Responses 工具调用事件](https://developers.openai.com/api/docs/guides/function-calling)，服务能力仍需由 Team State profile 解析。Cargo workspace/lock 与 Bazel crate target 已加入，Bazel 元数据刷新完成；仅运行库级 Clippy，未编写或运行测试，未调用供应商或进行实装实验。
+
 控制日志的 archive.journal 现在保存可追加的完整任务清单：prepare 重放已有清单，沿用已有任务 IDs，只为新增流创建任务并持久化新清单；同一流请求不同结束位置返回错误。恢复扫描读取最后一份完整清单，在取得 run.lock 后再次读取，逐条补齐缺失的 stdout/stdin/lifecycle/stdin-lifecycle；已列入清单的流不重开、不追加，已有远端回执和结束位置保持有效。这样 stdin 当时未返回完成位置而仅准备两条输出流的运行，也能在后续确认 owner 退出后补归档输入流。恢复中断时沿用最后完整清单，未完整写入的尾部由 Journal 重开修复。旧版无运行锁的清单仍可重放，其缺失流迁移、运行中周期快照、stderr 和整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
 
 机器控制运行新增持久 identity.journal 与 run.lock，ControlAudit 和 InputAudit 共同持有锁，准备最终任务期间继续保留所有权。启动扫描对缺少完整 archive.journal 的运行尝试非阻塞获取锁；仍存活的运行直接跳过。已退出运行通过 Journal 重放和既有尾部修复取得四条日志的确认位置，记录 reader_recovered_after_owner_exit / control_recovered_after_owner_exit，再保存最终归档任务。已准备的任务保持原 IDs 与结束位置，不追加已封口的源；恢复中再次退出可重新获取锁并继续准备。旧版本没有 run.lock/身份记录的未完成运行仍保留供迁移处理；已有旧版归档批次继续重放。运行中周期快照、缺失输入完成位置但已经准备了部分流的补归档、stderr 及整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
