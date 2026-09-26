@@ -14,6 +14,7 @@ pub(crate) const MAGIC: &[u8; 4] = b"CXJ1";
 #[derive(Debug)]
 pub struct JournalRecord {
     pub sequence: u64,
+    pub position: crate::JournalPosition,
     pub payload: Vec<u8>,
 }
 
@@ -82,7 +83,14 @@ impl Journal {
                     "journal payload checksum",
                 ));
             }
-            replay(JournalRecord { sequence, payload })?;
+            replay(JournalRecord {
+                sequence,
+                position: crate::JournalPosition {
+                    next_sequence: sequence,
+                    byte_offset: end,
+                },
+                payload,
+            })?;
             end += HEADER_LEN as u64 + payload_len;
             next_sequence = next_sequence
                 .checked_add(1)
@@ -145,5 +153,12 @@ impl Journal {
 
     pub fn next_sequence(&self) -> u64 {
         self.next_sequence
+    }
+
+    pub fn position(&self) -> crate::JournalPosition {
+        crate::JournalPosition {
+            next_sequence: self.next_sequence,
+            byte_offset: self.end,
+        }
     }
 }

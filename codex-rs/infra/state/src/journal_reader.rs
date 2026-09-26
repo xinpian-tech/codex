@@ -86,10 +86,15 @@ impl JournalReader {
         let next_sequence = sequence
             .checked_add(1)
             .ok_or_else(|| io::Error::other("journal sequence exhausted"))?;
+        let position = self.position;
         self.position = JournalPosition {
             next_sequence,
             byte_offset: self.position.byte_offset + HEADER_LEN as u64 + length,
         };
-        Ok(Some(JournalRecord { sequence, payload }))
+        Ok(Some(JournalRecord {
+            sequence,
+            position,
+            payload,
+        }))
     }
 }
