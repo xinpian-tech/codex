@@ -13,6 +13,7 @@ mod receiver;
 mod recorded_writer;
 mod routing;
 mod sender;
+mod session;
 
 pub use collector::CollectorCompletion;
 pub use collector::ControlCollector;
@@ -38,3 +39,5 @@ pub use routing::FrameRouter;
 pub use sender::ForwardReport;
 pub use sender::PeerScheduler;
 pub use sender::ScheduleOutcome;
+pub use session::TransportSession;
+pub use session::TransportSessionConfig;
