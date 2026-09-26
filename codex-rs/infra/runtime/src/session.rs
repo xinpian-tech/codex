@@ -258,22 +258,7 @@ impl TransportSession {
                 format!("previous={previous_id}"),
             )?;
         }
-        while let Some(completion) = self.reapers.try_join_next_with_id() {
-            let (task_id, outcome) = match completion {
-                Ok((task_id, outcome)) => (task_id, outcome),
-                Err(error) => (error.id(), error.to_string()),
-            };
-            let id = self
-                .retiring
-                .remove(&task_id)
-                .ok_or_else(|| io::Error::other("collector reaper binding missing"))?;
-            record(
-                &mut self.observations,
-                "collector_retired",
-                &id.to_string(),
-                outcome,
-            )?;
-        }
+        self.finish_work()?;
         for _ in 0..self.config.event_batch.get() {
             match self.reception.try_event() {
                 Ok(event) => {
@@ -307,14 +292,6 @@ impl TransportSession {
                     .dispatch
                     .stage(batch, attachment.reader.cursor()?)?;
             }
-            while let Some(report) = attachment.sender.finish_next(&mut attachment.dispatch)? {
-                record(
-                    &mut self.observations,
-                    "forward",
-                    &report.key,
-                    format!("{:?}", report.result),
-                )?;
-            }
             for (lane, error) in attachment.sender.schedule_round(
                 &mut attachment.dispatch,
                 &router,
@@ -338,14 +315,6 @@ impl TransportSession {
         for id in retired {
             self.attachments.remove(&id);
         }
-        while let Some(report) = self.injector.finish_next(&mut self.inbox)? {
-            record(
-                &mut self.observations,
-                "inject",
-                &report.key,
-                format!("{:?}", report.result),
-            )?;
-        }
         for (lane, error) in self
             .injector
             .schedule_round(&self.inbox, &router, &self.readiness)
@@ -355,6 +324,69 @@ impl TransportSession {
                 "schedule_input",
                 &lane,
                 error.to_string(),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Stop scheduling new work and wait for existing commands to finish. The
+    /// collector remains alive; ownership can be handed back to a machine actor
+    /// without closing Agent panes or discarding unconsumed source journals.
+    pub async fn drain_in_flight(&mut self, poll_interval: Duration) -> io::Result<()> {
+        if poll_interval.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "drain interval must be positive",
+            ));
+        }
+        loop {
+            self.finish_work()?;
+            if self.injector.is_idle()
+                && self.reapers.is_empty()
+                && self
+                    .attachments
+                    .values()
+                    .all(|attachment| attachment.sender.is_idle())
+            {
+                return Ok(());
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
+
+    fn finish_work(&mut self) -> io::Result<()> {
+        while let Some(completion) = self.reapers.try_join_next_with_id() {
+            let (task_id, outcome) = match completion {
+                Ok((task_id, outcome)) => (task_id, outcome),
+                Err(error) => (error.id(), error.to_string()),
+            };
+            let id = self
+                .retiring
+                .remove(&task_id)
+                .ok_or_else(|| io::Error::other("collector reaper binding missing"))?;
+            record(
+                &mut self.observations,
+                "collector_retired",
+                &id.to_string(),
+                outcome,
+            )?;
+        }
+        for attachment in self.attachments.values_mut() {
+            while let Some(report) = attachment.sender.finish_next(&mut attachment.dispatch)? {
+                record(
+                    &mut self.observations,
+                    "forward",
+                    &report.key,
+                    format!("{:?}", report.result),
+                )?;
+            }
+        }
+        while let Some(report) = self.injector.finish_next(&mut self.inbox)? {
+            record(
+                &mut self.observations,
+                "inject",
+                &report.key,
+                format!("{:?}", report.result),
             )?;
         }
         Ok(())

@@ -54,6 +54,10 @@ pub struct PeerScheduler {
 }
 
 impl PeerScheduler {
+    pub fn is_idle(&self) -> bool {
+        self.pending.is_empty()
+    }
+
     pub fn new(limit: NonZeroUsize, timeout: Duration, retry_delay: Duration) -> Self {
         Self {
             limit,

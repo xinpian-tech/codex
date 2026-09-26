@@ -14,6 +14,7 @@ mod recorded_writer;
 mod routing;
 mod sender;
 mod session;
+mod session_actor;
 
 pub use collector::CollectorCompletion;
 pub use collector::ControlCollector;
@@ -41,3 +42,7 @@ pub use sender::PeerScheduler;
 pub use sender::ScheduleOutcome;
 pub use session::TransportSession;
 pub use session::TransportSessionConfig;
+pub use session_actor::SessionActor;
+pub use session_actor::SessionController;
+pub use session_actor::SessionExit;
+pub use session_actor::SessionUpdate;
