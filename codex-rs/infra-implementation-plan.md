@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ProcessAudit 新增 RecordedProcessOutput：调用方在启动指定 process ID 前创建读取器，保存当时的日志位置，随后绑定首次匹配 Requested 的序号。读取器按该启动尝试校验原始 stdout/stderr/PTY、Exited、Closed 的连续 producer 序号，并等待成功的 StartFinished；允许输出与 Closed 早于启动响应。每次只读取 writer 已完成 fsync 的水位，向调用方提供的文件或缓冲写入，读取器不累积完整正文。sink 部分写入或日志错误保留为该读取器的终止错误，重试不会重复写入同一片段。该入口供 hook 执行器取得完整输出，避免依赖 exec-server 的有界实时缓冲；实际 hook 执行器与宿主装配仍待完成。组合库 Clippy 已通过，未编写或运行测试。
+
 为受管 hook 的 JSON stdin/EOF 流程，ExecProcess 新增可选的本地 close_stdin 能力。LocalProcess 对非 TTY 管道在进程登记锁内停止接收新写入并关闭 session sender，已取得 sender 的写入及已排队字节继续排空后送出 EOF。启用记录时先持久化 InputCloseRequested，再执行关闭并以 InputFinished 保存完整结果；请求任务属于现有 recording_tasks，调用方取消不丢失后续动作与记录，ProcessActivity 将关闭请求纳入未结束输入集合。此处只扩展本地执行能力，未增加 wire RPC；受管 hook 执行器尚待调用该接口。组合库 Clippy 已通过，未编写或运行测试。
 
 核对 hook 实现后确认命令 hook 当前直接创建宿主进程，未经过 exec-server。hooks 包现提供可注入的 HookCommandExecutor：同步 prepare 接收拥有数据的请求并返回持有资源的执行 future；异步命令 hook 在入队前准备，配置刷新保留执行器。请求保存 thread、shell 程序/参数、普通或 Windows raw 命令参数、按原顺序过滤的环境、宿主 cwd、stdin 和超时，执行结果在 hook 解释前保留 stdout/stderr 字节。默认路径继续使用原命令运行逻辑。此阶段仅建立注入边界，受管执行器实现、宿主装配、原始流审计、租约归属及 hook 子进程收尾仍待完成；MCP hook 与 legacy notify 也需分别接入。hooks 与最终组合库 Clippy 已通过，未编写或运行测试。

@@ -23,6 +23,7 @@ pub use process_activity::ProcessSettlement;
 pub use process_activity::ProcessSettlementOutcome;
 pub use process_audit::ProcessAudit;
 pub use process_audit::ProcessAuditEvent;
+pub use process_audit::RecordedProcessOutput;
 pub use store::AuditedThreadStore;
 pub use store_audit::StoreAudit;
 pub use store_audit::StoreAuditEvent;

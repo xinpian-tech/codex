@@ -1,5 +1,6 @@
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -26,6 +27,10 @@ use crate::ProcessActivity;
 use crate::StoreAuditIdentity;
 use crate::WorkspaceLease;
 use crate::WorkspaceOperations;
+
+#[path = "process_output.rs"]
+mod output;
+pub use output::RecordedProcessOutput;
 
 /// Raw requested execution and producer events. Requested is not evidence that
 /// a process was created: retries and unsuccessful starts are retained too.
@@ -117,6 +122,7 @@ impl Writer {
 /// Payloads remain on disk; recorders retain only their start-attempt identity.
 #[derive(Clone)]
 pub struct ProcessAudit {
+    path: PathBuf,
     writer: Arc<Mutex<Writer>>,
     operations: Option<WorkspaceOperations>,
 }
@@ -149,6 +155,7 @@ impl ProcessAudit {
         let sequence = journal.append(&serde_json::to_vec(&opened)?)?;
         let _ = activity.apply(sequence, &opened);
         Ok(Self {
+            path: std::fs::canonicalize(path)?,
             operations: None,
             writer: Arc::new(Mutex::new(Writer {
                 journal,
