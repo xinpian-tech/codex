@@ -23,6 +23,7 @@
       # truth used by the release workflow).
       cargoToml = builtins.fromTOML (builtins.readFile ./codex-rs/Cargo.toml);
       cargoVersion = cargoToml.workspace.package.version;
+      rustVersion = (builtins.fromTOML (builtins.readFile ./codex-rs/rust-toolchain.toml)).toolchain.channel;
 
       # When building from a release commit the Cargo.toml already carries the
       # real version (e.g. "0.101.0").  On the main branch it is the placeholder
@@ -33,6 +34,7 @@
         else "0.0.0-dev+${self.shortRev or "dirty"}";
     in
     {
+      lib.mkInfraGeneration = import ./nix/infra-generation.nix;
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs {
@@ -42,8 +44,8 @@
           codex-rs = pkgs.callPackage ./codex-rs {
             inherit version;
             rustPlatform = pkgs.makeRustPlatform {
-              cargo = pkgs.rust-bin.stable.latest.minimal;
-              rustc = pkgs.rust-bin.stable.latest.minimal;
+              cargo = pkgs.rust-bin.stable.${rustVersion}.minimal;
+              rustc = pkgs.rust-bin.stable.${rustVersion}.minimal;
             };
           };
         in
@@ -59,7 +61,7 @@
             inherit system;
             overlays = [ rust-overlay.overlays.default ];
           };
-          rust = pkgs.rust-bin.stable.latest.default.override {
+          rust = pkgs.rust-bin.stable.${rustVersion}.default.override {
             extensions = [ "rust-src" "rust-analyzer" ];
           };
         in
