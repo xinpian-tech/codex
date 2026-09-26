@@ -6,10 +6,16 @@ use std::time::Duration;
 
 use codex_protocol::ThreadId;
 
-/// How the configured shell accepts its final command string.
+/// How the process accepts its final argument or shell command string.
 pub enum HookCommandArgument {
     Argument(String),
     WindowsRaw(String),
+}
+
+/// Input supplied to the child, independently of the audited hook event.
+pub enum HookCommandStdin {
+    Closed,
+    Bytes(Vec<u8>),
 }
 
 /// Owned host-local hook launch, prepared before asynchronous scheduling.
@@ -24,8 +30,9 @@ pub struct HookCommandRequest {
     pub command: HookCommandArgument,
     pub environment: Vec<(OsString, OsString)>,
     pub cwd: PathBuf,
-    pub stdin: Vec<u8>,
-    pub timeout: Duration,
+    pub event_json: String,
+    pub stdin: HookCommandStdin,
+    pub timeout: Option<Duration>,
 }
 
 /// Complete producer output, before hook interpretation and context spilling.

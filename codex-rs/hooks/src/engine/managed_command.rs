@@ -83,7 +83,8 @@ pub(super) fn prepare_command(
         command,
         environment,
         cwd: cwd.to_owned(),
-        stdin: input_json.as_bytes().to_vec(),
-        timeout: Duration::from_secs(handler.timeout_sec),
+        event_json: input_json.to_owned(),
+        stdin: crate::HookCommandStdin::Bytes(input_json.as_bytes().to_vec()),
+        timeout: Some(Duration::from_secs(handler.timeout_sec)),
     }))
 }

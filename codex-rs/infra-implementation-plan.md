@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+受管宿主的 legacy notify 现通过已有 HookCommandExecutor 执行，沿用原命令参数与环境处理，将历史 JSON 放在最后一个 argv 参数，stdin 关闭；审计事件与子进程输入分别表达。RecordedHookExecutor 支持无超时的通知进程，按 turn-id 归属登记操作、记录输出与退出、进入 checkpoint 和宿主排空；通知进程失败通过原 FailedContinue 结果上报。未安装受管执行器时保留原通知路径，配置刷新继续保留受管装配。新增适配模块位于 hooks，执行与审计逻辑仍在 ext/infra，无新增依赖。统一 finalizer、启动/预热进程归属和恢复仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 RecordedHookExecutor 现实现 ManagedHookMcpExecutor，并通过受管宿主和 ExtensionRegistry 安装到每个线程的 Hooks。MCP prepare 与命令 hook 共用接收 token、任务排空和失败记录，入队前续持原操作；实际调用通过 ToolAudit admission/Started 登记独立 hook 操作，记录上下文与展开参数（包含 Core 使用的 threadId 元数据）。完整 HookMcpOutput 或 RPC 错误写入 McpHookResult，活动账本保存结果序号并核对操作/阶段，再处理正常 Finished 与 checkpoint。收到带 is_error 的 MCP 响应仍是明确完成的调用；RPC 错误没有终止响应时保留待核对操作，不移交 checkpoint。后台任务继续持有调用与记录，不随调用方停止等待而取消。此处保存的是主机调用对象和 MCP 返回对象，原始传输流、待核对操作恢复、legacy notify 及统一 finalizer 仍待完成。组合库 Clippy 已通过，未编写或运行测试。
 
 hooks 包新增 ManagedHookMcpExecutor、拥有资源的 HookMcpFuture 和独立于公开 hook JSON 的 HookMcpContext。MCP 参数展开、executor metadata 合并已提取为共享准备逻辑。配置了受管实现时，同步 hook 与 executor-scoped 后台 hook 均传递 thread、实际 tool_call_id、完整事件输入、展开后的调用及原连接执行器；后台路径在入队前调用 prepare，以便先续持归属。Hooks 配置刷新保留受管实现，未安装时继续使用原执行器。此阶段仅接通准备与调度接口，独立扩展中的 MCP 审计/租约实现和宿主安装仍待完成。组合库 Clippy 已通过，未编写或运行测试。

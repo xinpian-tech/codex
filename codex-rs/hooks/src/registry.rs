@@ -62,6 +62,7 @@ pub struct Hooks {
     // and remove the environment plumbing from `Hooks` and `from_config`.
     environment: Arc<Vec<(OsString, OsString)>>,
     after_agent: Vec<Hook>,
+    legacy_notify_argv: Option<Vec<String>>,
     engine: ClaudeHooksEngine,
     plugin_hook_sources: Vec<PluginHookSource>,
     plugin_hook_load_warnings: Vec<String>,
@@ -145,9 +146,11 @@ impl Hooks {
         environment: Arc<Vec<(OsString, OsString)>>,
         build_runtime: impl FnOnce(CommandShell) -> CommandHookRuntime,
     ) -> Self {
-        let after_agent = config
+        let legacy_notify_argv = config
             .legacy_notify_argv
-            .filter(|argv| !argv.is_empty() && !argv[0].is_empty())
+            .filter(|argv| !argv.is_empty() && !argv[0].is_empty());
+        let after_agent = legacy_notify_argv
+            .clone()
             .map(|argv| crate::legacy_notify::notify_hook(argv, Arc::clone(&environment)))
             .into_iter()
             .collect();
@@ -167,6 +170,7 @@ impl Hooks {
         Self {
             environment,
             after_agent,
+            legacy_notify_argv,
             engine,
             plugin_hook_sources: config.plugin_hook_sources,
             plugin_hook_load_warnings: config.plugin_hook_load_warnings,
@@ -189,6 +193,14 @@ impl Hooks {
     }
 
     pub async fn dispatch(&self, hook_payload: HookPayload) -> Vec<HookResponse> {
+        if let Some(argv) = &self.legacy_notify_argv
+            && let Some(executor) = &self.engine.command_runtime.command_executor
+        {
+            return vec![
+                crate::managed_notify::execute(argv, &self.environment, &hook_payload, executor)
+                    .await,
+            ];
+        }
         let hooks = self.hooks_for_event(&hook_payload.hook_event);
         let mut outcomes = Vec::with_capacity(hooks.len());
         for hook in hooks {

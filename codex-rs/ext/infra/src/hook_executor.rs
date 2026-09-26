@@ -21,6 +21,7 @@ use codex_hooks::HookCommandExecutor;
 use codex_hooks::HookCommandFuture;
 use codex_hooks::HookCommandOutput;
 use codex_hooks::HookCommandRequest;
+use codex_hooks::HookCommandStdin;
 use codex_infra_protocol::MessageId;
 use codex_protocol::config_types::ShellEnvironmentPolicyInherit;
 use codex_utils_path_uri::PathUri;
@@ -40,6 +41,7 @@ mod mcp;
 
 #[derive(Deserialize)]
 struct Attribution {
+    #[serde(alias = "turn-id")]
     turn_id: Option<String>,
 }
 
@@ -93,7 +95,7 @@ impl RecordedHookExecutor {
         operation: ToolOperation,
         origin: Option<ToolExecutionOrigin>,
     ) -> Result<HookCommandOutput, String> {
-        let body = String::from_utf8(request.stdin.clone()).map_err(|error| error.to_string())?;
+        let body = request.event_json.clone();
         let payload = ToolPayload::Custom {
             input: body.clone(),
         };
@@ -184,7 +186,9 @@ impl RecordedHookExecutor {
             stdout: Vec::new(),
             stderr: Vec::new(),
         }));
-        let deadline = tokio::time::Instant::now() + request.timeout;
+        let deadline = request
+            .timeout
+            .map(|timeout| tokio::time::Instant::now() + timeout);
         // Await the owned startup response even past the deadline so a created
         // process always has a handle for termination and output draining.
         let started = self
@@ -208,7 +212,7 @@ impl RecordedHookExecutor {
                 shell_snapshot: None,
                 env,
                 tty: false,
-                pipe_stdin: true,
+                pipe_stdin: matches!(&request.stdin, HookCommandStdin::Bytes(_)),
                 arg0: None,
                 sandbox: None,
                 enforce_managed_network: false,
@@ -218,32 +222,38 @@ impl RecordedHookExecutor {
             .await
             .map_err(|error| error.to_string())?;
         let process = started.process;
-        let result = tokio::time::timeout_at(deadline, async {
-            let written = process
-                .write(request.stdin)
-                .await
-                .map_err(|error| error.to_string())?;
-            if !matches!(
-                written.status,
-                WriteStatus::Accepted | WriteStatus::StdinClosed
-            ) {
-                return Err(format!("hook stdin write: {:?}", written.status));
-            }
-            let closed = process
-                .close_stdin()
-                .await
-                .map_err(|error| error.to_string())?;
-            if !matches!(
-                closed.status,
-                WriteStatus::Accepted | WriteStatus::StdinClosed
-            ) {
-                return Err(format!("hook stdin close: {:?}", closed.status));
+        let completion = async {
+            if let HookCommandStdin::Bytes(input) = request.stdin {
+                let written = process
+                    .write(input)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if !matches!(
+                    written.status,
+                    WriteStatus::Accepted | WriteStatus::StdinClosed
+                ) {
+                    return Err(format!("hook stdin write: {:?}", written.status));
+                }
+                let closed = process
+                    .close_stdin()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if !matches!(
+                    closed.status,
+                    WriteStatus::Accepted | WriteStatus::StdinClosed
+                ) {
+                    return Err(format!("hook stdin close: {:?}", closed.status));
+                }
             }
             collect(Arc::clone(&collected)).await
-        })
-        .await
-        .map_err(|_| "hook command timed out".to_owned())
-        .and_then(|result| result);
+        };
+        let result = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, completion)
+                .await
+                .map_err(|_| "hook command timed out".to_owned())
+                .and_then(|result| result),
+            None => completion.await,
+        };
         if result.is_err() {
             process
                 .terminate()
@@ -274,7 +284,7 @@ impl HookCommandExecutor for RecordedHookExecutor {
                 tasks.token()
             };
             let attribution: Attribution =
-                serde_json::from_slice(&request.stdin).map_err(|error| error.to_string())?;
+                serde_json::from_str(&request.event_json).map_err(|error| error.to_string())?;
             let call_id = format!("hook-{}", MessageId::new());
             let origin = request
                 .tool_call_id
