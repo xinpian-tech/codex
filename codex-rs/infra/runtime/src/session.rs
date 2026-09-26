@@ -43,7 +43,11 @@ use crate::ReceptionEvent;
 mod archive;
 mod collector;
 mod shutdown;
+mod tails;
 use collector::CollectorOwner;
+pub use tails::CaptureTailEntry;
+pub use tails::CaptureTailPage;
+pub use tails::CaptureTailState;
 
 pub struct TransportSessionConfig {
     pub directory: PathBuf,
@@ -59,6 +63,7 @@ pub struct TransportSessionConfig {
 }
 
 struct Attachment {
+    source: PathBuf,
     reader: ControlFrameReader,
     dispatch: ControlDispatch,
     sender: PeerScheduler,
@@ -300,13 +305,10 @@ impl TransportSession {
         for (id, attachment) in &mut self.attachments {
             let mut source_exhausted = false;
             for _ in 0..self.config.event_batch.get() {
-                let Some(batch) = attachment.reader.next_batch()? else {
+                if !attachment.stage_next()? {
                     source_exhausted = true;
                     break;
-                };
-                attachment
-                    .dispatch
-                    .stage(batch, attachment.reader.cursor()?)?;
+                }
             }
             for (lane, error) in attachment.sender.schedule_round(
                 &mut attachment.dispatch,
@@ -435,6 +437,7 @@ fn open_attachment(
         config.retry_delay,
     );
     Ok(Attachment {
+        source: path.join("stdout.journal"),
         reader,
         dispatch,
         sender,

@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+TransportSession::stage_capture_tails 在当前 collector 显式停止后，以 attachment 游标分页、每项 event_batch 上限推进原始 stdout 的剩余提取，将语义帧写入既有 durable dispatch；不重新启动采集或隐式发送。CaptureTailPage 返回 AwaitingCompletion/Pending/Staged，Staged 必须精确达到持久 CollectorFinished 的 stdout position，并另报 pending_forwarding，不把入队等同于远端投递。此前已回收 attachment 已满足完成位置和空 dispatch 条件，未回收项继续保留。普通 tick 与尾部提取共用 Attachment::stage_next：若前次 stage 失败导致 reader 超前，按 dispatch 保存的 cursor 重开源 reader，沿原 key 重放，避免继续消费后续 batch；底层 journal 故障仍需按既有恢复流程处理。全部 attachment 完成证据、dispatch/inbox 等机器日志归档、最终 manifest 与 CLI 装配仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 TransportSession::stop_capture 串起 stop_network、in-flight forwarding/input/reaper 等待、关闭请求审计、当前 collector detach/finish 与完成记录读取。独立 CollectorOwner 管理 Running/Stopping/Stopped/Failed：blocking 关闭任务的 handle 留在 Session 中，取消调用方等待不取消采集收尾，重复调用继续等待或返回同一份已保存的 CollectorFinished；关闭开始后 tick 不再重新 attach。collector 的 attachment ID 直接来自持有对象，启动/重连/关闭均不再从目录名重复解析。此入口只结束当前 transport observer，调用方先安排 Agent 输出结束，tmux panes/session 保留；历史 attachment、持久投递 backlog、未提取 raw tails 和全部远端归档仍需分别核对，不以当前 collector 完成宣告整机或 Agent 终态。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 GatewayReception::stop_reading 改为显式通知 listener/readers 停止新 accept 和 frame read，已完整解码且等待有界通道的帧继续完成交接，各 reader 发出关闭记录后由管理任务等待退出；listener 失败也走 reader 收尾。普通 Drop 仍是放弃接收器的退出路径，不能代替显式 drain。TransportSession::stop_network 在 SessionActor 交还所有权后排空并持久化接收事件，再将 ingress 已记录帧转入 durable inbox；该操作不等同于 Agent 投递或 collector 结束。普通 tick 和网络关闭共用 pending_reception，先保存取出的事件再写 journal，写入错误不会立即丢弃内存中的事件；journal 写入故障仍按既有 reopen/recovery 语义处理。取消关闭等待后可继续排空，停止请求不撤销。其余 transport worker、collector 关闭与最终归档汇总尚待串联。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
