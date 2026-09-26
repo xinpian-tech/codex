@@ -118,6 +118,16 @@ impl ControlAudit {
 }
 
 impl InputAudit {
+    /// No reader was started, so these positions describe the empty input
+    /// producer and its explicit not-started lifecycle, rather than stdin EOF.
+    pub(super) fn close_unstarted(mut self) -> io::Result<InputCompletion> {
+        self.lifecycle.append(b"reader_not_started")?;
+        Ok(InputCompletion {
+            input: self.bytes.position(),
+            lifecycle: self.lifecycle.position(),
+        })
+    }
+
     /// Captures bytes underneath buffering and JSON parsing, including invalid
     /// UTF-8 and partial requests. An input reader blocked on stdin is not marked
     /// complete merely because the machine received a stop signal elsewhere.

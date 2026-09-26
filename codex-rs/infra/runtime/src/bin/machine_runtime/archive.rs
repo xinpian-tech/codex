@@ -112,6 +112,8 @@ pub(super) async fn replay_control_archives(
 
 /// Runs after control output ends. Completion is established by each exact
 /// job's durable remote receipt, independently of unrelated machine backlog.
+/// When startup did not produce a writer, only prepares the durable jobs for
+/// the next startup to admit; it does not establish remote completion.
 pub(super) async fn archive_control(
     audit: ControlAudit,
     input: io::Result<InputCompletion>,
@@ -119,7 +121,9 @@ pub(super) async fn archive_control(
 ) -> io::Result<()> {
     tokio::task::spawn_blocking(move || {
         let jobs = audit.finish(&input)?;
-        let mut writer = writer.ok_or_else(|| io::Error::other("archive writer unavailable"))?;
+        let Some(mut writer) = writer else {
+            return input.map(|_| ());
+        };
         for job in &jobs {
             writer.enqueue(job.clone())?;
         }

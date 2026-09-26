@@ -6,6 +6,7 @@ use codex_infra_protocol::DirectoryEvent;
 use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::RootSessionId;
+use codex_infra_runtime::MachineArchiveWriter;
 use codex_infra_runtime::MachineLaunchConfig;
 use codex_infra_runtime::MachineRuntime;
 use codex_infra_runtime::MachineRuntimeExit;
@@ -17,6 +18,7 @@ use tokio::sync::mpsc;
 #[path = "machine_runtime/audit.rs"]
 mod audit;
 use audit::ControlAudit;
+use audit::InputAudit;
 
 #[path = "machine_runtime/archive.rs"]
 mod archive;
@@ -92,8 +94,14 @@ async fn main() -> io::Result<()> {
     let mut signals = match ShutdownSignals::open() {
         Ok(signals) => signals,
         Err(error) => {
-            audit.event("signal_setup_failed", &error.to_string())?;
-            return Err(error);
+            return fail_startup(
+                "signal_setup_failed",
+                error,
+                audit,
+                input_audit,
+                /*writer*/ None,
+            )
+            .await;
         }
     };
     let capacity = config.scheduling.command_capacity.get();
@@ -103,19 +111,31 @@ async fn main() -> io::Result<()> {
     let mut machine = match config.open().await {
         Ok(machine) => machine,
         Err(error) => {
-            audit.event("open_failed", &error.to_string())?;
-            return Err(error);
+            return fail_startup(
+                "open_failed",
+                error,
+                audit,
+                input_audit,
+                /*writer*/ None,
+            )
+            .await;
         }
     };
     if let Err(error) = machine.start().await {
-        let recorded = audit.event("startup_failed", &error.to_string());
-        let exit = stop_machine(machine, &mut audit).await?;
-        recorded?;
-        audit.event("startup_cleanup", &exit.failures)?;
-        return Err(io::Error::other(format!(
-            "machine startup: {error}; cleanup: {:?}",
-            exit.failures
-        )));
+        let (error, writer) = match stop_machine(machine, &mut audit).await {
+            Ok(exit) => (
+                io::Error::other(format!(
+                    "machine startup: {error}; cleanup: {:?}",
+                    exit.failures
+                )),
+                exit.writer,
+            ),
+            Err(cleanup) => (
+                io::Error::other(format!("machine startup: {error}; cleanup: {cleanup}")),
+                None,
+            ),
+        };
+        return fail_startup("startup_failed", error, audit, input_audit, writer).await;
     }
     let (send, mut receive) = mpsc::channel(capacity);
     let input_worker = InputWorker::start(input_audit, send);
@@ -186,7 +206,23 @@ async fn main() -> io::Result<()> {
             "control_error": result.as_ref().err().map(ToString::to_string),
         }),
     );
-    let exit = stop_machine(machine, &mut audit).await?;
+    let exit = match stop_machine(machine, &mut audit).await {
+        Ok(exit) => exit,
+        Err(error) => {
+            let archived = archive_control(audit, input_stopped, /*writer*/ None).await;
+            let mut failures = vec![format!("machine shutdown: {error}")];
+            for (stage, result) in [
+                ("stdin recording", input_recorded),
+                ("stop recording", recorded),
+                ("archive preparation", archived),
+            ] {
+                if let Err(error) = result {
+                    failures.push(format!("{stage}: {error}"));
+                }
+            }
+            return Err(io::Error::other(failures.join("; ")));
+        }
+    };
     let failed = !exit.failures.is_empty();
     let reported = (|| {
         input_recorded?;
@@ -208,6 +244,25 @@ async fn main() -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+async fn fail_startup(
+    stage: &str,
+    error: io::Error,
+    mut audit: ControlAudit,
+    input: InputAudit,
+    writer: Option<MachineArchiveWriter>,
+) -> io::Result<()> {
+    let recorded = audit.event(stage, &error.to_string());
+    let archived = archive_control(audit, input.close_unstarted(), writer).await;
+    let mut failures = vec![format!("{stage}: {error}")];
+    if let Err(error) = recorded {
+        failures.push(format!("recording: {error}"));
+    }
+    if let Err(error) = archived {
+        failures.push(format!("archive: {error}"));
+    }
+    Err(io::Error::other(failures.join("; ")))
 }
 
 async fn stop_machine(

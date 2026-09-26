@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+机器 CLI 的信号注册失败、资源打开失败和服务启动失败统一进入 fail_startup：保存具体阶段错误，消费未启动的 InputAudit 并记录 reader_not_started，以实际空输入和生命周期位置准备归档。服务部分启动时先停止已启动组件，拿到 writer 后继续发布；尚无 writer 时仅保存固定 IDs 的归档批次，由后续启动重放，不将本地准备解释为远端完成。正常控制循环后的 MachineRuntime::stop 若整体报错，也尝试关闭控制审计并保存批次，返回原关闭错误和记录/归档错误。读取线程启动失败后的输入恢复、运行中周期快照、进程异常退出恢复、stderr 及整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
+
 机器 CLI 正常控制循环结束后，先记录最终 Stopped 输出与 control_closed，再消费 ControlAudit 并按实际 writer 确认位置保存 machine-control 归档任务。stdout/lifecycle 始终参与这一收尾；stdin/stdin-lifecycle 仅在读取线程交回完成位置时加入 ProducerFinished。任务先以固定 IDs 写入本次运行的 archive.journal，再交给已停止 actor 返回的 MachineArchiveWriter；归档工作在线程池执行，逐项确认持久远端回执后返回。输出报告失败仍尝试该归档步骤。CLI 启动时逐目录重放历史已准备批次，保留原任务 IDs，已有回执的任务跳过；每次只读取一个运行的任务清单，不加载其原始日志正文。归档错误保留本地任务，未准备完成的异常退出日志仍待 producer 恢复流程；启动失败分支、运行中周期快照、stderr 覆盖及整体 finalizer 尚待接入。库/二进制 Clippy 通过，未编写或运行测试，未执行 CLI 或部署实验。
 
 机器 CLI 的 stdin reader 改由 InputWorker 持有。Unix 使用独立停止 socket 唤醒 poll，退出时先关闭请求接收端，再等待读取线程返回；停止请求与真实 EOF 分别记录，reader_closed 后交回原始输入及读取生命周期的最终确认位置，并写入主生命周期日志。stdin 描述符以 close-on-exec 复制；非 Unix 路径仍需要输入生产者关闭 stdin。读取线程启动或关闭失败也先进入机器服务收尾。新增 Unix libc 直接依赖，库/二进制 Clippy 通过；未编写或运行测试，未执行 CLI 或部署实验。CLI 日志远端归档、stderr 覆盖及完整 finalizer 仍待完成。
