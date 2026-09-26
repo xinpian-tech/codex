@@ -19,8 +19,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::StoreAuditIdentity;
+use crate::ToolActivity;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolOperation {
     pub thread_id: String,
     pub turn_id: String,
@@ -29,7 +30,7 @@ pub struct ToolOperation {
     pub source: ToolOrigin,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolOrigin {
     Direct,
@@ -54,7 +55,7 @@ impl From<ToolCallSource> for ToolOrigin {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolOutcome {
     Completed { success: bool },
@@ -95,6 +96,7 @@ pub enum RecordedToolPayload {
 struct Writer {
     journal: Journal,
     failure: Option<String>,
+    activity: ToolActivity,
 }
 
 /// Durable operation provenance before execution and at handler completion.
@@ -104,6 +106,7 @@ struct Writer {
 pub struct ToolAudit {
     writer: Arc<Mutex<Writer>>,
     pending: Arc<AtomicUsize>,
+    append_order: Arc<tokio::sync::Semaphore>,
 }
 
 struct PendingWrite(Arc<AtomicUsize>);
@@ -120,27 +123,33 @@ impl ToolAudit {
         identity: StoreAuditIdentity,
         launch_id: MessageId,
     ) -> io::Result<Self> {
+        let mut activity = ToolActivity::default();
         let mut journal = Journal::open(path, |record| {
             let event: ToolAuditEvent = serde_json::from_slice(&record.payload)?;
             if let ToolAuditEvent::Opened {
                 identity: previous,
                 launch_id: previous_launch,
-            } = event
-                && (previous != identity || previous_launch != launch_id)
+            } = &event
+                && (previous != &identity || previous_launch != &launch_id)
             {
                 return Err(io::Error::other("tool audit launch binding changed"));
             }
+            let _ = activity.apply(record.sequence, &event);
             Ok(())
         })?;
-        journal.append(&serde_json::to_vec(&ToolAuditEvent::Opened {
+        let opened = ToolAuditEvent::Opened {
             identity,
             launch_id,
-        })?)?;
+        };
+        let sequence = journal.append(&serde_json::to_vec(&opened)?)?;
+        let _ = activity.apply(sequence, &opened);
         Ok(Self {
             pending: Arc::new(AtomicUsize::new(0)),
+            append_order: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
             writer: Arc::new(Mutex::new(Writer {
                 journal,
                 failure: None,
+                activity,
             })),
         })
     }
@@ -160,7 +169,7 @@ impl ToolAudit {
             .map_err(|error| io::Error::other(error.to_string()))?;
         match &writer.failure {
             Some(error) => Err(io::Error::other(error.clone())),
-            None => Ok(()),
+            None => writer.activity.require_settled(),
         }
     }
 
@@ -168,14 +177,20 @@ impl ToolAudit {
         let writer = Arc::clone(&self.writer);
         self.pending.fetch_add(1, Ordering::SeqCst);
         let pending = PendingWrite(Arc::clone(&self.pending));
+        // Acquire before handing work to the blocking pool: cancellation of
+        // a start callback must not let its finish write overtake the start.
+        let order = Arc::clone(&self.append_order).acquire_owned().await;
         let result = tokio::task::spawn_blocking(move || {
             let _pending = pending;
             let mut writer = writer
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let result = event.and_then(|event| {
+                let _order = order.map_err(io::Error::other)?;
                 let bytes = serde_json::to_vec(&event)?;
-                writer.journal.append(&bytes)
+                let sequence = writer.journal.append(&bytes)?;
+                let _ = writer.activity.apply(sequence, &event);
+                Ok(sequence)
             });
             if let Err(error) = result {
                 writer.failure.get_or_insert_with(|| error.to_string());

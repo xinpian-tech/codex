@@ -8,6 +8,7 @@ mod process_activity;
 mod process_audit;
 mod store;
 mod store_audit;
+mod tool_activity;
 mod tool_audit;
 
 pub use checkpoints::WorkspaceCheckpoints;
@@ -23,6 +24,8 @@ pub use store::AuditedThreadStore;
 pub use store_audit::StoreAudit;
 pub use store_audit::StoreAuditEvent;
 pub use store_audit::StoreAuditIdentity;
+pub use tool_activity::ToolActivity;
+pub use tool_activity::ToolSettlement;
 pub use tool_audit::RecordedToolPayload;
 pub use tool_audit::ToolAudit;
 pub use tool_audit::ToolAuditEvent;

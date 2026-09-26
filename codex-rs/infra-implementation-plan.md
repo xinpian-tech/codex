@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ToolActivity 已接入操作日志恢复与实时追加，宿主检查同时识别未落盘写入、审计故障和未结束工具。活动键包含 thread/turn/call 与 Direct/code mode 来源，账本只保存未结束操作的身份，完成后返回 ToolSettlement 并移出内存。没有开始记录的结束保留 started_sequence=None，包括 MCP handler 内部准备失败等路径，不从 handler outcome 推断外部调用已发生。ToolAudit 在交给 blocking pool 前串行取得写入许可，避免开始回调取消后结束记录抢先落盘。消费者仍需结合进程归属、停止工具调度和日志水位后推进 checkpoint；仅工具账本为空不代表 worktree 已停止变化。组合库 Clippy 已通过，未编写或运行测试。
+
 ProcessActivity 已接入 ProcessAudit 的 journal 恢复及每次成功追加，宿主收尾检查现在要求启动请求、stdin 请求和 producer 生命周期均已归结。账本只保留未结束尝试的身份、ExecMetadata、序号和退出状态；已归结项移出内存，完整正文保留在日志。成功启动须同时出现启动响应、Exited 和 Closed，允许 producer 记录早于启动响应；失败启动单独产出归结结果。序列缺失、旧记录未知关联及 producer Failed 保留为未解决状态，后续原始记录继续保存。公开重放入口可返回带工具归属的 ProcessSettlement，消费者须在处理下游结果后一起持久化视图与读取游标；独立读取者还须到达要求的 journal 水位，不能仅凭空前缀判定完成。组合库 Clippy 已通过，未编写或运行测试。工具活动账本、串行修改边界和 checkpoint 调度仍待装配。
 
 进程审计现以每次 Requested 的 journal 序号标识独立启动尝试，不再按 process ID 复用 recorder。Prepared、Output、Exited、Closed、Failed 带对应序号；StartFinished 单独保存完整启动响应或错误，因此同名进程的失败重试不会污染原运行进程的状态。生产输出可能先于 StartFinished，消费者按关联序号处理，不依赖两者的到达顺序。旧记录缺少序号时保留未知关联。ProcessAudit 另外保留首个序列化/写入错误，ManagedHost 在请求和 producer 排空后检查它，覆盖输出已关闭后最终响应记录失败的情况。组合库 Clippy 已通过，未编写或执行测试；基于这些记录的操作/进程 ledger 与 checkpoint 调度仍待连接。
