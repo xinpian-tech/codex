@@ -599,6 +599,23 @@ impl ToolRegistry {
             return Err(err);
         }
 
+        let _execution_scopes = match super::execution_scope::acquire(&invocation).await {
+            Ok(scopes) => scopes,
+            Err(message) => {
+                let error = FunctionCallError::RespondToModel(message);
+                dispatch_trace.record_failed(&error);
+                notify_tool_finish_if_unclaimed(
+                    &invocation,
+                    call_state.as_deref(),
+                    ToolCallOutcome::Failed {
+                        handler_executed: false,
+                    },
+                )
+                .await;
+                return Err(error);
+            }
+        };
+
         if let Some(pre_tool_use_payload) = tool.pre_tool_use_payload(&invocation) {
             match run_pre_tool_use_hooks(
                 &invocation.session,

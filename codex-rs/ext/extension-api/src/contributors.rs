@@ -17,6 +17,7 @@ mod mcp;
 mod prompt;
 mod skill_invocation;
 mod thread_lifecycle;
+mod tool_execution;
 mod tool_lifecycle;
 mod turn_input;
 mod turn_lifecycle;
@@ -44,6 +45,9 @@ pub use thread_lifecycle::ThreadReadyInput;
 pub use thread_lifecycle::ThreadResumeInput;
 pub use thread_lifecycle::ThreadStartInput;
 pub use thread_lifecycle::ThreadStopInput;
+pub use tool_execution::ToolExecutionFuture;
+pub use tool_execution::ToolExecutionInput;
+pub use tool_execution::ToolExecutionLease;
 pub use tool_lifecycle::CommandStartInput;
 pub use tool_lifecycle::McpToolContext;
 pub use tool_lifecycle::McpToolResultInput;
@@ -377,6 +381,16 @@ pub trait ToolContributor: Send + Sync {
 /// rewriting the invocation. Use `ToolContributor` for owning a tool implementation
 /// and hooks for policy that changes tool payloads.
 pub trait ToolLifecycleContributor: Send + Sync {
+    /// Acquires an owned scope before hooks or handler execution. Errors stop
+    /// dispatch. Contributors must allow nested orchestration calls to make
+    /// progress rather than holding an exclusive scope around their children.
+    fn acquire_tool_execution<'a>(
+        &'a self,
+        _input: ToolExecutionInput<'a>,
+    ) -> ToolExecutionFuture<'a> {
+        Box::pin(std::future::ready(Ok(None)))
+    }
+
     /// Observe direct calls before readiness, dispatch waiting, and hooks, including blocked calls.
     /// Excludes nested code-mode calls. Observers must return promptly.
     fn on_tool_dispatch(&self, _input: ToolDispatchInput<'_>) {}

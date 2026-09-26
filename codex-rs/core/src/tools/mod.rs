@@ -6,6 +6,7 @@ pub(crate) mod context;
 mod control_tool_analytics;
 pub(crate) mod events;
 mod executed_tool_calls;
+mod execution_scope;
 pub(crate) mod handlers;
 pub(crate) mod hook_names;
 pub(crate) mod hosted_spec;
