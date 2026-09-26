@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+WorkspaceCheckpoints 增加共享 PublicationTasks 与 shutdown_publications：接收新发送和关闭接收在同一锁下协调，发送 worker 启动前取得 TaskTracker token，覆盖持久化意图、等待工作区、checkpoint、入队和终端写入。调用方取消等待不会取消 worker；正常错误和异常退出保留到 shutdown 结果。token 随任务 guard 在错误记录之后释放，排空不会早于失败归属。关闭须在最终消息已接收后、checkpoint/终端服务仍可用时进行；该入口仅确认本次进程的发送任务完成，磁盘待发送意图与远端回执仍分别恢复。实现全部位于 ext/infra，无依赖变化；finalizer 的实际调用顺序仍待装配。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 HostMailbox 增加 publications.journal，复用 SpoolQueue 在等待工作区 gate 前持久化待发送 envelope；内存保存 key/offset，正文按批从日志读取。受管 send_checkpointed 的独立任务先 stage，再 checkpoint/入队；reconcile_publication 核对草稿与 outbox（仅允许 commit 由已推送回执替换），处理 outbox 已持久化但意图完成记录尚未写入的中断窗口。终端输出失败后，已入队意图仍标记完成，网络交付继续由原 outbox 重放。WorkspaceCheckpoints::recover_publications 提供有界批次恢复：未入队的意图重新 checkpoint，已入队的意图使用原 envelope；调用方须先恢复工作区操作，随后继续 outbox 交付恢复。新增逻辑位于 infra/runtime/mailbox 与 ext/infra，无依赖变化。实际宿主启动/关闭装配、发送任务排空和最终消息归档水位仍待接入。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 WorkspaceCheckpoints 新增受管 send_checkpointed 入口，在同一工作区 gate 内完成 Git checkpoint、当前 commit 更新、HostMailbox outbox 入队及 tmux 终端输出。发送前按 AgentContext 核对发送者 Agent/root session/machine/role/repo；消息 commit 由本次已推送回执填写。独立拥有的任务覆盖等待工作区和发送过程，取消调用方等待不取消已接收工作。新发送使用独立 checkpoint attempt；已入队 ID 走原 envelope 重放，终端输出失败不撤销已完成的 Git checkpoint。Git 执行期间不占用 mailbox 锁。新增模块和复用逻辑均在 ext/infra，无既有 crate 或依赖变化。此入口需在工具 mutation lease 外调用，长命令的进程控制结果继续允许返回；Agent 工具装配、发送意图在等待期间的持久化/恢复及最终消息的归档水位约束仍待接入。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

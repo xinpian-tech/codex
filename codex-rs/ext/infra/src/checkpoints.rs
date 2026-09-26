@@ -28,6 +28,7 @@ pub struct WorkspaceCheckpoints {
     pub(super) state: Arc<Mutex<CheckpointState>>,
     pub(super) context: Arc<AgentContext>,
     pub(super) gate: WorkspaceGate,
+    pub(super) publications: Arc<crate::publication::PublicationTasks>,
 }
 
 impl WorkspaceCheckpoints {
@@ -57,6 +58,7 @@ impl WorkspaceCheckpoints {
             })),
             context,
             gate: WorkspaceGate::new(readiness),
+            publications: Arc::default(),
         })
     }
 
