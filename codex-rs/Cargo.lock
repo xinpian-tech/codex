@@ -3717,6 +3717,7 @@ dependencies = [
  "codex-core",
  "codex-extension-api",
  "codex-infra-protocol",
+ "codex-infra-runtime",
  "codex-infra-state",
  "codex-protocol",
  "codex-thread-store",

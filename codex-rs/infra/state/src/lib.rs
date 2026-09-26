@@ -15,6 +15,7 @@ pub use checkpoint::CheckpointAttempt;
 pub use checkpoint::CheckpointCoordinator;
 pub use checkpoint::CheckpointKind;
 pub use checkpoint::CheckpointPhase;
+pub use checkpoint::RecordedCheckpoint;
 pub use directory::DirectoryFilter;
 pub use directory::DirectoryStore;
 pub use inbox::DurableInbox;

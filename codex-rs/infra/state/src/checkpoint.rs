@@ -39,12 +39,19 @@ pub enum CheckpointPhase {
     },
 }
 
+/// The phase's durable position in the owning machine's checkpoint journal.
+#[derive(Debug, Clone)]
+pub struct RecordedCheckpoint {
+    pub sequence: u64,
+    pub phase: CheckpointPhase,
+}
+
 /// Journals pending before Git work and completed only after push confirmation.
 /// The machine writer owns this coordinator; every Agent's latest phase is
 /// reconstructed before result delivery or finalization can resume.
 pub struct CheckpointCoordinator {
     journal: Journal,
-    phases: BTreeMap<AgentId, CheckpointPhase>,
+    phases: BTreeMap<AgentId, RecordedCheckpoint>,
 }
 
 impl CheckpointCoordinator {
@@ -57,13 +64,23 @@ impl CheckpointCoordinator {
                 CheckpointPhase::Pending { attempt }
                 | CheckpointPhase::Completed { attempt, .. } => attempt.workspace.agent_id,
             };
-            phases.insert(agent_id, phase);
+            phases.insert(
+                agent_id,
+                RecordedCheckpoint {
+                    sequence: record.sequence,
+                    phase,
+                },
+            );
             Ok(())
         })?;
         Ok(Self { journal, phases })
     }
 
     pub fn phase(&self, agent_id: AgentId) -> Option<&CheckpointPhase> {
+        self.phases.get(&agent_id).map(|record| &record.phase)
+    }
+
+    pub fn record(&self, agent_id: AgentId) -> Option<&RecordedCheckpoint> {
         self.phases.get(&agent_id)
     }
 
@@ -74,7 +91,7 @@ impl CheckpointCoordinator {
         kind: CheckpointKind,
     ) -> io::Result<Checkpoint> {
         let agent_id = workspace.binding().agent_id;
-        let attempt = match self.phases.get(&agent_id) {
+        let attempt = match self.phase(agent_id) {
             Some(CheckpointPhase::Completed { attempt, receipt })
                 if attempt.operation_id == operation_id && attempt.kind == kind =>
             {
@@ -99,18 +116,32 @@ impl CheckpointCoordinator {
         let pending = CheckpointPhase::Pending {
             attempt: attempt.clone(),
         };
-        self.journal
+        let sequence = self
+            .journal
             .append(&serde_json::to_vec(&pending).map_err(io::Error::other)?)?;
-        self.phases.insert(agent_id, pending);
+        self.phases.insert(
+            agent_id,
+            RecordedCheckpoint {
+                sequence,
+                phase: pending,
+            },
+        );
         let mut receipt = workspace.checkpoint(operation_id)?;
         receipt.before = attempt.before.clone();
         let completed = CheckpointPhase::Completed {
             attempt,
             receipt: receipt.clone(),
         };
-        self.journal
+        let sequence = self
+            .journal
             .append(&serde_json::to_vec(&completed).map_err(io::Error::other)?)?;
-        self.phases.insert(agent_id, completed);
+        self.phases.insert(
+            agent_id,
+            RecordedCheckpoint {
+                sequence,
+                phase: completed,
+            },
+        );
         Ok(receipt)
     }
 }

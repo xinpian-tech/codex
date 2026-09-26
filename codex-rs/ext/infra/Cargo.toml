@@ -16,6 +16,7 @@ codex-app-server = { workspace = true }
 codex-core = { workspace = true }
 codex-extension-api = { workspace = true }
 codex-infra-protocol = { workspace = true }
+codex-infra-runtime = { workspace = true }
 codex-infra-state = { workspace = true }
 codex-protocol = { workspace = true }
 codex-thread-store = { workspace = true }

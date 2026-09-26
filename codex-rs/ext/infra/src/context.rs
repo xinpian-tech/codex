@@ -12,6 +12,8 @@ use codex_extension_api::PreviousWorldStateSection;
 use codex_extension_api::RenderedWorldStateFragment;
 use codex_extension_api::WorldStateContributionInput;
 use codex_extension_api::WorldStateSectionContribution;
+use codex_infra_state::CheckpointPhase;
+use codex_infra_state::RecordedCheckpoint;
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -19,30 +21,84 @@ use tokio::sync::watch;
 /// Runtime updates this from its verified launch/checkpoint/generation state.
 /// Tasks, peer messages and directory listings enter through their own inputs.
 pub struct AgentContext {
-    current: watch::Sender<[AgentExecutionFragment; 3]>,
+    current: watch::Sender<ContextSnapshot>,
+}
+
+#[derive(Clone)]
+struct ContextSnapshot {
+    identity: ExecutionIdentity,
+    workspace: ExecutionWorkspace,
+    inference: ExecutionInference,
+    fragments: [AgentExecutionFragment; 3],
+    checkpoint_sequence: Option<u64>,
 }
 
 impl AgentContext {
-    pub fn new(
+    pub(crate) fn new(
         identity: ExecutionIdentity,
         workspace: ExecutionWorkspace,
         inference: ExecutionInference,
     ) -> io::Result<Self> {
-        let fragments = fragments(identity, workspace, inference)?;
-        let (current, _) = watch::channel(fragments);
+        let snapshot = snapshot(identity, workspace, inference)?;
+        let (current, _) = watch::channel(snapshot);
         Ok(Self { current })
     }
 
-    /// Validates the complete next snapshot before publishing any section.
-    pub fn replace(
-        &self,
-        identity: ExecutionIdentity,
-        workspace: ExecutionWorkspace,
-        inference: ExecutionInference,
-    ) -> io::Result<()> {
-        self.current
-            .send_replace(fragments(identity, workspace, inference)?);
-        Ok(())
+    /// Applies an already completed commit/push hook. Caller replays completed
+    /// checkpoints after opening a resumed host and before its first sampling.
+    pub fn apply_checkpoint(&self, record: &RecordedCheckpoint) -> io::Result<()> {
+        let CheckpointPhase::Completed { attempt, receipt } = &record.phase else {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "checkpoint is still pending",
+            ));
+        };
+        let mut result = Ok(());
+        self.current.send_if_modified(|current| {
+            if attempt.workspace.agent_id.to_string() != current.identity.agent_id
+                || attempt.workspace.root_session_id.to_string() != current.identity.root_session_id
+                || attempt.workspace.worktree.to_str() != Some(current.workspace.worktree.as_str())
+                || attempt.workspace.branch != current.workspace.branch
+                || attempt.operation_id != receipt.operation_id
+                || attempt.before != receipt.before
+            {
+                result = Err(io::Error::other(
+                    "checkpoint does not match Agent workspace",
+                ));
+                return false;
+            }
+            if let Some(previous) = current.checkpoint_sequence {
+                if record.sequence == previous
+                    && current.workspace.commit == receipt.pushed_commit.to_string()
+                {
+                    return false;
+                }
+                if record.sequence <= previous {
+                    result = Err(io::Error::other(
+                        "checkpoint is older than current Agent binding",
+                    ));
+                    return false;
+                }
+            }
+            let mut workspace = current.workspace.clone();
+            workspace.commit = receipt.pushed_commit.to_string();
+            match snapshot(
+                current.identity.clone(),
+                workspace,
+                current.inference.clone(),
+            ) {
+                Ok(mut next) => {
+                    next.checkpoint_sequence = Some(record.sequence);
+                    *current = next;
+                    true
+                }
+                Err(error) => {
+                    result = Err(error);
+                    false
+                }
+            }
+        });
+        result
     }
 }
 
@@ -52,7 +108,7 @@ impl ContextContributor for AgentContext {
         _input: WorldStateContributionInput<'a>,
     ) -> ExtensionFuture<'a, Vec<WorldStateSectionContribution>> {
         Box::pin(async move {
-            let current = self.current.borrow().clone();
+            let current = self.current.borrow().fragments.clone();
             ["infra_identity", "infra_workspace", "infra_inference"]
                 .into_iter()
                 .zip(current)
@@ -81,14 +137,21 @@ impl ContextContributor for AgentContext {
     }
 }
 
-fn fragments(
+fn snapshot(
     identity: ExecutionIdentity,
     workspace: ExecutionWorkspace,
     inference: ExecutionInference,
-) -> io::Result<[AgentExecutionFragment; 3]> {
-    Ok([
-        AgentExecutionFragment::new(AgentExecutionContext::Identity(identity))?,
-        AgentExecutionFragment::new(AgentExecutionContext::Workspace(workspace))?,
-        AgentExecutionFragment::new(AgentExecutionContext::Inference(inference))?,
-    ])
+) -> io::Result<ContextSnapshot> {
+    let fragments = [
+        AgentExecutionFragment::new(AgentExecutionContext::Identity(identity.clone()))?,
+        AgentExecutionFragment::new(AgentExecutionContext::Workspace(workspace.clone()))?,
+        AgentExecutionFragment::new(AgentExecutionContext::Inference(inference.clone()))?,
+    ];
+    Ok(ContextSnapshot {
+        identity,
+        workspace,
+        inference,
+        fragments,
+        checkpoint_sequence: None,
+    })
 }

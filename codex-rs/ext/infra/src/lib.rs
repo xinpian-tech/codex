@@ -1,5 +1,6 @@
 //! Managed Agent contributions and adapters for the existing Codex host.
 
+mod binding;
 mod context;
 mod host;
 mod store;
