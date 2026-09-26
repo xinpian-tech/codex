@@ -580,7 +580,7 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 17. 构建与仓库维护
 
-Rust 改动后按仓库规则格式化；依赖变更同步 Cargo/Bazel 锁文件；配置或 app-server 类型变化生成相应 schema。构建命令与部署 derivation 明确采用关闭测试的入口，已有测试代码保持原状。
+文件修改使用 `apply_patch`，禁止使用 Python 修改文件。Rust 格式化直接调用 `cargo fmt`/`rustfmt`，Bazel 格式化直接调用 buildifier；绕过调用 Python 的聚合格式化入口。依赖变更同步 Cargo/Bazel 锁文件；配置或 app-server 类型变化生成相应 schema。构建命令与部署 derivation 明确采用关闭测试的入口，已有测试代码保持原状。
 
 静态诊断仅采用面向实际库与二进制的入口，不调用包含测试或基准目标的聚合命令。若仓库常用命令合并了格式化、编译和测试步骤，分别执行所需构建维护步骤。
 
@@ -591,3 +591,23 @@ Rust 改动后按仓库规则格式化；依赖变更同步 Cargo/Bazel 锁文�
 保留源码和 Team State 两个仓库的提交、包/API 边界、部署 generation、实际使用配置、Root Session 与分片 refs。实际任务记录包括 assignment 历史、工作记忆来源、Contribution 的 base/head/integration commit、消息接收与呈现、升级交接、最终输出及账户 usage。
 
 交付说明区分已完成实现、已部署版本、真实任务中观察到的行为和仍待处理的问题；后续修改继续关联真实 Session 与部署版本。
+
+## 19. 当前实施记录
+
+实施从 `c015fc31d1` 开始，包含远端上游 `e72da2b538`。相对本文最初的源码核对基线，`ext/agent` 的启动调用已变为 `spawn_legacy_subagent`；`ContextualUserFragment` 的契约由独立 `context-fragments` 包导出。宿主仍在 `message_processor` 内装配 ThreadStore 与扩展，Memory consolidation 仍直接创建 thread。
+
+已形成以下独立基础实现，尚未连接生产 Agent 宿主：
+
+| 提交 | 内容 |
+| --- | --- |
+| `4f65add73b` | protocol：身份、Task/assignment、消息、贡献、TaskSpec 与 ConfigGeneration 类型 |
+| `2c8cb95102` | state：单写者持久日志、Task revision 回放与恢复 |
+| `abf4b94f54` | state：独立 worktree、commit/push/远端 HEAD 确认、checkpoint pending/completed 日志 |
+| `9f68bdf326` | state：专属 Git index、内容寻址 Session 分块、机器分片 ref 与远端归档 receipt |
+| `6a449789ec` | nix：hostid 读取、锁定 flake、锁文件摘要、Task 构建计划、固定 drv realization |
+
+日志 fsync 完成后才确认本地写入，任务当前视图可由日志重建。Git 归档 receipt 与本地日志确认分别返回；相同分块重复发布复用已有 tree/commit。checkpoint 在 Git 操作前保存 pending，push 与远端确认完成后保存 completed。Nix 求值与构建采用独立入口，锁文件更新关闭，构建使用已解析 drv。
+
+三个包均已通过限定库目标的 Cargo 编译/Clippy，使用 Nix store 中的 Rust 1.95.0 和 C 工具链；Rust/Bazel 文件直接以 rustfmt/buildifier 格式化。Cargo.lock 已维护。Bazel 9.0.0 的 `mod deps --lockfile_mode=update` 已成功执行，MODULE.bazel.lock 未产生内容差异。本机 NixOS 下使用临时目录中的适配 launcher/process-wrapper，以及同版本 Nix Cargo 的 repository override 完成元数据生成；这些本机构建工具路径没有进入项目配置。
+
+P0/P1 仍在进行：配置 generation 的实际装配、分片归档调度与索引/水位、原始流采集、Hook 装配和日志消费者尚待连接。P2–P7 的 tmux、Provider、账户、宿主、团队知识和部署仍待完成。当前编译结果仅证明已实现的库可构建；未编写或执行测试，未部署或开展运行实验。
