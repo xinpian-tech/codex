@@ -3747,6 +3747,7 @@ dependencies = [
  "codex-infra-protocol",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
