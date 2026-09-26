@@ -502,12 +502,26 @@ impl Session {
             _ => ctx.call_id.clone(),
         };
 
+        let hook_operation_call_id = match &action {
+            ApprovalAction::NetworkAccess { trigger, .. } => {
+                trigger.as_ref().map(|trigger| trigger.call_id.as_str())
+            }
+            ApprovalAction::ExecCommand { .. }
+            | ApprovalAction::WriteStdin { .. }
+            | ApprovalAction::ApplyPatch { .. }
+            | ApprovalAction::McpToolCall { .. }
+            | ApprovalAction::RequestPermissions { .. } => Some(ctx.call_id.as_str()),
+            #[cfg(unix)]
+            ApprovalAction::Execve { .. } => Some(ctx.call_id.as_str()),
+        };
+
         // Approval precedence is:
         // 1. Hooks
         // 2. If StrictAutoReview || Guardian enabled, then Guardian. Else, user.
         let resolution = match run_permission_request_hooks(
             self,
             &ctx.review_context,
+            hook_operation_call_id,
             &permission_request_run_id,
             action.permission_request_payload(),
         )

@@ -77,6 +77,7 @@ pub(super) fn prepare_command(
         .collect();
     Some(executor.prepare(crate::HookCommandRequest {
         thread_id: runtime.thread_id,
+        tool_call_id: runtime.tool_call_id.clone(),
         program,
         arguments,
         command,

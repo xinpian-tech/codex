@@ -68,6 +68,14 @@ pub struct Hooks {
 }
 
 impl Hooks {
+    /// Clones invocation-local attribution while sharing the existing runtime
+    /// and background task queue. Hook JSON keeps its original public IDs.
+    pub fn for_tool_call(&self, call_id: &str) -> Self {
+        let mut hooks = self.clone();
+        hooks.engine.command_runtime.tool_call_id = Some(call_id.to_owned());
+        hooks
+    }
+
     /// Install before dispatching this session's first hook. Configuration
     /// refreshes preserve the executor and its in-flight command ownership.
     pub fn with_command_executor(mut self, executor: Arc<dyn crate::HookCommandExecutor>) -> Self {

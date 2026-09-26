@@ -16,6 +16,9 @@ pub enum HookCommandArgument {
 /// Environment entries are ordered; later entries override earlier ones.
 pub struct HookCommandRequest {
     pub thread_id: ThreadId,
+    /// Actual invoking tool operation, independently of hook-visible IDs such
+    /// as the original command ID reported by a write_stdin post hook.
+    pub tool_call_id: Option<String>,
     pub program: OsString,
     pub arguments: Vec<OsString>,
     pub command: HookCommandArgument,

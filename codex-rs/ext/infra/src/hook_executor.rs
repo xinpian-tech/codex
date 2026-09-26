@@ -39,7 +39,6 @@ use crate::ToolOutcome;
 #[derive(Deserialize)]
 struct Attribution {
     turn_id: Option<String>,
-    tool_use_id: Option<String>,
 }
 
 /// Local managed hook execution using the same backend, process audit and
@@ -275,10 +274,13 @@ impl HookCommandExecutor for RecordedHookExecutor {
             let attribution: Attribution =
                 serde_json::from_slice(&request.stdin).map_err(|error| error.to_string())?;
             let call_id = format!("hook-{}", MessageId::new());
-            let origin = attribution.tool_use_id.map(|call_id| ToolExecutionOrigin {
-                thread_id: request.thread_id.to_string(),
-                call_id,
-            });
+            let origin = request
+                .tool_call_id
+                .clone()
+                .map(|call_id| ToolExecutionOrigin {
+                    thread_id: request.thread_id.to_string(),
+                    call_id,
+                });
             let reservation = self
                 .tools
                 .workspace()

@@ -207,6 +207,7 @@ pub(crate) async fn run_pre_tool_use_hooks(
         tool_input: tool_input.clone(),
     };
     let hooks = sess.hooks();
+    let hooks = hooks.for_tool_call(&request.tool_use_id);
     let preview_runs = hooks.preview_pre_tool_use(&request);
     emit_hook_started_events(sess, turn_context, preview_runs).await;
 
@@ -258,6 +259,7 @@ fn tool_hook_cwd(environments: &TurnEnvironmentSnapshot, turn: &TurnContext) -> 
 pub(crate) async fn run_permission_request_hooks(
     sess: &Arc<Session>,
     review_context: &GuardianReviewContext,
+    operation_call_id: Option<&str>,
     run_id_suffix: &str,
     payload: PermissionRequestPayload,
 ) -> Option<PermissionRequestDecision> {
@@ -276,6 +278,10 @@ pub(crate) async fn run_permission_request_hooks(
         tool_input: payload.tool_input,
     };
     let hooks = sess.hooks();
+    let hooks = match operation_call_id {
+        Some(call_id) => hooks.for_tool_call(call_id),
+        None => hooks.as_ref().clone(),
+    };
     let preview_runs = hooks.preview_permission_request(&request);
     emit_hook_started_events(sess, turn_context, preview_runs).await;
 
@@ -297,11 +303,8 @@ pub(crate) async fn run_permission_request_hooks(
 pub(crate) async fn run_post_tool_use_hooks(
     sess: &Arc<Session>,
     step_context: &StepContext,
-    tool_use_id: String,
-    tool_name: String,
-    matcher_aliases: Vec<String>,
-    tool_input: Value,
-    tool_response: Value,
+    operation_call_id: &str,
+    tool: crate::tools::registry::PostToolUsePayload,
 ) -> PostToolUseOutcome {
     let turn_context = &step_context.turn;
     let request = PostToolUseRequest {
@@ -312,13 +315,14 @@ pub(crate) async fn run_post_tool_use_hooks(
         transcript_path: sess.hook_transcript_path().await,
         model: step_context.settings.model_info.slug.clone(),
         permission_mode: hook_permission_mode(step_context.settings.approval_policy()),
-        tool_name,
-        matcher_aliases,
-        tool_use_id,
-        tool_input,
-        tool_response,
+        tool_name: tool.tool_name.name().to_owned(),
+        matcher_aliases: tool.tool_name.matcher_aliases().to_vec(),
+        tool_use_id: tool.tool_use_id,
+        tool_input: tool.tool_input,
+        tool_response: tool.tool_response,
     };
     let hooks = sess.hooks();
+    let hooks = hooks.for_tool_call(operation_call_id);
     let preview_runs = hooks.preview_post_tool_use(&request);
     emit_hook_started_events(sess, turn_context, preview_runs).await;
 

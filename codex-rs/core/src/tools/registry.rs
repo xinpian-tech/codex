@@ -752,11 +752,8 @@ impl ToolRegistry {
                 run_post_tool_use_hooks(
                     &invocation.session,
                     invocation.step_context.as_ref(),
-                    post_tool_use_payload.tool_use_id,
-                    post_tool_use_payload.tool_name.name().to_string(),
-                    post_tool_use_payload.tool_name.matcher_aliases().to_vec(),
-                    post_tool_use_payload.tool_input,
-                    post_tool_use_payload.tool_response,
+                    &invocation.call_id,
+                    post_tool_use_payload,
                 )
                 .await,
             )
