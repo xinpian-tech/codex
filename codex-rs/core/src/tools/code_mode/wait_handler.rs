@@ -49,6 +49,10 @@ where
 }
 
 impl ToolExecutor<ToolInvocation> for CodeModeWaitHandler {
+    fn execution_kind(&self) -> codex_tools::ToolExecutionKind {
+        codex_tools::ToolExecutionKind::Delegating
+    }
+
     fn tool_name(&self) -> ToolName {
         ToolName::plain(WAIT_TOOL_NAME)
     }

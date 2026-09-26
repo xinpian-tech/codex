@@ -42,6 +42,10 @@ impl ExtensionToolAdapter {
 }
 
 impl ToolExecutor<ToolInvocation> for ExtensionToolAdapter {
+    fn execution_kind(&self) -> codex_tools::ToolExecutionKind {
+        self.0.execution_kind()
+    }
+
     fn tool_name(&self) -> ToolName {
         self.0.tool_name()
     }

@@ -172,6 +172,10 @@ impl CodeModeExecuteHandler {
 }
 
 impl ToolExecutor<ToolInvocation> for CodeModeExecuteHandler {
+    fn execution_kind(&self) -> codex_tools::ToolExecutionKind {
+        codex_tools::ToolExecutionKind::Delegating
+    }
+
     fn tool_name(&self) -> ToolName {
         ToolName::plain(PUBLIC_TOOL_NAME)
     }

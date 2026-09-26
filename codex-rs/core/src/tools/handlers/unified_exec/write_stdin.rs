@@ -34,6 +34,10 @@ struct WriteStdinArgs {
 pub struct WriteStdinHandler;
 
 impl ToolExecutor<ToolInvocation> for WriteStdinHandler {
+    fn execution_kind(&self) -> codex_tools::ToolExecutionKind {
+        codex_tools::ToolExecutionKind::ExistingProcess
+    }
+
     fn tool_name(&self) -> ToolName {
         ToolName::plain("write_stdin")
     }

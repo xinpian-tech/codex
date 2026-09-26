@@ -66,6 +66,10 @@ struct MultiAgentV2ToolOverrides {
 }
 
 impl ToolExecutor<ToolInvocation> for MultiAgentV2ToolOverrides {
+    fn execution_kind(&self) -> codex_tools::ToolExecutionKind {
+        self.handler.execution_kind()
+    }
+
     fn tool_name(&self) -> ToolName {
         let tool_name = self.handler.tool_name();
         match &self.namespace {

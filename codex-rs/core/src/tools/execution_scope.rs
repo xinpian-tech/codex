@@ -6,6 +6,7 @@ use super::lifecycle::extension_tool_call_source;
 
 pub(super) async fn acquire(
     invocation: &ToolInvocation,
+    kind: codex_tools::ToolExecutionKind,
 ) -> Result<Vec<Box<dyn ToolExecutionLease>>, String> {
     let thread_id = invocation.session.thread_id.to_string();
     let source = extension_tool_call_source(invocation.source.clone());
@@ -23,6 +24,8 @@ pub(super) async fn acquire(
                 call_id: &invocation.call_id,
                 tool_name: &invocation.tool_name,
                 source: &source,
+                kind,
+                payload: &invocation.payload,
             })
             .await?
         {

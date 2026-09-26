@@ -11,6 +11,20 @@ use std::pin::Pin;
 pub type ToolExecutorFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Box<dyn ToolOutput>, FunctionCallError>> + Send + 'a>>;
 
+/// How a runtime relates its execution scope to other tool invocations.
+/// This describes ownership, not whether a command is read-only or successful.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolExecutionKind {
+    /// A standalone handler, including tools whose side effects are unknown.
+    Operation,
+    /// Dispatches or awaits nested tools that acquire their own scopes.
+    Delegating,
+    /// Continues a process owned by an earlier operation. Its scope may need
+    /// to retain that operation through input handling and post-tool hooks.
+    ExistingProcess,
+}
+
 bitflags::bitflags! {
     /// Independent model-facing surfaces supported by a tool.
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -104,6 +118,10 @@ impl ToolExposure {
 /// Host crates can layer routing, hooks, telemetry, or other orchestration on
 /// top without reopening the spec/runtime split.
 pub trait ToolExecutor<Invocation>: Send + Sync {
+    fn execution_kind(&self) -> ToolExecutionKind {
+        ToolExecutionKind::Operation
+    }
+
     /// The concrete tool name handled by this runtime instance.
     fn tool_name(&self) -> ToolName;
 

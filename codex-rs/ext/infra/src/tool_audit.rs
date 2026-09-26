@@ -9,6 +9,7 @@ use codex_extension_api::ToolCallOutcome;
 use codex_extension_api::ToolCallSource;
 use codex_extension_api::ToolExecutionFuture;
 use codex_extension_api::ToolExecutionInput;
+use codex_extension_api::ToolExecutionKind;
 use codex_extension_api::ToolFinishInput;
 use codex_extension_api::ToolLifecycleContributor;
 use codex_extension_api::ToolLifecycleFuture;
@@ -77,6 +78,8 @@ pub enum ToolAuditEvent {
     },
     Admitted {
         operation: ToolOperation,
+        #[serde(default)]
+        execution_kind: Option<ToolExecutionKind>,
     },
     Started {
         operation: ToolOperation,
@@ -232,6 +235,7 @@ impl ToolLifecycleContributor for ToolAudit {
     ) -> ToolExecutionFuture<'a> {
         Box::pin(async move {
             self.append(Ok(ToolAuditEvent::Admitted {
+                execution_kind: Some(input.kind),
                 operation: ToolOperation {
                     thread_id: input.thread_id.to_owned(),
                     turn_id: input.turn_id.to_owned(),

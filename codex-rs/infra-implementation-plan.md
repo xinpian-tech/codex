@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+工具 runtime 现通过 ToolExecutionKind 声明执行归属：默认 Operation，code mode execute/wait 为 Delegating，write_stdin 为 ExistingProcess；扩展和 multi-agent 包装器透传实际 runtime 的声明。Core 将分类和 hooks 前的原始 payload 传入执行租约入口，ToolAudit 的 Admitted 与 ToolActivity 的归结结果保存分类，旧记录缺失时保留未知值。分类用于后续租约装配：委托外层与子工具分别处理，已有进程控制须续持原操作直到输入处理和后置 hooks 完成。当前尚未自动启用 gate，也未建立 unified exec session ID 到原操作的续持映射。组合库 Clippy 已通过，未编写或运行测试。
+
 WorkspaceGate 已区分正常修改与 recovery 获取入口。checkpoint/Git/上下文发布返回错误或执行中展开退出时，失败状态在独占租约释放前保存；后续排队请求取得许可后检查该状态，新的修改暂停，恢复入口仍可取得独占权。恢复成功才清除状态。服务从持久 Pending checkpoint 构造时直接要求 recovery，并在内存保留尚未成功落盘的本次 checkpoint ID/kind，覆盖 Pending 追加之前的失败；恢复沿用原操作，不以新操作覆盖它。进程重启后从工具审计重建尚未形成 Pending 的交接意图仍待上层恢复流程实现。组合库 Clippy 已通过，未编写或执行测试。
 
 ProcessRecorderFactory 现通过同步 prepare_start 返回拥有资源的准备 future；local backend 在创建后台启动任务前调用，消除 handler 已取消而后台才尝试取得执行权的间隙。独立包增加 WorkspaceOperations，按 thread/call 登记控制方租约，以完整 ToolOperation 核对 checkpoint 交接；ProcessAudit 可在启动前绑定该登记表，同步为进程取得租约份额，成功记录 Closed 或启动失败结果后释放。已移交给 checkpoint 的控制份额等待这些后台份额结束。组合库 Clippy 已通过，未编写或运行测试。工具自动登记/移交、code mode 与进程控制工具分类、系统启动操作及失败恢复仍待装配；当前默认宿主尚未自动启用该绑定。
