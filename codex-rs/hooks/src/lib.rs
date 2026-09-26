@@ -1,3 +1,4 @@
+mod command_executor;
 mod config_rules;
 mod declarations;
 mod engine;
@@ -11,6 +12,11 @@ mod types;
 
 use codex_protocol::protocol::HookEventName;
 
+pub use command_executor::HookCommandArgument;
+pub use command_executor::HookCommandExecutor;
+pub use command_executor::HookCommandFuture;
+pub use command_executor::HookCommandOutput;
+pub use command_executor::HookCommandRequest;
 pub use config_rules::hook_states_from_stack;
 pub use declarations::PluginHookDeclaration;
 pub use declarations::plugin_hook_declarations;

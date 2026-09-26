@@ -68,6 +68,13 @@ pub struct Hooks {
 }
 
 impl Hooks {
+    /// Install before dispatching this session's first hook. Configuration
+    /// refreshes preserve the executor and its in-flight command ownership.
+    pub fn with_command_executor(mut self, executor: Arc<dyn crate::HookCommandExecutor>) -> Self {
+        self.engine.command_runtime.command_executor = Some(executor);
+        self
+    }
+
     /// Bind this session's hook runtime and output files to its thread, rejecting unloadable
     /// required managed hooks.
     pub fn new(

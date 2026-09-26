@@ -51,6 +51,8 @@ const MAX_CONCURRENT_ASYNC_HOOKS: usize = 8;
 /// Owns command execution and bounded asynchronous work for one session.
 #[derive(Clone)]
 pub(crate) struct CommandHookRuntime {
+    pub(crate) command_executor: Option<Arc<dyn crate::HookCommandExecutor>>,
+    thread_id: ThreadId,
     shell: CommandShell,
     environment: Arc<Vec<(OsString, OsString)>>,
     result_sender: Sender<HookCompletedEvent>,
@@ -80,6 +82,8 @@ impl CommandHookRuntime {
         result_sender: Sender<HookCompletedEvent>,
     ) -> Self {
         Self {
+            command_executor: None,
+            thread_id,
             shell,
             environment,
             result_sender,
@@ -96,6 +100,8 @@ impl CommandHookRuntime {
 
     pub(crate) fn reconfigured(&self, shell: CommandShell) -> Self {
         Self {
+            command_executor: self.command_executor.clone(),
+            thread_id: self.thread_id,
             shell,
             environment: Arc::clone(&self.environment),
             result_sender: self.result_sender.clone(),
@@ -122,10 +128,25 @@ impl CommandHookRuntime {
 
         let result_sender = self.result_sender.clone();
         let runtime = self.clone();
+        let prepared = match &handler.kind {
+            ConfiguredHandlerKind::Command { command, env, .. } => {
+                prepare_command(self, &handler, command, env, &input_json, &cwd)
+            }
+            ConfiguredHandlerKind::McpTool { .. } => return,
+        };
         self.schedule_async_task(async move {
             let result = match &handler.kind {
                 ConfiguredHandlerKind::Command { command, env, .. } => {
-                    run_command(&runtime, &handler, command, env, &input_json, &cwd).await
+                    run_prepared_command(
+                        &runtime,
+                        &handler,
+                        command,
+                        env,
+                        &input_json,
+                        &cwd,
+                        prepared,
+                    )
+                    .await
                 }
                 ConfiguredHandlerKind::McpTool { .. } => return,
             };
@@ -191,6 +212,11 @@ impl CommandHookRuntime {
     }
 }
 
+#[path = "managed_command.rs"]
+mod managed;
+use managed::prepare_command;
+pub(crate) use managed::run_command;
+
 #[tracing::instrument(
     name = "codex.hooks.command",
     level = "trace",
@@ -206,16 +232,37 @@ impl CommandHookRuntime {
         hook.command_outcome = tracing::field::Empty,
     )
 )]
-pub(crate) async fn run_command(
+async fn run_prepared_command(
     runtime: &CommandHookRuntime,
     handler: &ConfiguredHandler,
     command_line: &str,
     env: &HashMap<String, String>,
     input_json: &str,
     cwd: &Path,
+    prepared: Option<crate::HookCommandFuture>,
 ) -> HandlerRunResult {
     let started_at = chrono::Utc::now().timestamp();
     let started = Instant::now();
+
+    if let Some(prepared) = prepared {
+        let completion = match prepared.await {
+            Ok(output) => CommandRunCompletion {
+                exit_code: output.exit_code,
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                error: None,
+                outcome: "completed",
+            },
+            Err(error) => CommandRunCompletion {
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+                outcome: "executor_error",
+            },
+        };
+        return finish_command_run(started_at, started, completion);
+    }
 
     let mut command = build_command(&runtime.shell, command_line, &runtime.environment, env);
     command.current_dir(cwd);

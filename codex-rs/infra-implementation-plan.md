@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+核对 hook 实现后确认命令 hook 当前直接创建宿主进程，未经过 exec-server。hooks 包现提供可注入的 HookCommandExecutor：同步 prepare 接收拥有数据的请求并返回持有资源的执行 future；异步命令 hook 在入队前准备，配置刷新保留执行器。请求保存 thread、shell 程序/参数、普通或 Windows raw 命令参数、按原顺序过滤的环境、宿主 cwd、stdin 和超时，执行结果在 hook 解释前保留 stdout/stderr 字节。默认路径继续使用原命令运行逻辑。此阶段仅建立注入边界，受管执行器实现、宿主装配、原始流审计、租约归属及 hook 子进程收尾仍待完成；MCP hook 与 legacy notify 也需分别接入。hooks 与最终组合库 Clippy 已通过，未编写或运行测试。
+
 独立扩展包新增 ToolWorkspace 控制器，可通过 ToolAudit::with_workspace 在宿主启动前装配。普通工具取得独占操作，Delegating 外层由子工具各自管理，ExistingProcess 优先续持原操作；控制方登记与 handler 租约交付之间没有异步等待。Finished 记录成功落盘并归结后，写入任务自身移交 checkpoint，调用方取消等待不丢失调度。续持调用只释放份额，由原操作完成一次 checkpoint；后台进程、handler 和续持份额全部释放后才执行 Git。ManagedHost 自动将已装配控制器的登记表传入 ProcessAudit，收尾排空后等待 checkpoint 并检查任务错误。完成任务计数由拥有整个 guard 的 future 管理，异常退出也保留失败。组合库 Clippy 已通过，未编写或运行测试。该装配仍待 CLI 启用；系统启动/prewarm/hook 的进程归属、进程身份在实际交互时的复核、结果发布与 checkpoint 的等待关系、重启后的控制器恢复仍未完成。
 
 已有进程交互现从 unified exec 的实际 ProcessEntry 查询原始 thread/call，write_stdin runtime 将 ToolExecutionOrigin 提供给租约入口，操作审计及归结结果保存该关联；未知或旧记录保留空值。独立扩展的 WorkspaceOperations 可在原操作活跃或已移交 checkpoint 时续持同一租约，已移交项只保留弱引用并在登记、交接、续持时清理过期项。checkpoint 的独占转换与弱引用升级竞争时继续等待，成功取得独占权后原租约不再可续持，后续交互须申请新操作。身份查询本身不持有进程。工具控制器仍待装配，续持交互应归入原操作，由原控制方完成一次 checkpoint；不能为每个租约份额各自启动 checkpoint。组合库 Clippy 已通过，未编写或运行测试。
