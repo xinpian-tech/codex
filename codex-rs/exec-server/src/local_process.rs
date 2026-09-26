@@ -177,6 +177,7 @@ pub(crate) struct LocalProcess {
     runtime_paths: Option<ExecServerRuntimePaths>,
     recorder_factory: Option<Arc<dyn crate::ProcessRecorderFactory>>,
     recording_tasks: crate::recording_tasks::RecordingTasks,
+    process_drain: crate::process_drain::ProcessDrain,
 }
 
 struct LocalExecProcess {
@@ -193,6 +194,18 @@ impl Default for LocalProcess {
 }
 
 impl LocalProcess {
+    fn spawn_producer(
+        &self,
+        future: impl std::future::Future<Output = ()> + Send + 'static,
+        events: ExecProcessEventLog,
+    ) {
+        if self.recorder_factory.is_some() {
+            self.process_drain.spawn(future, events);
+        } else {
+            tokio::spawn(future);
+        }
+    }
+
     pub(crate) fn with_local_runtime_paths(runtime_paths: ExecServerRuntimePaths) -> Self {
         Self::with_discarded_notifications(Some(runtime_paths))
     }
@@ -234,6 +247,7 @@ impl LocalProcess {
             runtime_paths,
             recorder_factory: None,
             recording_tasks: crate::recording_tasks::RecordingTasks::default(),
+            process_drain: crate::process_drain::ProcessDrain::default(),
         }
     }
 
@@ -548,30 +562,36 @@ impl LocalProcess {
             );
         }
         telemetry.log(ProcessTelemetryEvent::Start, prepared.sandbox);
-        tokio::spawn(stream_output(
-            process_id.clone(),
-            if params.tty {
-                ExecOutputStream::Pty
-            } else {
-                ExecOutputStream::Stdout
-            },
-            spawned.stdout_rx,
-            Arc::clone(&self.inner),
-            Arc::clone(&output_notify),
-        ));
-        tokio::spawn(stream_output(
-            process_id.clone(),
-            if params.tty {
-                ExecOutputStream::Pty
-            } else {
-                ExecOutputStream::Stderr
-            },
-            spawned.stderr_rx,
-            Arc::clone(&self.inner),
-            Arc::clone(&output_notify),
-        ));
+        self.spawn_producer(
+            stream_output(
+                process_id.clone(),
+                if params.tty {
+                    ExecOutputStream::Pty
+                } else {
+                    ExecOutputStream::Stdout
+                },
+                spawned.stdout_rx,
+                Arc::clone(&self.inner),
+                Arc::clone(&output_notify),
+            ),
+            events.clone(),
+        );
+        self.spawn_producer(
+            stream_output(
+                process_id.clone(),
+                if params.tty {
+                    ExecOutputStream::Pty
+                } else {
+                    ExecOutputStream::Stderr
+                },
+                spawned.stderr_rx,
+                Arc::clone(&self.inner),
+                Arc::clone(&output_notify),
+            ),
+            events.clone(),
+        );
         // Keep the subscriber, but let the request span close independently of process completion.
-        tokio::spawn(
+        self.spawn_producer(
             watch_exit(
                 process_id.clone(),
                 spawned.exit_rx,
@@ -580,6 +600,7 @@ impl LocalProcess {
                 telemetry,
             )
             .with_current_subscriber(),
+            events.clone(),
         );
 
         Ok((
@@ -878,6 +899,13 @@ impl LocalProcess {
 }
 
 impl ExecBackend for LocalProcess {
+    fn drain_recorded_processes(&self) -> ExecProcessFuture<'_, ()> {
+        Box::pin(async move {
+            self.recording_tasks.close_and_wait().await;
+            self.process_drain.wait().await
+        })
+    }
+
     fn close_recorded_requests(&self) -> ExecProcessFuture<'_, ()> {
         Box::pin(async move {
             self.recording_tasks.close_and_wait().await;

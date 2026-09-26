@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ManagedHost 已暴露 drain_recorded_processes：关闭并排空启动/stdin 请求后，等待被跟踪的 stdout/stderr/PTY 与 exit producer，包括最后的记录回调。ProcessDrain 保留首个记录失败或 producer 异常完成状态，重复等待继续返回该错误；提前 backend shutdown 的 Failed 也进入该状态。正常非记录路径继续直接启动原任务。长进程由任务负责人决定何时结束或终止，此处没有自动超时。最终代码通过组合库 Clippy，未编写或执行测试。该接口尚待最终 checkpoint/归档状态机调用，不能代替操作与进程的关联，也不覆盖其他 Provider/宿主流的排空。
+
 受管宿主启动现返回 ManagedHost，保留客户端及实际 exec backend 的生命周期入口。启用记录的启动/stdin 请求由共享 RecordingTasks 跟踪；接收检查与任务注册、关闭接收入口使用同一个同步边界。close_recorded_requests 关闭后等待已接收请求（包括 recorder 回调），取消等待后可再次调用继续等待。启动请求的 recorder 准备也归属于被跟踪任务。默认非记录执行路径保持原行为。该等待不代表子进程退出、输出 Closed 或记录成功；最终 checkpoint 仍需关联子进程与写操作，最终宿主收尾及 CLI 尚待装配。组合库 Clippy 已通过，未编写或运行测试。
 
 ManagedHostServices 现提供组合启动入口：从准备好的本地环境获取执行器 runtime paths 与 HTTP 策略，创建全新的 recorded_local EnvironmentManager，并把 ProcessAudit 安装到实际 local exec backend，再进入 app-server 原有初始化流程。环境表与本地快捷入口共享同一已装配实例，远端 Agent 在其所在机器构造自己的本地环境。上游新增逻辑位于独立 environment/recording.rs，默认启动路径保持原行为。组合库目标 Clippy 已通过，未编写或运行测试。该入口尚待 Agent CLI 调用；宿主 finalizer、执行任务排空、Provider/宿主原始事件与 shell snapshot 采集仍待接入，不代表完整 Session 留存已经完成。

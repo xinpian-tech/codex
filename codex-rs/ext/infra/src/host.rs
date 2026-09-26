@@ -38,6 +38,15 @@ pub struct ManagedHost {
 }
 
 impl ManagedHost {
+    /// Waits for recorded requests and child output producers before checkpoint.
+    /// A long-running child must finish or be terminated by the task owner.
+    pub async fn drain_recorded_processes(&self) -> std::io::Result<()> {
+        self.exec_backend
+            .drain_recorded_processes()
+            .await
+            .map_err(std::io::Error::other)
+    }
+
     /// Stops admitting recorded starts/stdin and waits for existing requests.
     pub async fn close_recorded_requests(&self) -> std::io::Result<()> {
         self.exec_backend

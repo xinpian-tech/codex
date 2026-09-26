@@ -27,6 +27,7 @@ mod no_follow;
 mod noise_channel;
 mod noise_relay;
 mod process;
+mod process_drain;
 mod process_recording;
 mod process_sandbox;
 mod process_telemetry;

@@ -171,6 +171,15 @@ impl ExecProcessEventLog {
             self.publish(ExecProcessEvent::Failed(message));
             return Err(error);
         }
+        if self.recorder().is_some()
+            && let ExecProcessEvent::Failed(message) = &event
+        {
+            *self
+                .inner
+                .recording_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(message.clone());
+        }
         self.publish(event);
         Ok(())
     }
@@ -277,6 +286,18 @@ pub type ExecProcessFuture<'a, T> =
 
 pub trait ExecBackend: Send + Sync {
     fn start(&self, params: ExecParams) -> ExecBackendFuture<'_>;
+
+    /// Closes recorded requests, then waits for child exit/output producer
+    /// tasks and their recording callbacks. Children are allowed to finish;
+    /// callers decide separately when to terminate a long-running process.
+    /// Recording or producer cancellation failures remain errors on retries.
+    fn drain_recorded_processes(&self) -> ExecProcessFuture<'_, ()> {
+        Box::pin(async {
+            Err(ExecServerError::Protocol(
+                "exec backend does not support recorded process draining".to_owned(),
+            ))
+        })
+    }
 
     /// Closes recorded start/stdin admission and waits for admitted requests,
     /// including their recorder callbacks, even if their callers disconnected.
