@@ -12,6 +12,7 @@ doctest = false
 workspace = true
 
 [dependencies]
+codex-app-server = { workspace = true }
 codex-infra-protocol = { workspace = true }
 codex-infra-state = { workspace = true }
 codex-protocol = { workspace = true }
