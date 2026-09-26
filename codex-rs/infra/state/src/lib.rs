@@ -3,6 +3,7 @@
 mod checkpoint;
 mod inbox;
 mod journal;
+mod outbox;
 mod session;
 mod tasks;
 mod workspace;
@@ -16,6 +17,8 @@ pub use inbox::InboxEntry;
 pub use inbox::PresentedInput;
 pub use journal::Journal;
 pub use journal::JournalRecord;
+pub use outbox::DurableOutbox;
+pub use outbox::OutboxEntry;
 pub use session::ArchiveReceipt;
 pub use session::SessionShard;
 pub use tasks::TaskStore;

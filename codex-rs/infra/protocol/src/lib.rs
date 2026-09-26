@@ -1,6 +1,7 @@
 //! Machine-independent identities and task transitions for managed Agent processes.
 
 mod contribution;
+mod delivery;
 mod identity;
 mod message;
 mod specification;
@@ -10,6 +11,9 @@ pub use contribution::Contribution;
 pub use contribution::ContributionError;
 pub use contribution::ContributionProposal;
 pub use contribution::ContributionStatus;
+pub use delivery::DeliveryReceipt;
+pub use delivery::DeliveryStage;
+pub use delivery::FrameRoute;
 pub use identity::AgentId;
 pub use identity::AssignmentId;
 pub use identity::CommitId;

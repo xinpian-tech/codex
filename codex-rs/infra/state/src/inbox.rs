@@ -23,7 +23,9 @@ pub struct InboxEntry {
     pub message: AgentMessage,
     pub accepted_sequence: u64,
     pub presented: Option<PresentedInput>,
+    pub presented_sequence: Option<u64>,
     pub outcome_ref: Option<String>,
+    pub processed_sequence: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -142,6 +144,9 @@ impl DurableInbox {
                 "message already presented in another turn",
             ));
         }
+        if let Some(sequence) = entry.presented_sequence {
+            return Ok(sequence);
+        }
         self.append(InboxEvent::Presented { message_id, input })
     }
 
@@ -164,6 +169,9 @@ impl DurableInbox {
                 io::ErrorKind::InvalidInput,
                 "message outcome does not match presentation state",
             ));
+        }
+        if let Some(sequence) = entry.processed_sequence {
+            return Ok(sequence);
         }
         self.append(InboxEvent::Processed {
             message_id,
@@ -201,7 +209,9 @@ fn apply(
                     message: *message,
                     accepted_sequence: sequence,
                     presented: None,
+                    presented_sequence: None,
                     outcome_ref: None,
+                    processed_sequence: None,
                 },
             );
         }
@@ -213,6 +223,7 @@ fn apply(
                 )
             })?;
             entry.presented = Some(input);
+            entry.presented_sequence = Some(sequence);
             pending.remove(&entry.accepted_sequence);
         }
         InboxEvent::Processed {
@@ -223,6 +234,7 @@ fn apply(
                 io::Error::new(io::ErrorKind::InvalidData, "outcome without acceptance")
             })?;
             entry.outcome_ref = Some(outcome_ref);
+            entry.processed_sequence = Some(sequence);
         }
     }
     Ok(())

@@ -2,6 +2,7 @@ use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
+use codex_infra_protocol::DeliveryReceipt;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
@@ -12,23 +13,8 @@ use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::tcp::OwnedWriteHalf;
 
 use crate::FrameChunk;
-use crate::FrameRoute;
 
 const MAX_PACKET_BYTES: usize = 64 * 1024;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeliveryStage {
-    Accepted,
-    Presented,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeliveryReceipt {
-    pub route: FrameRoute,
-    pub stage: DeliveryStage,
-    pub durable_sequence: u64,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]

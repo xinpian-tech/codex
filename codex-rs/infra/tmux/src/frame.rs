@@ -3,24 +3,14 @@ use std::io::Write;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use codex_infra_protocol::AgentId;
 use codex_infra_protocol::AgentMessage;
-use codex_infra_protocol::MessageId;
-use codex_infra_protocol::RootSessionId;
+use codex_infra_protocol::FrameRoute;
 use serde::Deserialize;
 use serde::Serialize;
 
 const PREFIX: &[u8] = b"\x1eCX1 ";
 pub(crate) const CHUNK_BYTES: usize = 16 * 1024;
 const MAX_LINE_BYTES: usize = 32 * 1024;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FrameRoute {
-    pub message_id: MessageId,
-    pub root_session_id: RootSessionId,
-    pub from_agent_id: AgentId,
-    pub to_agent_id: AgentId,
-}
 
 /// Transport metadata accompanies every chunk. The complete semantic envelope,
 /// including identities, repo and pushed commit, is inside the encoded payload.
