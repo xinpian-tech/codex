@@ -9,7 +9,7 @@ use axum::Json;
 use axum::Router;
 use axum::body::Body;
 use axum::body::Bytes;
-use axum::extract::DefaultBodyLimit;
+use axum::extract::Request;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
@@ -75,7 +75,6 @@ impl ChatFrontend {
             .timeout(config.request_timeout)
             .build()
             .map_err(io::Error::other)?;
-        let limit = config.request_bytes.get();
         let permits = Arc::new(Semaphore::new(config.concurrent_requests.get()));
         let state = Arc::new(FrontendState {
             config,
@@ -84,7 +83,6 @@ impl ChatFrontend {
         });
         let router = Router::new()
             .route("/v1/responses", post(respond))
-            .layer(DefaultBodyLimit::max(limit))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
@@ -127,15 +125,57 @@ impl Drop for ChatFrontend {
     }
 }
 
-async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Response {
+async fn respond(State(state): State<Arc<FrontendState>>, request: Request) -> Response {
     let audit =
         match AttemptAudit::open(state.config.audit.clone(), state.config.binding.clone()).await {
             Ok(audit) => audit,
             Err(error) => return failure(StatusCode::INTERNAL_SERVER_ERROR, error),
         };
-    if let Err(error) = audit.record(WireLane::ClientRequest, bytes.clone()).await {
+    let (parts, body) = request.into_parts();
+    if let Err(error) = audit.event(json!({"event": "client_request_headers", "method": parts.method.as_str(),
+        "uri": parts.uri.to_string(),
+        "headers": parts.headers.iter().map(|(name, value)| (name.as_str(), value.as_bytes())).collect::<Vec<_>>(),
+    })).await {
         return failure(StatusCode::INTERNAL_SERVER_ERROR, error);
     }
+    let received = async {
+        let stream = audit.clone().capture(body.into_data_stream(), WireLane::ClientRequest);
+        futures::pin_mut!(stream);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if chunk.len() > state.config.request_bytes.get().saturating_sub(bytes.len()) {
+                audit.event(json!({"event": "client_request_limit", "limit": state.config.request_bytes.get()})).await?;
+                return Err(io::Error::new(io::ErrorKind::FileTooLarge, "provider request exceeds byte budget"));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(Bytes::from(bytes))
+    }.await;
+    let response = match received {
+        Ok(bytes) => execute(state, audit.clone(), bytes).await,
+        Err(error) => {
+            let status = if error.kind() == io::ErrorKind::FileTooLarge {
+                StatusCode::PAYLOAD_TOO_LARGE
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            failure(status, error)
+        }
+    };
+    let (parts, body) = response.into_parts();
+    if let Err(error) = audit.event(json!({"event": "client_response_headers", "status": parts.status.as_u16(),
+        "headers": parts.headers.iter().map(|(name, value)| (name.as_str(), value.as_bytes())).collect::<Vec<_>>(),
+    })).await {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, error);
+    }
+    Response::from_parts(
+        parts,
+        Body::from_stream(audit.capture(body.into_data_stream(), WireLane::ClientResponse)),
+    )
+}
+
+async fn execute(state: Arc<FrontendState>, audit: AttemptAudit, bytes: Bytes) -> Response {
     let mut request = match serde_json::from_slice::<Value>(&bytes) {
         Ok(request) => request,
         Err(error) => return failure(StatusCode::BAD_REQUEST, error),
@@ -224,10 +264,6 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
             tools,
             custom,
         );
-        let stream = audit.capture(
-            stream.map(|frame| frame.map(Bytes::from)),
-            WireLane::ClientResponse,
-        );
         Body::from_stream(async_stream::stream! {
             let _permit = permit;
             futures::pin_mut!(stream);
@@ -250,14 +286,6 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
                     Ok(chunk)
                 });
                 let failed = chunk.is_err();
-                let chunk = match chunk {
-                    Ok(chunk) => match audit.record(WireLane::ClientResponse, chunk.clone()).await {
-                        Ok(()) => Ok(chunk),
-                        Err(error) => Err(error),
-                    },
-                    Err(error) => Err(error),
-                };
-                let failed = failed || chunk.is_err();
                 yield chunk;
                 if failed {
                     return;
