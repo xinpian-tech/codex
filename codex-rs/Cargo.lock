@@ -3760,6 +3760,7 @@ dependencies = [
  "blake3",
  "bytes",
  "codex-infra-protocol",
+ "codex-infra-state",
  "eventsource-stream",
  "futures",
  "reqwest 0.12.28",

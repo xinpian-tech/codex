@@ -17,6 +17,7 @@ axum = { workspace = true, features = ["http1", "json", "tokio"] }
 bytes = { workspace = true }
 blake3 = { workspace = true }
 codex-infra-protocol = { workspace = true }
+codex-infra-state = { workspace = true }
 eventsource-stream = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 reqwest = { workspace = true, features = ["stream", "json"] }

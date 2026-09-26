@@ -18,7 +18,6 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::post;
 use codex_infra_protocol::InferenceBinding;
-use codex_infra_protocol::MessageId;
 use futures::StreamExt;
 use reqwest::Url;
 use serde_json::Value;
@@ -28,7 +27,10 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::CustomTools;
+use crate::ProviderAuditConfig;
 use crate::ToolNames;
+use crate::audit::AttemptAudit;
+use crate::audit::WireLane;
 use crate::translate_chat_request;
 use crate::translate_chat_sse;
 
@@ -37,6 +39,7 @@ use crate::translate_chat_sse;
 /// Updating credentials creates a new binding rather than mutating an attempt.
 pub struct ChatFrontendConfig {
     pub binding: InferenceBinding,
+    pub audit: ProviderAuditConfig,
     pub endpoint: Url,
     pub headers: HeaderMap,
     pub request_bytes: NonZeroUsize,
@@ -66,6 +69,8 @@ impl ChatFrontend {
             return Err(io::Error::other("provider timeouts must be positive"));
         }
         let client = reqwest::Client::builder()
+            .retry(reqwest::retry::never())
+            .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
             .build()
@@ -123,6 +128,14 @@ impl Drop for ChatFrontend {
 }
 
 async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Response {
+    let audit =
+        match AttemptAudit::open(state.config.audit.clone(), state.config.binding.clone()).await {
+            Ok(audit) => audit,
+            Err(error) => return failure(StatusCode::INTERNAL_SERVER_ERROR, error),
+        };
+    if let Err(error) = audit.record(WireLane::ClientRequest, bytes.clone()).await {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, error);
+    }
     let mut request = match serde_json::from_slice::<Value>(&bytes) {
         Ok(request) => request,
         Err(error) => return failure(StatusCode::BAD_REQUEST, error),
@@ -143,18 +156,50 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
         Ok(permit) => permit,
         Err(error) => return failure(StatusCode::SERVICE_UNAVAILABLE, error),
     };
-    let upstream = match state
+    let body = match serde_json::to_vec(&request) {
+        Ok(body) => Bytes::from(body),
+        Err(error) => return failure(StatusCode::INTERNAL_SERVER_ERROR, error),
+    };
+    if let Err(error) = audit.record(WireLane::ProviderRequest, body.clone()).await {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, error);
+    }
+    let request = match state
         .client
         .post(state.config.endpoint.clone())
         .headers(state.config.headers.clone())
-        .json(&request)
-        .send()
-        .await
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body)
+        .build()
     {
+        Ok(request) => request,
+        Err(error) => return failure(StatusCode::INTERNAL_SERVER_ERROR, error),
+    };
+    if let Err(error) = audit.event(json!({"event": "send_requested", "url": request.url().as_str(),
+        "headers": request.headers().iter().map(|(name, value)| (name.as_str(), value.as_bytes())).collect::<Vec<_>>(),
+    })).await {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, error);
+    }
+    let upstream = match state.client.execute(request).await {
         Ok(response) => response,
-        Err(error) => return failure(StatusCode::BAD_GATEWAY, error),
+        Err(error) => {
+            if let Err(recording) = audit
+                .event(json!({"event": "send_failed", "error": error.to_string()}))
+                .await
+            {
+                return failure(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{error}; audit: {recording}"),
+                );
+            }
+            return failure(StatusCode::BAD_GATEWAY, error);
+        }
     };
     let status = upstream.status();
+    if let Err(error) = audit.event(json!({"event": "response_headers", "status": status.as_u16(),
+        "headers": upstream.headers().iter().map(|(name, value)| (name.as_str(), value.as_bytes())).collect::<Vec<_>>(),
+    })).await {
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, error);
+    }
     let mut headers = HeaderMap::new();
     for name in ["x-request-id", "request-id", "retry-after"] {
         if let Some(value) = upstream.headers().get(name) {
@@ -171,11 +216,17 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
             header::HeaderValue::from_static("no-cache"),
         );
         let stream = translate_chat_sse(
-            upstream.bytes_stream(),
-            format!("resp_{}", MessageId::new()),
+            audit
+                .clone()
+                .capture(upstream.bytes_stream(), WireLane::ProviderResponse),
+            format!("resp_{}", audit.id),
             state.config.response_bytes,
             tools,
             custom,
+        );
+        let stream = audit.capture(
+            stream.map(|frame| frame.map(Bytes::from)),
+            WireLane::ClientResponse,
         );
         Body::from_stream(async_stream::stream! {
             let _permit = permit;
@@ -191,13 +242,22 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
         let mut remaining = state.config.response_bytes.get();
         Body::from_stream(async_stream::stream! {
             let _permit = permit;
-            let mut stream = upstream.bytes_stream();
+            let stream = audit.clone().capture(upstream.bytes_stream(), WireLane::ProviderResponse);
+            futures::pin_mut!(stream);
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk.map_err(io::Error::other).and_then(|chunk| {
                     remaining = remaining.checked_sub(chunk.len()).ok_or_else(|| io::Error::other("provider error body exceeds byte budget"))?;
                     Ok(chunk)
                 });
                 let failed = chunk.is_err();
+                let chunk = match chunk {
+                    Ok(chunk) => match audit.record(WireLane::ClientResponse, chunk.clone()).await {
+                        Ok(()) => Ok(chunk),
+                        Err(error) => Err(error),
+                    },
+                    Err(error) => Err(error),
+                };
+                let failed = failed || chunk.is_err();
                 yield chunk;
                 if failed {
                     return;

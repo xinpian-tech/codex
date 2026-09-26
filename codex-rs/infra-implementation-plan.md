@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Provider 前端增加必需 ProviderAuditConfig，按 root/machine/agent/launch 和唯一 attempt ID 创建 client-request/provider-request/provider-response/client-response/lifecycle 五条 Journal。客户端完整 body 在解析前记录，转换后的 body 只序列化一次，持久化后交给 HTTP request；发送前记录固定 InferenceBinding（含 credential_revision）、URL 和 request headers，收到响应记录 status/headers，发送失败另记事件。响应原始 body 块在 SSE 转换前落盘，转换帧在交给客户端 body 前落盘；非成功响应也保存上下游 body。写盘经 blocking worker 和同 attempt writer 所有权串行完成；流读取失败和自然 EOF 分别记录，取消不构造 EOF。Reqwest 内部 retry/redirect 关闭，由可观察请求路径承担重试。此处记录 HTTP 应用 body/解析后的 headers，不宣称 TCP/TLS 原帧；入口 body 尚经 Axum 聚合，超限/中断入口、早期错误输出、producer 结束/恢复/归档及 usage 汇总仍待接入。复用 infra-state，Cargo.lock/Bazel 元数据更新，库级 Clippy 通过；未编写或运行测试，未启动前端或调用模型。
+
 新增 CustomTools 并接入 Provider HTTP/SSE 路径：custom 定义转换为单个 input:string 的 function schema，原说明和 format 描述保留；custom 历史调用封装 JSON 参数，custom 输出转为 function output，指定 custom tool_choice 同步转换。namespace 映射之后，返回结果先还原工具身份，再还原 custom_tool_call 的 input；保留 id/call_id/namespace。流式 function 参数分片仍由 ChatStream 聚合，完整 JSON 解码后发 custom input delta/done，再发 custom item done，SSE 按最终输出重新编号。当前不做自由文本的增量 JSON 字符串解码，grammar 仅作为工具说明传递，非供应商原生约束；动态 additional_tools/tool_search、原始审计及宿主接入仍待完成。库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
 
 Provider HTTP 前端新增 ToolNames 映射：展开 Responses namespace 工具，按 namespace/name 的 BLAKE3 身份生成稳定 Chat Completions 别名，工具描述保留完整名称与命名空间说明；历史 function_call 和指定 tool_choice 使用相同映射。SSE 输出在 added/done item 和最终 response.output 中还原 name/namespace，工具列表重排不改变同一工具的别名。转换仍在独立 provider 包内，不改 core 工具路由。custom 工具自由文本封装、动态 additional_tools/tool_search 和工具格式能力解析仍待实现。复用 workspace blake3，Cargo.lock 与 Bazel 元数据更新；库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
