@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增 CustomTools 并接入 Provider HTTP/SSE 路径：custom 定义转换为单个 input:string 的 function schema，原说明和 format 描述保留；custom 历史调用封装 JSON 参数，custom 输出转为 function output，指定 custom tool_choice 同步转换。namespace 映射之后，返回结果先还原工具身份，再还原 custom_tool_call 的 input；保留 id/call_id/namespace。流式 function 参数分片仍由 ChatStream 聚合，完整 JSON 解码后发 custom input delta/done，再发 custom item done，SSE 按最终输出重新编号。当前不做自由文本的增量 JSON 字符串解码，grammar 仅作为工具说明传递，非供应商原生约束；动态 additional_tools/tool_search、原始审计及宿主接入仍待完成。库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
+
 Provider HTTP 前端新增 ToolNames 映射：展开 Responses namespace 工具，按 namespace/name 的 BLAKE3 身份生成稳定 Chat Completions 别名，工具描述保留完整名称与命名空间说明；历史 function_call 和指定 tool_choice 使用相同映射。SSE 输出在 added/done item 和最终 response.output 中还原 name/namespace，工具列表重排不改变同一工具的别名。转换仍在独立 provider 包内，不改 core 工具路由。custom 工具自由文本封装、动态 additional_tools/tool_search 和工具格式能力解析仍待实现。复用 workspace blake3，Cargo.lock 与 Bazel 元数据更新；库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
 
 codex-infra-provider 新增 ChatFrontend/ChatFrontendConfig，按每个逻辑 Agent 的固定 InferenceBinding、完整 Chat Completions URL 和已选账户 headers 创建客户端，监听动态 loopback 端口并提供 /v1/responses/base_url。请求经既有转换器发送，成功响应串接 SSE 转换；供应商非成功状态、错误 body、request-id/retry-after 保留返回。请求/响应字节预算、连接/请求超时和本实例请求并发由配置给出，许可持有至 body 消费结束；停止通过 Axum graceful shutdown 停止接受连接并等待现有请求，丢弃 handle 也发送停止通知。此处并发只是逻辑客户端限制，尚不是跨 Agent 账户额度准入。库入口尚未接入启动器/Nix 配置，原始 HTTP 审计、凭据刷新、custom/namespace 工具、用量归属与完整关闭观察仍待完成。复用 workspace axum/reqwest/tokio/protocol 依赖，Cargo.lock 与 Bazel 元数据更新；库级 Clippy 通过，未编写或运行测试，未启动 HTTP 服务或调用供应商。

@@ -27,6 +27,7 @@ use tokio::sync::Semaphore;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+use crate::CustomTools;
 use crate::ToolNames;
 use crate::translate_chat_request;
 use crate::translate_chat_sse;
@@ -126,6 +127,10 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
         Ok(request) => request,
         Err(error) => return failure(StatusCode::BAD_REQUEST, error),
     };
+    let custom = match CustomTools::normalize(&mut request) {
+        Ok(custom) => custom,
+        Err(error) => return failure(StatusCode::BAD_REQUEST, error),
+    };
     let tools = match ToolNames::normalize(&mut request) {
         Ok(tools) => tools,
         Err(error) => return failure(StatusCode::BAD_REQUEST, error),
@@ -170,6 +175,7 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
             format!("resp_{}", MessageId::new()),
             state.config.response_bytes,
             tools,
+            custom,
         );
         Body::from_stream(async_stream::stream! {
             let _permit = permit;

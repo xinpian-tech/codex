@@ -9,6 +9,7 @@ use futures::StreamExt;
 use serde_json::Value;
 
 use crate::ChatStream;
+use crate::CustomTools;
 use crate::ToolNames;
 use crate::TranslationError;
 
@@ -36,6 +37,7 @@ pub fn translate_chat_sse<S, E>(
     response_id: String,
     byte_budget: NonZeroUsize,
     tools: ToolNames,
+    mut custom: CustomTools,
 ) -> impl Stream<Item = Result<Vec<u8>, ProviderStreamError>> + Send
 where
     S: Stream<Item = Result<Bytes, E>> + Send,
@@ -53,6 +55,7 @@ where
         let events = bounded.eventsource();
         futures::pin_mut!(events);
         let mut converter = ChatStream::new(response_id, byte_budget);
+        let mut sequence = 0_u64;
         while let Some(event) = events.next().await {
             let event = event.map_err(|error| ProviderStreamError::Transport(error.to_string()))?;
             if event.data.is_empty() {
@@ -66,6 +69,9 @@ where
             };
             for mut event in translated {
                 tools.restore(&mut event);
+                for mut event in custom.restore(event)? {
+                event["sequence_number"] = serde_json::json!(sequence);
+                sequence += 1;
                 let kind = event["type"].as_str().ok_or_else(|| {
                     TranslationError::Invalid("Responses event type".to_owned())
                 })?;
@@ -73,6 +79,7 @@ where
                 serde_json::to_writer(&mut frame, &event)?;
                 frame.extend_from_slice(b"\n\n");
                 yield frame;
+                }
             }
             if done {
                 return;
