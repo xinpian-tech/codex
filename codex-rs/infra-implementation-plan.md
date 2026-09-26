@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Session Git 归档新增 stream-heads/<流身份摘要>.bin，每次 journal segment 发布时与内容地址、范围目录一起提交，引用同一 blob。list_streams 在固定 revision 下分页发现 ArchiveStream 身份、最近发布范围、当时观测到的 durable position 和读取回执；每次读取一个段正文，页面只保留元数据。段目录与流目录复用逐条读取路径的分页实现。ArchivedStreamHead 明确只表达最近发布段，不表达 producer 结束或该 durable position 已全部归档，最终关闭仍需专门完成记录。旧版归档目录迁移、machine writer 与 finalizer 装配尚待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 SessionShard 增加 fetch_archive_revision，远端 Session 分支获取到独立 session-read-cache ref，并确认指定 receipt revision 是已获取历史的一部分，不移动 writer 的 Session ref。restore_journal 串起同一不可变 revision 下的目录分页、内容地址读取、流/范围核对和 JournalRestore，恢复到明确的 producer completion position；跨过目标位置的段只裁取内存视图，原归档不变。已有部分目标文件从零偏移验证，空流在确认零长度段后结束。入口仍由上层提供流身份与完成位置；流清单、机器级恢复顺序和最终关闭编排尚待完成。组合库 Clippy 已通过，未编写或运行测试，未连接远端执行获取或恢复实验。
 
 SessionShard 新增 publish_journal_segment，把 streams/<流身份摘要>/<起止偏移>/<内容摘要>.bin 目录项与 segments 内容地址放进同一 Git tree/commit，两者引用同一 blob；JournalArchive 改用该入口发布。list_segments 在指定不可变 commit 与流身份下按偏移目录分页返回回执，逐条读取 Git 路径输出，内存只保留当前页；调用方可继续 read_segment / JournalRestore。跨机器恢复因此具备从仓库定位单流各段的入口，新目录不依赖原机器本地回执文件。旧版仅 segments 的归档尚无目录，跨机器 fetch、流清单与 machine writer/finalizer 装配仍待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

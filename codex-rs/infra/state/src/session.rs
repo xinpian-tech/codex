@@ -15,7 +15,10 @@ use serde::Serialize;
 
 mod catalog;
 mod restore;
+mod streams;
 pub use catalog::SegmentPage;
+pub use streams::ArchivedStreamHead;
+pub use streams::StreamPage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveReceipt {

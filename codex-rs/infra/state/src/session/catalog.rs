@@ -18,6 +18,11 @@ pub struct SegmentPage {
     pub next_cursor: Option<String>,
 }
 
+pub(super) struct CatalogPage {
+    pub data: Vec<String>,
+    pub next_cursor: Option<String>,
+}
+
 impl SessionShard {
     /// Adds the stream/range catalog entry in the same Git tree as the blob.
     /// Both paths reference one object; the catalog does not duplicate bytes.
@@ -42,7 +47,8 @@ impl SessionShard {
             segment.end,
             blake3::hash(&bytes)
         );
-        self.publish_named(&bytes, &[name])
+        let head = format!("stream-heads/{}.bin", stream_key(&segment.stream)?);
+        self.publish_named(&bytes, &[name, head])
     }
 
     /// Enumerates ranges by start/end at an immutable revision. Memory holds
@@ -65,6 +71,38 @@ impl SessionShard {
         {
             return Err(io::Error::other("segment catalog binding changed"));
         }
+        let page = self.catalog_names(commit, &prefix, after, limit)?;
+        let data = page
+            .data
+            .into_iter()
+            .map(|name| {
+                let filename = name
+                    .rsplit('/')
+                    .next()
+                    .ok_or_else(|| io::Error::other("segment filename missing"))?;
+                Ok(ArchiveReceipt {
+                    session_ref: self.session_ref.clone(),
+                    commit: commit.clone(),
+                    segment_name: format!("segments/{filename}"),
+                })
+            })
+            .collect::<io::Result<_>>()?;
+        Ok(SegmentPage {
+            data,
+            next_cursor: page.next_cursor,
+        })
+    }
+
+    pub(super) fn catalog_names(
+        &self,
+        commit: &CommitId,
+        prefix: &str,
+        after: Option<&str>,
+        limit: NonZeroUsize,
+    ) -> io::Result<CatalogPage> {
+        if after.is_some_and(|cursor| !cursor.starts_with(prefix)) {
+            return Err(io::Error::other("catalog cursor belongs to another prefix"));
+        }
         let revision = commit.to_string();
         let mut child = self
             .command([
@@ -74,7 +112,7 @@ impl SessionShard {
                 "-z",
                 &revision,
                 "--",
-                &prefix,
+                prefix,
             ])
             .stdout(Stdio::piped())
             .spawn()?;
@@ -97,7 +135,7 @@ impl SessionShard {
                     return Err(io::Error::other("Git catalog path is incomplete"));
                 }
                 let name = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
-                if !name.starts_with(&prefix) {
+                if !name.starts_with(prefix) {
                     return Err(io::Error::other("Git returned a different stream catalog"));
                 }
                 if after.is_some_and(|cursor| name <= cursor) {
@@ -107,18 +145,10 @@ impl SessionShard {
                     more = true;
                     continue;
                 }
-                let filename = name
-                    .rsplit('/')
-                    .next()
-                    .ok_or_else(|| io::Error::other("segment filename missing"))?;
-                data.push(ArchiveReceipt {
-                    session_ref: self.session_ref.clone(),
-                    commit: commit.clone(),
-                    segment_name: format!("segments/{filename}"),
-                });
+                data.push(name.to_owned());
                 last = Some(name.to_owned());
             }
-            Ok(SegmentPage {
+            Ok(CatalogPage {
                 data,
                 next_cursor: if more { last } else { None },
             })
@@ -132,6 +162,10 @@ impl SessionShard {
 }
 
 fn stream_prefix(stream: &ArchiveStream) -> io::Result<String> {
+    Ok(format!("streams/{}/", stream_key(stream)?))
+}
+
+pub(super) fn stream_key(stream: &ArchiveStream) -> io::Result<String> {
     let identity = serde_json::to_vec(stream).map_err(io::Error::other)?;
-    Ok(format!("streams/{}/", blake3::hash(&identity)))
+    Ok(blake3::hash(&identity).to_string())
 }
