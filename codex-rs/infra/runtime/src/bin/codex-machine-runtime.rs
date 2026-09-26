@@ -1,6 +1,5 @@
 use std::io;
 use std::path::PathBuf;
-use std::thread;
 
 use codex_infra_protocol::AgentId;
 use codex_infra_protocol::DirectoryEvent;
@@ -18,6 +17,10 @@ use tokio::sync::mpsc;
 #[path = "machine_runtime/audit.rs"]
 mod audit;
 use audit::ControlAudit;
+
+#[path = "machine_runtime/input_worker.rs"]
+mod input_worker;
+use input_worker::InputWorker;
 
 #[path = "machine_runtime/signals.rs"]
 mod signals;
@@ -109,8 +112,11 @@ async fn main() -> io::Result<()> {
         )));
     }
     let (send, mut receive) = mpsc::channel(capacity);
-    thread::spawn(move || input_audit.read_requests(send));
+    let input_worker = InputWorker::start(input_audit, send);
     let result = async {
+        input_worker
+            .as_ref()
+            .map_err(|error| io::Error::other(error.to_string()))?;
         audit.emit(Output::Ready {
             control_run_id: audit.run_id,
             root_session_id,
@@ -152,6 +158,14 @@ async fn main() -> io::Result<()> {
     }
     .await;
     drop(receive);
+    let input_stopped = match input_worker {
+        Ok(worker) => worker.stop().await,
+        Err(error) => Err(error),
+    };
+    let input_recorded = match &input_stopped {
+        Ok(positions) => audit.event("stdin_stopped", positions),
+        Err(error) => audit.event("stdin_stop_failed", &error.to_string()),
+    };
     let recorded = audit.event(
         "stop_requested",
         &serde_json::json!({
@@ -160,6 +174,7 @@ async fn main() -> io::Result<()> {
         }),
     );
     let exit = stop_machine(machine, &mut audit).await?;
+    input_recorded?;
     recorded?;
     let failed = !exit.failures.is_empty();
     audit.event("services_stopped", &exit.failures)?;
@@ -169,6 +184,7 @@ async fn main() -> io::Result<()> {
         failures: exit.failures,
     })?;
     result?;
+    input_stopped?;
     if failed {
         return Err(io::Error::other(
             "machine services reported shutdown failures",

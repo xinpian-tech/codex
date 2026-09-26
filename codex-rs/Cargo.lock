@@ -3759,6 +3759,7 @@ dependencies = [
  "codex-infra-protocol",
  "codex-infra-state",
  "codex-infra-tmux",
+ "libc",
  "serde",
  "serde_json",
  "tokio",

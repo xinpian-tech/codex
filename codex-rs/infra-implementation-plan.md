@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+机器 CLI 的 stdin reader 改由 InputWorker 持有。Unix 使用独立停止 socket 唤醒 poll，退出时先关闭请求接收端，再等待读取线程返回；停止请求与真实 EOF 分别记录，reader_closed 后交回原始输入及读取生命周期的最终确认位置，并写入主生命周期日志。stdin 描述符以 close-on-exec 复制；非 Unix 路径仍需要输入生产者关闭 stdin。读取线程启动或关闭失败也先进入机器服务收尾。新增 Unix libc 直接依赖，库/二进制 Clippy 通过；未编写或运行测试，未执行 CLI 或部署实验。CLI 日志远端归档、stderr 覆盖及完整 finalizer 仍待完成。
+
 MachineLaunchConfig 新增 read_generation，CLI 读取 machine-runtime.json 同目录的 generation.json/config.toml，核对机器配置与有效 Codex 配置的 BLAKE3 摘要后启动。MachineLaunchProvenance 保存实际配置路径、generation 目录、三份原始文件及 source/team-state commit、nix_system，opened 审计同时记录当前 executable 路径。mkInfraGeneration 为提供 machineRuntime 的输出计算 machine_runtime_digest；CLI 启动现在需要这份同 generation 的 manifest，而非单独机器 JSON。derivation 实现信息继续由既有 Nix resolver 负责，此处不从 store 目录名推造 drv；CLI 原始日志归档、stdin 最终交接和完整 finalizer 仍待完成。加入现有 workspace blake3 依赖并更新 Cargo.lock，Bazel 元数据已刷新且 MODULE 锁无变化；库/二进制 Clippy 与 Nix 语法解析通过，未编写或运行测试，未执行 CLI 或部署实验。
 
 机器 CLI 每次启动在 machine-control/<run_id> 建立 stdin/stdout/lifecycle/stdin-lifecycle journals。stdin recorder 位于缓冲和 JSON 解析之下，保留原始读取块（包括无效 UTF-8、半条输入）；stdout 先记录完整拟输出字节再写终端，输出失败另记生命周期。opened 保存实际读取的配置字节、规范化配置路径、Root Session 和期望 hostid，Ready 输出关联 control_run_id；信号注册、资源打开、服务启动/清理及停止错误均有相应记录。stdin EOF 与读失败由实际 reader 记录，阻塞中的 stdin 不因主控制循环停止而标记完成。新增日志尚未进入远端归档调度，stdin reader 最终交接、stderr 覆盖、generation 源提交关联及完整 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未运行该 CLI。

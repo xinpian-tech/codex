@@ -9,11 +9,19 @@ use codex_infra_protocol::MessageId;
 use codex_infra_runtime::MachineLaunchConfig;
 use codex_infra_runtime::MachineLaunchProvenance;
 use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
 use super::Output;
 use super::Request;
+use super::input_worker::InputStopped;
+
+#[derive(Serialize)]
+pub(super) struct InputCompletion {
+    input: JournalPosition,
+    lifecycle: JournalPosition,
+}
 
 pub(super) struct ControlAudit {
     pub(super) run_id: MessageId,
@@ -87,9 +95,13 @@ impl InputAudit {
     /// Captures bytes underneath buffering and JSON parsing, including invalid
     /// UTF-8 and partial requests. An input reader blocked on stdin is not marked
     /// complete merely because the machine received a stop signal elsewhere.
-    pub(super) fn read_requests(self, sender: mpsc::Sender<io::Result<Request>>) {
+    pub(super) fn read_requests(
+        self,
+        sender: mpsc::Sender<io::Result<Request>>,
+        input: impl Read,
+    ) -> io::Result<InputCompletion> {
         let mut reader = BufReader::new(RecordedInput {
-            inner: io::stdin().lock(),
+            inner: input,
             audit: self,
         });
         loop {
@@ -97,6 +109,13 @@ impl InputAudit {
             let request = match reader.read_until(b'\n', &mut line) {
                 Ok(0) => break,
                 Ok(_) => serde_json::from_slice(&line).map_err(io::Error::other),
+                Err(error)
+                    if error
+                        .get_ref()
+                        .is_some_and(<dyn std::error::Error + Send + Sync>::is::<InputStopped>) =>
+                {
+                    break;
+                }
                 Err(error) => Err(error),
             };
             let failed = request.is_err();
@@ -104,6 +123,12 @@ impl InputAudit {
                 break;
             }
         }
+        let mut recorded = reader.into_inner();
+        recorded.audit.lifecycle.append(b"reader_closed")?;
+        Ok(InputCompletion {
+            input: recorded.audit.bytes.position(),
+            lifecycle: recorded.audit.lifecycle.position(),
+        })
     }
 }
 
@@ -127,9 +152,16 @@ impl<R: Read> Read for RecordedInput<R> {
                 Ok(length)
             }
             Err(error) => {
-                self.audit
-                    .lifecycle
-                    .append(format!("read_failed: {error}").as_bytes())?;
+                if error
+                    .get_ref()
+                    .is_some_and(<dyn std::error::Error + Send + Sync>::is::<InputStopped>)
+                {
+                    self.audit.lifecycle.append(b"stop_requested")?;
+                } else {
+                    self.audit
+                        .lifecycle
+                        .append(format!("read_failed: {error}").as_bytes())?;
+                }
                 Err(error)
             }
         }

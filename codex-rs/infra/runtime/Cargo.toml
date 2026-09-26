@@ -25,3 +25,6 @@ codex-infra-tmux = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "sync", "macros", "signal"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
