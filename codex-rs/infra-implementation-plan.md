@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+SessionShard 增加 fetch_archive_revision，远端 Session 分支获取到独立 session-read-cache ref，并确认指定 receipt revision 是已获取历史的一部分，不移动 writer 的 Session ref。restore_journal 串起同一不可变 revision 下的目录分页、内容地址读取、流/范围核对和 JournalRestore，恢复到明确的 producer completion position；跨过目标位置的段只裁取内存视图，原归档不变。已有部分目标文件从零偏移验证，空流在确认零长度段后结束。入口仍由上层提供流身份与完成位置；流清单、机器级恢复顺序和最终关闭编排尚待完成。组合库 Clippy 已通过，未编写或运行测试，未连接远端执行获取或恢复实验。
+
 SessionShard 新增 publish_journal_segment，把 streams/<流身份摘要>/<起止偏移>/<内容摘要>.bin 目录项与 segments 内容地址放进同一 Git tree/commit，两者引用同一 blob；JournalArchive 改用该入口发布。list_segments 在指定不可变 commit 与流身份下按偏移目录分页返回回执，逐条读取 Git 路径输出，内存只保留当前页；调用方可继续 read_segment / JournalRestore。跨机器恢复因此具备从仓库定位单流各段的入口，新目录不依赖原机器本地回执文件。旧版仅 segments 的归档尚无目录，跨机器 fetch、流清单与 machine writer/finalizer 装配仍待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 infra/state 增加 JournalRestore：以确定的 ArchiveStream 打开恢复文件并持有独占锁，按原始偏移接收相邻/重叠段，逐块比较已有字节后追加并 fsync；重启部分恢复时从 offset 0 重放验证，缺段或内容冲突保留为未完成。finish 要求恢复范围和文件长度等于指定 producer completion position，再用 JournalReader 校验原始 frame、sequence/checksum 与最终字节偏移，不截断归档证据。SessionShard::read_segment 可从已获取的 Git receipt commit 读取段，并核对内容寻址名称。跨机器 Git fetch、流段目录/选择、机器级恢复编排仍待接入；该能力仅完成单条已选定流的还原。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

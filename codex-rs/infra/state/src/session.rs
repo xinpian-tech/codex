@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 mod catalog;
+mod restore;
 pub use catalog::SegmentPage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
