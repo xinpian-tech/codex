@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+受管宿主启动现返回 ManagedHost，保留客户端及实际 exec backend 的生命周期入口。启用记录的启动/stdin 请求由共享 RecordingTasks 跟踪；接收检查与任务注册、关闭接收入口使用同一个同步边界。close_recorded_requests 关闭后等待已接收请求（包括 recorder 回调），取消等待后可再次调用继续等待。启动请求的 recorder 准备也归属于被跟踪任务。默认非记录执行路径保持原行为。该等待不代表子进程退出、输出 Closed 或记录成功；最终 checkpoint 仍需关联子进程与写操作，最终宿主收尾及 CLI 尚待装配。组合库 Clippy 已通过，未编写或运行测试。
+
 ManagedHostServices 现提供组合启动入口：从准备好的本地环境获取执行器 runtime paths 与 HTTP 策略，创建全新的 recorded_local EnvironmentManager，并把 ProcessAudit 安装到实际 local exec backend，再进入 app-server 原有初始化流程。环境表与本地快捷入口共享同一已装配实例，远端 Agent 在其所在机器构造自己的本地环境。上游新增逻辑位于独立 environment/recording.rs，默认启动路径保持原行为。组合库目标 Clippy 已通过，未编写或运行测试。该入口尚待 Agent CLI 调用；宿主 finalizer、执行任务排空、Provider/宿主原始事件与 shell snapshot 采集仍待接入，不代表完整 Session 留存已经完成。
 
 stdin 现通过 ProcessInputRecorder 保存每次原始 WriteParams 及完整返回结果或 JSON-RPC 错误。请求先落盘，结果用请求 journal 序号关联；重复 write ID 仍由原队列入口去重。启用记录时独立任务持有输入操作和结果记录，调用方取消不取消已经开始的工作。Accepted 仅表示已送入写入队列，不代表子进程已读取；缺少结果时保留未知状态。最终代码通过 `cargo clippy -p codex-infra-extension --lib --locked --offline`，未编写或运行测试。宿主停机等待这些任务、实际 Environment 装配及 checkpoint 的修改边界关联仍待接入。

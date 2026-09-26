@@ -30,6 +30,7 @@ mod process;
 mod process_recording;
 mod process_sandbox;
 mod process_telemetry;
+mod recording_tasks;
 mod regular_file;
 mod relay;
 mod relay_proto;

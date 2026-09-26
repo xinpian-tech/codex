@@ -6,6 +6,7 @@ use codex_app_server::in_process::InProcessStartArgs;
 use codex_app_server::in_process::start_with_host_services;
 use codex_core::config::Config;
 use codex_exec_server::EnvironmentManager;
+use codex_exec_server::ExecBackend;
 use codex_extension_api::ExtensionRegistry;
 use codex_thread_store::ThreadStore;
 
@@ -28,6 +29,24 @@ pub struct ManagedHostServices {
     context: Arc<AgentContext>,
 }
 
+/// The initialized app-server and its recorded execution lifecycle boundary.
+/// Finalization must settle child processes and output separately from draining
+/// start/stdin requests; the embedded client's shutdown alone does not do this.
+pub struct ManagedHost {
+    pub client: InProcessClientHandle,
+    exec_backend: Arc<dyn ExecBackend>,
+}
+
+impl ManagedHost {
+    /// Stops admitting recorded starts/stdin and waits for existing requests.
+    pub async fn close_recorded_requests(&self) -> std::io::Result<()> {
+        self.exec_backend
+            .close_recorded_requests()
+            .await
+            .map_err(std::io::Error::other)
+    }
+}
+
 impl ManagedHostServices {
     pub fn new(audit: StoreAudit, context: Arc<AgentContext>) -> Self {
         Self { audit, context }
@@ -41,7 +60,7 @@ impl ManagedHostServices {
         self,
         mut args: InProcessStartArgs,
         process_audit: ProcessAudit,
-    ) -> std::io::Result<InProcessClientHandle> {
+    ) -> std::io::Result<ManagedHost> {
         let local = args
             .environment_manager
             .try_local_environment()
@@ -58,7 +77,16 @@ impl ManagedHostServices {
             )
             .map_err(std::io::Error::other)?,
         );
-        start_with_host_services(args, Arc::new(self)).await
+        let exec_backend = args
+            .environment_manager
+            .try_local_environment()
+            .ok_or_else(|| std::io::Error::other("recorded local environment unavailable"))?
+            .get_exec_backend();
+        let client = start_with_host_services(args, Arc::new(self)).await?;
+        Ok(ManagedHost {
+            client,
+            exec_backend,
+        })
     }
 }
 

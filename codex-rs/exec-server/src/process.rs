@@ -278,6 +278,19 @@ pub type ExecProcessFuture<'a, T> =
 pub trait ExecBackend: Send + Sync {
     fn start(&self, params: ExecParams) -> ExecBackendFuture<'_>;
 
+    /// Closes recorded start/stdin admission and waits for admitted requests,
+    /// including their recorder callbacks, even if their callers disconnected.
+    /// This does not stop children, wait for output Closed, or prove successful
+    /// recording. Hosts settle child processes and inspect audit outcomes too.
+    /// Cancellation leaves admission closed; calling again resumes the wait.
+    fn close_recorded_requests(&self) -> ExecProcessFuture<'_, ()> {
+        Box::pin(async {
+            Err(ExecServerError::Protocol(
+                "exec backend does not support recorded request draining".to_owned(),
+            ))
+        })
+    }
+
     /// Creates a backend with producer-side recording for subsequent starts.
     /// Remote hosts install the recorder in their own local execution backend.
     fn recording_backend(

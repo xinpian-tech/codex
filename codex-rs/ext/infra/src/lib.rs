@@ -10,6 +10,7 @@ mod store_audit;
 
 pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
+pub use host::ManagedHost;
 pub use host::ManagedHostServices;
 pub use process_audit::ProcessAudit;
 pub use process_audit::ProcessAuditEvent;

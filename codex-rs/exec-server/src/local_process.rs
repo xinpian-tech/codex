@@ -176,6 +176,7 @@ pub(crate) struct LocalProcess {
     inner: Arc<Inner>,
     runtime_paths: Option<ExecServerRuntimePaths>,
     recorder_factory: Option<Arc<dyn crate::ProcessRecorderFactory>>,
+    recording_tasks: crate::recording_tasks::RecordingTasks,
 }
 
 struct LocalExecProcess {
@@ -232,6 +233,7 @@ impl LocalProcess {
             }),
             runtime_paths,
             recorder_factory: None,
+            recording_tasks: crate::recording_tasks::RecordingTasks::default(),
         }
     }
 
@@ -299,27 +301,29 @@ impl LocalProcess {
                 .start_process_recorded(params, telemetry, /*recorder*/ None)
                 .await;
         };
-        let recorder = factory
-            .open(&params)
-            .await
-            .map_err(|error| internal_error(error.to_string()))?;
         // The recording startup owns capture setup even if its requester drops
         // the response future after the OS process has already been created.
         let backend = self.clone();
-        tokio::spawn(async move {
-            let result = backend
-                .start_process_recorded(params, telemetry, Some(recorder.clone()))
-                .await;
-            if let Err(error) = &result {
-                recorder
-                    .record(ExecProcessEvent::Failed(error.message.clone()))
+        self.recording_tasks
+            .spawn(async move {
+                let recorder = factory
+                    .open(&params)
                     .await
                     .map_err(|error| internal_error(error.to_string()))?;
-            }
-            result
-        })
-        .await
-        .map_err(|error| internal_error(error.to_string()))?
+                let result = backend
+                    .start_process_recorded(params, telemetry, Some(recorder.clone()))
+                    .await;
+                if let Err(error) = &result {
+                    recorder
+                        .record(ExecProcessEvent::Failed(error.message.clone()))
+                        .await
+                        .map_err(|error| internal_error(error.to_string()))?;
+                }
+                result
+            })
+            .map_err(|error| internal_error(error.to_string()))?
+            .await
+            .map_err(|error| internal_error(error.to_string()))?
     }
 
     async fn start_process_recorded(
@@ -689,20 +693,22 @@ impl LocalProcess {
         let backend = self.clone();
         // Own both the queue operation and its recorded outcome after the
         // requester drops its future. The existing write-id dedup stays atomic.
-        tokio::spawn(async move {
-            let recorder = factory
-                .open_input(&params)
-                .await
-                .map_err(|error| internal_error(error.to_string()))?;
-            let result = backend.write_input(params).await;
-            recorder
-                .finish(result.clone())
-                .await
-                .map_err(|error| internal_error(error.to_string()))?;
-            result
-        })
-        .await
-        .map_err(|error| internal_error(error.to_string()))?
+        self.recording_tasks
+            .spawn(async move {
+                let recorder = factory
+                    .open_input(&params)
+                    .await
+                    .map_err(|error| internal_error(error.to_string()))?;
+                let result = backend.write_input(params).await;
+                recorder
+                    .finish(result.clone())
+                    .await
+                    .map_err(|error| internal_error(error.to_string()))?;
+                result
+            })
+            .map_err(|error| internal_error(error.to_string()))?
+            .await
+            .map_err(|error| internal_error(error.to_string()))?
     }
 
     async fn write_input(&self, params: WriteParams) -> Result<WriteResponse, JSONRPCErrorError> {
@@ -872,6 +878,13 @@ impl LocalProcess {
 }
 
 impl ExecBackend for LocalProcess {
+    fn close_recorded_requests(&self) -> ExecProcessFuture<'_, ()> {
+        Box::pin(async move {
+            self.recording_tasks.close_and_wait().await;
+            Ok(())
+        })
+    }
+
     fn recording_backend(
         &self,
         factory: Arc<dyn crate::ProcessRecorderFactory>,
