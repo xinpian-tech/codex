@@ -40,6 +40,7 @@ pub use stream_archive::ArchiveStream;
 pub use stream_archive::ArchivedRange;
 pub use stream_archive::JournalArchive;
 pub use stream_archive::JournalSegment;
+pub use stream_archive::StreamCompletion;
 pub use stream_restore::JournalRestore;
 pub use tasks::TaskStore;
 pub use tasks::TaskStoreError;

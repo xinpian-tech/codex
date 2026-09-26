@@ -47,11 +47,22 @@ pub struct ArchivedRange {
     pub receipt: ArchiveReceipt,
 }
 
+/// Producer completion, separate from periodic archive snapshots. The receipt
+/// identifies the commit that contains the final contiguous segment prefix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamCompletion {
+    pub stream: ArchiveStream,
+    pub position: JournalPosition,
+    pub archive: ArchiveReceipt,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ArchiveEvent {
     Opened { stream: ArchiveStream },
     Published { range: ArchivedRange },
+    CompletionRequested { completion: StreamCompletion },
+    Completed { receipt: ArchiveReceipt },
 }
 
 /// Tracks a contiguous remotely confirmed prefix. The machine writer supplies
@@ -61,12 +72,16 @@ pub struct JournalArchive {
     stream: ArchiveStream,
     journal: Journal,
     latest: Option<ArchivedRange>,
+    completion: Option<StreamCompletion>,
+    completion_receipt: Option<ArchiveReceipt>,
 }
 
 impl JournalArchive {
     pub fn open(path: &Path, stream: ArchiveStream) -> io::Result<Self> {
         let mut latest = None;
         let mut opened = false;
+        let mut completion = None;
+        let mut completion_receipt = None;
         let mut journal = Journal::open(path, |record| {
             match serde_json::from_slice(&record.payload).map_err(io::Error::other)? {
                 ArchiveEvent::Opened { stream: previous } => {
@@ -76,11 +91,40 @@ impl JournalArchive {
                     opened = true;
                 }
                 ArchiveEvent::Published { range } => {
-                    if !opened {
+                    if !opened || completion.is_some() {
                         return Err(io::Error::other("archive receipt has no stream binding"));
                     }
                     validate_range(&stream, latest.as_ref(), &range)?;
                     latest = Some(range);
+                }
+                ArchiveEvent::CompletionRequested {
+                    completion: requested,
+                } => {
+                    let range = latest.as_ref().ok_or_else(|| {
+                        io::Error::other("stream completion has no archived prefix")
+                    })?;
+                    if completion.is_some()
+                        || requested.stream != stream
+                        || range.end != requested.position.byte_offset
+                        || range.durable != requested.position
+                        || range.receipt != requested.archive
+                    {
+                        return Err(io::Error::other(
+                            "stream completion differs from archived prefix",
+                        ));
+                    }
+                    completion = Some(requested);
+                }
+                ArchiveEvent::Completed { receipt } => {
+                    let requested = completion
+                        .as_ref()
+                        .ok_or_else(|| io::Error::other("completion receipt has no request"))?;
+                    if completion_receipt.is_some()
+                        || receipt.session_ref != requested.archive.session_ref
+                    {
+                        return Err(io::Error::other("completion receipt binding changed"));
+                    }
+                    completion_receipt = Some(receipt);
                 }
             }
             Ok(())
@@ -97,11 +141,61 @@ impl JournalArchive {
             stream,
             journal,
             latest,
+            completion,
+            completion_receipt,
         })
     }
 
     pub fn latest(&self) -> Option<&ArchivedRange> {
         self.latest.as_ref()
+    }
+
+    /// Call after the producer has stopped. The requested boundary must equal
+    /// the fully archived observed position. Once recorded, this stream admits
+    /// only completion retries; new producer work needs its own stream binding.
+    pub fn seal(
+        &mut self,
+        required: JournalPosition,
+        shard: &mut SessionShard,
+    ) -> io::Result<ArchiveReceipt> {
+        let range = self.require_archived(required)?;
+        if range.end != required.byte_offset || range.durable != required {
+            return Err(io::Error::other(
+                "completion position differs from final archived position",
+            ));
+        }
+        let requested = StreamCompletion {
+            stream: self.stream.clone(),
+            position: required,
+            archive: range.receipt.clone(),
+        };
+        match &self.completion {
+            Some(previous) if previous != &requested => {
+                return Err(io::Error::other("stream completion changed"));
+            }
+            Some(_) => {}
+            None => {
+                self.journal.append(
+                    &serde_json::to_vec(&ArchiveEvent::CompletionRequested {
+                        completion: requested.clone(),
+                    })
+                    .map_err(io::Error::other)?,
+                )?;
+                self.completion = Some(requested.clone());
+            }
+        }
+        if let Some(receipt) = &self.completion_receipt {
+            return Ok(receipt.clone());
+        }
+        let receipt = shard.publish_completion(&requested)?;
+        self.journal.append(
+            &serde_json::to_vec(&ArchiveEvent::Completed {
+                receipt: receipt.clone(),
+            })
+            .map_err(io::Error::other)?,
+        )?;
+        self.completion_receipt = Some(receipt.clone());
+        Ok(receipt)
     }
 
     /// Checks a producer-supplied completion position against the contiguous
@@ -134,6 +228,11 @@ impl JournalArchive {
         max_bytes: NonZeroUsize,
         shard: &mut SessionShard,
     ) -> io::Result<Option<ArchivedRange>> {
+        if self.completion.is_some() {
+            return Err(io::Error::other(
+                "archive stream is completing or completed",
+            ));
+        }
         let start = self.latest.as_ref().map_or(0, |range| range.end);
         if self.latest.as_ref().is_some_and(|range| {
             durable.byte_offset < range.durable.byte_offset

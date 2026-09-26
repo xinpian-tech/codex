@@ -20,7 +20,7 @@ pub use catalog::SegmentPage;
 pub use streams::ArchivedStreamHead;
 pub use streams::StreamPage;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveReceipt {
     pub session_ref: String,
     pub commit: CommitId,
