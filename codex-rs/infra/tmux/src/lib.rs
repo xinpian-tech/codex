@@ -5,6 +5,8 @@ mod client;
 mod control;
 mod frame;
 mod socket;
+#[cfg(unix)]
+mod terminal;
 
 pub use assembly::MessageAssembler;
 pub use client::AgentLaunch;
@@ -23,3 +25,5 @@ pub use socket::GatewayConnection;
 pub use socket::GatewayListener;
 pub use socket::GatewayReceiver;
 pub use socket::GatewaySender;
+#[cfg(unix)]
+pub use terminal::AgentTerminal;
