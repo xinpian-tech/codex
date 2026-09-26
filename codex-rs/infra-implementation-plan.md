@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+机器 CLI 正常控制循环结束后，先记录最终 Stopped 输出与 control_closed，再消费 ControlAudit 并按实际 writer 确认位置保存 machine-control 归档任务。stdout/lifecycle 始终参与这一收尾；stdin/stdin-lifecycle 仅在读取线程交回完成位置时加入 ProducerFinished。任务先以固定 IDs 写入本次运行的 archive.journal，再交给已停止 actor 返回的 MachineArchiveWriter；归档工作在线程池执行，逐项确认持久远端回执后返回。输出报告失败仍尝试该归档步骤。CLI 启动时逐目录重放历史已准备批次，保留原任务 IDs，已有回执的任务跳过；每次只读取一个运行的任务清单，不加载其原始日志正文。归档错误保留本地任务，未准备完成的异常退出日志仍待 producer 恢复流程；启动失败分支、运行中周期快照、stderr 覆盖及整体 finalizer 尚待接入。库/二进制 Clippy 通过，未编写或运行测试，未执行 CLI 或部署实验。
+
 机器 CLI 的 stdin reader 改由 InputWorker 持有。Unix 使用独立停止 socket 唤醒 poll，退出时先关闭请求接收端，再等待读取线程返回；停止请求与真实 EOF 分别记录，reader_closed 后交回原始输入及读取生命周期的最终确认位置，并写入主生命周期日志。stdin 描述符以 close-on-exec 复制；非 Unix 路径仍需要输入生产者关闭 stdin。读取线程启动或关闭失败也先进入机器服务收尾。新增 Unix libc 直接依赖，库/二进制 Clippy 通过；未编写或运行测试，未执行 CLI 或部署实验。CLI 日志远端归档、stderr 覆盖及完整 finalizer 仍待完成。
 
 MachineLaunchConfig 新增 read_generation，CLI 读取 machine-runtime.json 同目录的 generation.json/config.toml，核对机器配置与有效 Codex 配置的 BLAKE3 摘要后启动。MachineLaunchProvenance 保存实际配置路径、generation 目录、三份原始文件及 source/team-state commit、nix_system，opened 审计同时记录当前 executable 路径。mkInfraGeneration 为提供 machineRuntime 的输出计算 machine_runtime_digest；CLI 启动现在需要这份同 generation 的 manifest，而非单独机器 JSON。derivation 实现信息继续由既有 Nix resolver 负责，此处不从 store 目录名推造 drv；CLI 原始日志归档、stdin 最终交接和完整 finalizer 仍待完成。加入现有 workspace blake3 依赖并更新 Cargo.lock，Bazel 元数据已刷新且 MODULE 锁无变化；库/二进制 Clippy 与 Nix 语法解析通过，未编写或运行测试，未执行 CLI 或部署实验。

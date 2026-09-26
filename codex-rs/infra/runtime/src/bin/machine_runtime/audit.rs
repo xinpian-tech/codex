@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 
 use super::Output;
 use super::Request;
+use super::archive::ControlArchive;
 use super::input_worker::InputStopped;
 
 #[derive(Serialize)]
@@ -25,6 +26,7 @@ pub(super) struct InputCompletion {
 
 pub(super) struct ControlAudit {
     pub(super) run_id: MessageId,
+    archive: ControlArchive,
     output: Journal,
     lifecycle: Journal,
 }
@@ -45,8 +47,15 @@ impl ControlAudit {
             .join("machine-control")
             .join(run_id.to_string());
         fs::create_dir_all(&directory)?;
+        let directory = directory.canonicalize()?;
         let mut audit = Self {
             run_id,
+            archive: ControlArchive {
+                directory: directory.clone(),
+                root_session_id: config.root_session_id,
+                machine_id: config.machine_id.clone(),
+                run_id,
+            },
             output: Journal::open(&directory.join("stdout.journal"), |_| Ok(()))?,
             lifecycle: Journal::open(&directory.join("lifecycle.journal"), |_| Ok(()))?,
         };
@@ -72,6 +81,23 @@ impl ControlAudit {
             &serde_json::json!({"event": event, "detail": detail}),
         )?)?;
         Ok(())
+    }
+
+    pub(super) fn finish(
+        mut self,
+        input: &io::Result<InputCompletion>,
+    ) -> io::Result<Vec<codex_infra_runtime::ArchiveJob>> {
+        self.event("control_closed", &())?;
+        let mut positions = vec![
+            ("stdout", self.output.position()),
+            ("lifecycle", self.lifecycle.position()),
+        ];
+        if let Ok(input) = input {
+            positions.push(("stdin", input.input));
+            positions.push(("stdin-lifecycle", input.lifecycle));
+        }
+        let Self { archive, .. } = self;
+        archive.prepare(&positions)
     }
 
     /// Record exact intended output before terminal delivery. The lifecycle

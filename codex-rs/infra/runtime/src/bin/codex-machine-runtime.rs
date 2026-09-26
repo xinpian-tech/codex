@@ -18,6 +18,11 @@ use tokio::sync::mpsc;
 mod audit;
 use audit::ControlAudit;
 
+#[path = "machine_runtime/archive.rs"]
+mod archive;
+use archive::archive_control;
+use archive::replay_control_archives;
+
 #[path = "machine_runtime/input_worker.rs"]
 mod input_worker;
 use input_worker::InputWorker;
@@ -94,6 +99,7 @@ async fn main() -> io::Result<()> {
     let capacity = config.scheduling.command_capacity.get();
     let root_session_id = config.root_session_id;
     let machine_id = config.machine_id.clone();
+    let control_directory = config.spool_directory.join("machine-control");
     let mut machine = match config.open().await {
         Ok(machine) => machine,
         Err(error) => {
@@ -117,6 +123,13 @@ async fn main() -> io::Result<()> {
         input_worker
             .as_ref()
             .map_err(|error| io::Error::other(error.to_string()))?;
+        replay_control_archives(
+            control_directory,
+            machine.archive_controller()?,
+            root_session_id,
+            machine_id.clone(),
+        )
+        .await?;
         audit.emit(Output::Ready {
             control_run_id: audit.run_id,
             root_session_id,
@@ -174,17 +187,21 @@ async fn main() -> io::Result<()> {
         }),
     );
     let exit = stop_machine(machine, &mut audit).await?;
-    input_recorded?;
-    recorded?;
     let failed = !exit.failures.is_empty();
-    audit.event("services_stopped", &exit.failures)?;
-    audit.emit(Output::Stopped {
-        reason: result.as_ref().copied().unwrap_or(StopReason::ControlError),
-        control_error: result.as_ref().err().map(ToString::to_string),
-        failures: exit.failures,
-    })?;
+    let reported = (|| {
+        input_recorded?;
+        recorded?;
+        audit.event("services_stopped", &exit.failures)?;
+        audit.emit(Output::Stopped {
+            reason: result.as_ref().copied().unwrap_or(StopReason::ControlError),
+            control_error: result.as_ref().err().map(ToString::to_string),
+            failures: exit.failures,
+        })
+    })();
+    let archived = archive_control(audit, input_stopped, exit.writer).await;
+    reported?;
     result?;
-    input_stopped?;
+    archived?;
     if failed {
         return Err(io::Error::other(
             "machine services reported shutdown failures",

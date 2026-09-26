@@ -17,6 +17,7 @@ rust_binary(
     name = "codex-machine-runtime",
     srcs = [
         "src/bin/codex-machine-runtime.rs",
+        "src/bin/machine_runtime/archive.rs",
         "src/bin/machine_runtime/audit.rs",
         "src/bin/machine_runtime/input_worker.rs",
         "src/bin/machine_runtime/signals.rs",
