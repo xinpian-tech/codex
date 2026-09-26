@@ -12,8 +12,9 @@ use crate::ArchiveTarget;
 
 impl TransportSession {
     /// Snapshots the machine's intended input and command outcomes for one Agent.
-    /// None means no input journal exists; WouldBlock means its worker has not
-    /// returned yet. Neither result implies input delivery or archive completion.
+    /// None means no input journal exists; WouldBlock means execution, historical
+    /// recovery or worker capacity is pending. Retry after the scheduler advances.
+    /// Neither result implies input delivery or archive completion.
     /// Persist the returned job before submitting it to ArchiveController.
     pub fn prepare_input_archive(
         &mut self,

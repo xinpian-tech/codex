@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+pane-input 历史 writer 恢复移至 InputScheduler 持有的 blocking worker，archive_source 只检查完成任务和现有 writer；未打开的 journal 启动后台 replay/fsync 后返回 WouldBlock，下一轮取得恢复结果，不再在 SessionActor 请求处理过程中扫描大 journal。恢复与输入执行共享并发上限及 Agent busy 绑定，恢复中不重复打开同一 Agent 的 writer；查询取消不取消恢复，缺失/错误结果保留给后续查询，实际输入启动会清除旧恢复结果。finish_next 同时接回恢复 writer，is_idle 包含恢复任务，transport 收尾因此等待它们结束。周期分片发现/持久化/提交、最终归档汇总及机器 CLI 仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 pane-input 新增 prepare_input_archive：InputScheduler 为指定 Agent 取得闲置 writer，使用其确认位置及规范化实际路径生成机器归属 Snapshot。历史 journal 尚未打开时按既有 Journal replay/fsync 恢复后取位置；不存在返回 None，输入 worker 正在执行时返回 WouldBlock，不把忙碌或无记录解释为投递/归档完成。流名带目标 Agent ID，归属稳定的 transport machine_run_id，因为同一输入日志跨 Agent launch 追加。SessionController 增加 dispatch_archive/input_archive 请求，由 SessionActor 在持有相应对象时准备任务，远端提交仍由独立归档服务完成。历史大 journal 重开目前仍在该准备调用中完成，后续分片服务需处理其恢复成本；周期分片发现/持久化/提交、全部 producer 的最终关闭及 CLI 装配仍待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 dispatch 队列及提取 cursor 新增归档入口。普通 tick 回收旧 attachment、以及停止后的尾部提取确认达到最终 stdout 位置且无待转发帧时，先持久化 DispatchCompletion 的 attachment/queue/cursor 位置，再移除 writer。prepare_dispatch_archive 对仍持有的 writer 生成两条 Snapshot；对已回收 attachment 读取完成记录，生成 queue/cursor/completion 三条 ProducerFinished，并复用机器归档队列和精确回执查询。缺少历史完成记录返回未确认，不用源文件长度推断；重启重新打开的历史 attachment 可在核对后补写回收记录。准备结果仍需 finalizer/机器归档调度保存后提交，周期分片发现、pane-input 归档和全量 manifest 尚待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

@@ -36,6 +36,9 @@ pub struct InputScheduler {
     busy: BTreeSet<AgentId>,
     pending: BTreeMap<Id, (AgentId, String)>,
     tasks: JoinSet<(Option<PaneInputJournal>, io::Result<u64>)>,
+    restores: JoinSet<io::Result<Option<PaneInputJournal>>>,
+    restoring: BTreeMap<Id, AgentId>,
+    restore_outcomes: BTreeMap<AgentId, io::Result<()>>,
     last_lane: Option<String>,
 }
 
@@ -55,6 +58,9 @@ impl InputScheduler {
             busy: BTreeSet::new(),
             pending: BTreeMap::new(),
             tasks: JoinSet::new(),
+            restores: JoinSet::new(),
+            restoring: BTreeMap::new(),
+            restore_outcomes: BTreeMap::new(),
             last_lane: None,
         })
     }
@@ -96,7 +102,7 @@ impl InputScheduler {
         router: &FrameRouter<'_>,
         readiness: &PaneReadiness,
     ) -> io::Result<bool> {
-        if self.pending.len() >= self.limit.get() {
+        if self.pending.len() + self.restoring.len() >= self.limit.get() {
             return Ok(false);
         }
         let prepared = match inbox.prepare_input(lane, router, readiness) {
@@ -109,6 +115,7 @@ impl InputScheduler {
         if self.busy.contains(&agent_id) {
             return Ok(false);
         }
+        self.restore_outcomes.remove(&agent_id);
         let previous = self.journals.remove(&agent_id);
         let path = self.directory.join(format!("{agent_id}.journal"));
         let tmux = Arc::clone(&self.tmux);
@@ -128,10 +135,11 @@ impl InputScheduler {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.pending.is_empty()
+        self.pending.is_empty() && self.restoring.is_empty()
     }
 
     pub fn finish_next(&mut self, inbox: &mut GatewayInbox) -> io::Result<Option<InjectionReport>> {
+        self.finish_restores()?;
         let Some(completion) = self.tasks.try_join_next_with_id() else {
             return Ok(None);
         };
