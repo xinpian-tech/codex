@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ManagedHostServices 现提供组合启动入口：从准备好的本地环境获取执行器 runtime paths 与 HTTP 策略，创建全新的 recorded_local EnvironmentManager，并把 ProcessAudit 安装到实际 local exec backend，再进入 app-server 原有初始化流程。环境表与本地快捷入口共享同一已装配实例，远端 Agent 在其所在机器构造自己的本地环境。上游新增逻辑位于独立 environment/recording.rs，默认启动路径保持原行为。组合库目标 Clippy 已通过，未编写或运行测试。该入口尚待 Agent CLI 调用；宿主 finalizer、执行任务排空、Provider/宿主原始事件与 shell snapshot 采集仍待接入，不代表完整 Session 留存已经完成。
+
 stdin 现通过 ProcessInputRecorder 保存每次原始 WriteParams 及完整返回结果或 JSON-RPC 错误。请求先落盘，结果用请求 journal 序号关联；重复 write ID 仍由原队列入口去重。启用记录时独立任务持有输入操作和结果记录，调用方取消不取消已经开始的工作。Accepted 仅表示已送入写入队列，不代表子进程已读取；缺少结果时保留未知状态。最终代码通过 `cargo clippy -p codex-infra-extension --lib --locked --offline`，未编写或运行测试。宿主停机等待这些任务、实际 Environment 装配及 checkpoint 的修改边界关联仍待接入。
 
 实施从 `c015fc31d1` 开始，包含远端上游 `e72da2b538`。相对本文最初的源码核对基线，`ext/agent` 的启动调用已变为 `spawn_legacy_subagent`；`ContextualUserFragment` 的契约由独立 `context-fragments` 包导出。宿主仍在 `message_processor` 内装配 ThreadStore 与扩展，Memory consolidation 仍直接创建 thread。

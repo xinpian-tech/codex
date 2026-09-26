@@ -51,6 +51,9 @@ use tracing::instrument::WithSubscriber;
 #[path = "environment/accepted.rs"]
 mod accepted;
 
+#[path = "environment/recording.rs"]
+mod recording;
+
 pub use connect_options::RemoteEnvironmentOptions;
 
 pub const CODEX_EXEC_SERVER_URL_ENV_VAR: &str = "CODEX_EXEC_SERVER_URL";
