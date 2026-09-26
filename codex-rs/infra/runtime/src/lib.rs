@@ -27,6 +27,7 @@ pub use archive_writer::ArchiveJob;
 pub use archive_writer::ArchiveTarget;
 pub use archive_writer::MachineArchiveWriter;
 pub use collector::CollectorArchiveActor;
+pub use collector::CollectorArchiveCompletion;
 pub use collector::CollectorArchiveJobIds;
 pub use collector::CollectorArchiveJobs;
 pub use collector::CollectorArchiveWorker;

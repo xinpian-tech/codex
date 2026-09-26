@@ -186,6 +186,21 @@ impl CollectorArchiveWorker {
         Ok(Some((item.key, jobs)))
     }
 
+    pub(super) fn finished_jobs(
+        &self,
+        attachment_id: MessageId,
+    ) -> io::Result<Option<CollectorArchiveJobs>> {
+        // Only the final batch uses the bare attachment ID. Snapshot keys have
+        // a suffix, so a snapshot receipt can never satisfy this lookup.
+        match self.queue.read(&attachment_id.to_string()) {
+            Ok(item) => serde_json::from_slice(&item.payload)
+                .map(Some)
+                .map_err(io::Error::other),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Called only after every prepared job reports its durable remote receipt.
     pub(super) fn complete(&mut self, key: &str) -> io::Result<()> {
         self.queue.complete(key)

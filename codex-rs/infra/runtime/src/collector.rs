@@ -23,6 +23,7 @@ mod progress;
 pub use archive::CollectorArchiveJobIds;
 pub use archive::CollectorArchiveJobs;
 pub use archive_actor::CollectorArchiveActor;
+pub use archive_actor::CollectorArchiveCompletion;
 pub use archive_worker::CollectorArchiveWorker;
 pub use completion::CollectorFinished;
 

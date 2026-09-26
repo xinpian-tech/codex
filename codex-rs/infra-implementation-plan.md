@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+CollectorArchiveActor 新增有界完成查询入口 completion(attachment_id)，从持久准备队列读取该 attachment 的最终批次，逐项查询 ArchiveController 的精确回执；只有全部结束流已归档时，先持久化本地队列完成，再返回可序列化的 CollectorArchiveCompletion（attachment、原 jobs、receipts）。运行中快照使用独立 key，不会满足最终批次查询；尚未准备最终批次或回执不齐时返回 None。查询取消仅取消等待，不取消后台归档；actor 退出时等待者收到错误。该接口供 finalizer 保存明确证据，尚未把 transport/collector 停止、全部 attachment 清单核对和整机终态串联起来。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 collector 增量归档已接入自动扫描：stdout/stderr capture 在 Journal append 确认后发布各自位置，stdin/lifecycle 在对应写入路径更新位置；每条位置记录携带 attachment/流身份，通过临时文件 fsync、原子替换及目录同步发布，不依据增长中的源文件长度判断 durable prefix。CollectorArchiveJobs 支持四条运行中 Snapshot 或原有五条 ProducerFinished，旧五项任务数组的序列化形式保持可读取。worker 每个 attachment 同时保留一批待归档任务，等待其回执后再采样最新位置，以位置组合去重未变化快照；完成记录出现后按同一 lane 接续最终 seal。每次输出记录额外执行位置文件持久化，其实际开销留待实现完成后的实装观察；缺少新位置记录的旧运行中 collector 仍需完成记录或恢复核对。机器 CLI、其余 machine producer、原始 Provider 流和完整 finalizer 尚待完成。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 TransportSession::start_collector_archiver 使用当前 transport 的真实 root/machine/spool 绑定启动 CollectorArchiveActor。CollectorArchiveWorker 先持久化固定绑定，逐条遍历 attachment 目录，仅为已有完成记录的 collector 准备并落盘五项归档任务；重复扫描及重启沿用原 job IDs/positions，队列正文留在磁盘。actor 定时驱动发现、按 attachment 轮转提交及精确回执查询，五项均完成后才写本地队列完成；部分提交或完成确认丢失通过原任务重放。发现错误不阻断已准备任务推进，journal/目录操作在 blocking worker 中执行；stop 等待当前步骤并交回持久队列，不声称所有 collector 已结束。该 actor 由机器宿主独立持有，gateway 连接重建不重置归档；机器 CLI 创建/关闭服务、运行中 collector 增量归档、其他机器日志与完整 finalizer 尚待接入。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
