@@ -11,6 +11,7 @@
   accounts,
   skills,
   memory,
+  machineRuntime ? null,
 }:
 let
   inputs = pkgs.writeText "codex-generation-inputs.json" (builtins.toJSON (
@@ -39,6 +40,9 @@ pkgs.runCommand "codex-config-generation" {
   cp -R ${accounts} "$out/accounts"
   cp -R ${skills} "$out/skills"
   cp -R ${memory} "$out/memory"
+  ${pkgs.lib.optionalString (machineRuntime != null) ''
+    cp ${machineRuntime} "$out/machine-runtime.json"
+  ''}
 
   config_digest=$(b3sum --no-names "$out/config.toml")
   source_lock_digest=$(b3sum --no-names ${sourceFlake}/flake.lock)

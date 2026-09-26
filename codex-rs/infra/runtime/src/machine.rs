@@ -14,6 +14,11 @@ use crate::ShardArchiveActor;
 use crate::TransportArchiveActor;
 use crate::TransportSession;
 
+mod launch;
+pub use launch::MachineLaunchConfig;
+pub use launch::MachinePrograms;
+pub use launch::MachineScheduling;
+
 pub struct MachineRuntimeConfig {
     pub transport_interval: Duration,
     pub archive_interval: Duration,
