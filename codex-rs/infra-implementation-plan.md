@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+WorkspaceCheckpoints 现创建并公开本工作区的 WorkspaceGate；控制方取得带 operation ID 的 WorkspaceLease，工具/进程可克隆同一操作的持有份额。checkpoint/recover 必须移交该 gate 的租约，由独立任务等待其余份额释放，再在 blocking 任务内完成 Git 与上下文发布；调用方取消等待不会提前释放正在交接或执行中的租约。不同 gate 的租约不能用于该服务。WorkspaceLease 已实现通用 ToolExecutionLease，实际工具 admission、进程启动前续持、code mode 协调和失败后的恢复调度仍待连接；目前没有自动为工具分配租约，也没有把普通 Drop 当作 checkpoint。组合库 Clippy 已通过，未编写或执行测试。
+
 ToolAudit 已使用 acquire_tool_execution，在 pre-tool hooks 之前持久化 Admitted 操作身份并更新活动账本；写入或账本关联失败直接返回工具错误，已有审计故障也不会继续接受新操作。账本分别保存 admitted/started/finished 序号，覆盖 hooks 阶段取消或拒绝、MCP 准备失败，以及旧日志缺少 admission 的情况。开始/结束观察阶段失败仍保留给宿主收尾检查，不能撤销已运行工具。本阶段返回空资源租约，实际 worktree 互斥与后台进程续持仍待装配。组合库 Clippy 已通过，未编写或运行测试。
 
 通用工具生命周期接口现提供可失败的 acquire_tool_execution 与拥有资源的 ToolExecutionLease。Core 在 pre-tool hooks 和 handler 前通过独立 execution_scope 模块获取租约，正常 dispatch 及其结束回调完成后释放；获取失败记录未执行 handler 的失败并返回工具错误。取消会释放 dispatch 持有的租约，后台进程须另行续持所有权，不能从租约 Drop 推断 worktree 已停止变化。默认贡献者返回空租约，原工具行为保持不变。最终组合库 Clippy 已通过，未编写或运行测试。当前仅接通通用入口，独立扩展包的 worktree gate、code mode 外层/子调用协调及 checkpoint 所有权交接尚待实现。
