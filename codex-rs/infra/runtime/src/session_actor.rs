@@ -11,6 +11,9 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
+use crate::ArchiveJob;
+use crate::DispatchArchiveJobIds;
+use crate::DispatchArchiveJobs;
 use crate::TransportArchiveJobIds;
 use crate::TransportArchiveJobs;
 use crate::TransportSession;
@@ -29,6 +32,18 @@ pub enum SessionUpdate {
 }
 
 enum Command {
+    DispatchArchive {
+        attachment_id: MessageId,
+        receipts: PathBuf,
+        ids: DispatchArchiveJobIds,
+        reply: oneshot::Sender<io::Result<Option<DispatchArchiveJobs>>>,
+    },
+    InputArchive {
+        agent_id: AgentId,
+        receipts: PathBuf,
+        job_id: MessageId,
+        reply: oneshot::Sender<io::Result<Option<ArchiveJob>>>,
+    },
     ArchiveSnapshot {
         receipts: PathBuf,
         ids: TransportArchiveJobIds,
@@ -47,6 +62,48 @@ pub struct SessionController {
 }
 
 impl SessionController {
+    pub async fn dispatch_archive(
+        &self,
+        attachment_id: MessageId,
+        receipts: PathBuf,
+        ids: DispatchArchiveJobIds,
+    ) -> io::Result<Option<DispatchArchiveJobs>> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(Command::DispatchArchive {
+                attachment_id,
+                receipts,
+                ids,
+                reply,
+            })
+            .await
+            .map_err(|_| io::Error::other("Session actor stopped"))?;
+        result
+            .await
+            .map_err(|_| io::Error::other("dispatch archive snapshot reply lost"))?
+    }
+
+    pub async fn input_archive(
+        &self,
+        agent_id: AgentId,
+        receipts: PathBuf,
+        job_id: MessageId,
+    ) -> io::Result<Option<ArchiveJob>> {
+        let (reply, result) = oneshot::channel();
+        self.commands
+            .send(Command::InputArchive {
+                agent_id,
+                receipts,
+                job_id,
+                reply,
+            })
+            .await
+            .map_err(|_| io::Error::other("Session actor stopped"))?;
+        result
+            .await
+            .map_err(|_| io::Error::other("input archive snapshot reply lost"))?
+    }
+
     /// Samples writer acknowledgments on the owning transport actor. Remote Git
     /// work is performed independently by the archive service after this reply.
     pub async fn archive_snapshot(
@@ -119,6 +176,12 @@ impl SessionActor {
                     }
                     command = receiver.recv() => {
                         match command {
+                            Some(Command::DispatchArchive { attachment_id, receipts, ids, reply }) => {
+                                let _ = reply.send(session.prepare_dispatch_archive(attachment_id, &receipts, ids));
+                            }
+                            Some(Command::InputArchive { agent_id, receipts, job_id, reply }) => {
+                                let _ = reply.send(session.prepare_input_archive(agent_id, &receipts, job_id));
+                            }
                             Some(Command::ArchiveSnapshot { receipts, ids, reply }) => {
                                 let _ = reply.send(session.prepare_archive_snapshot(&receipts, ids));
                             }
@@ -138,6 +201,16 @@ impl SessionActor {
             receiver.close();
             while let Ok(command) = receiver.try_recv() {
                 match command {
+                    Command::DispatchArchive { reply, .. } => {
+                        let _ = reply.send(Err(io::Error::other(
+                            "Session actor is handing off ownership",
+                        )));
+                    }
+                    Command::InputArchive { reply, .. } => {
+                        let _ = reply.send(Err(io::Error::other(
+                            "Session actor is handing off ownership",
+                        )));
+                    }
                     Command::ArchiveSnapshot { reply, .. } => {
                         let _ = reply.send(Err(io::Error::other(
                             "Session actor is handing off ownership",

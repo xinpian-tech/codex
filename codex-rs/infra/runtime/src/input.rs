@@ -41,6 +41,10 @@ pub struct PaneInputJournal {
 }
 
 impl PaneInputJournal {
+    pub(crate) fn position(&self) -> codex_infra_state::JournalPosition {
+        self.journal.position()
+    }
+
     pub fn open(path: &Path) -> io::Result<Self> {
         let journal = Journal::open(path, |record| {
             let _: PaneInputEvent =

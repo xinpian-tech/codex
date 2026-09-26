@@ -45,6 +45,7 @@ mod archive_binding;
 mod archive_jobs;
 mod collector;
 mod dispatch_archive;
+mod input_archive;
 mod shutdown;
 mod tails;
 use archive_binding::TransportArchiveBinding;

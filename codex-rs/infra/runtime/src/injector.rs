@@ -16,6 +16,8 @@ use crate::GatewayInbox;
 use crate::PaneInputJournal;
 use crate::PaneReadiness;
 
+mod archive;
+
 #[derive(Debug)]
 pub struct InjectionReport {
     pub key: String,
@@ -44,6 +46,7 @@ impl InputScheduler {
         limit: NonZeroUsize,
     ) -> io::Result<Self> {
         fs::create_dir_all(&directory)?;
+        let directory = directory.canonicalize()?;
         Ok(Self {
             directory,
             tmux,
