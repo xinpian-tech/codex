@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+机器控制运行新增持久 identity.journal 与 run.lock，ControlAudit 和 InputAudit 共同持有锁，准备最终任务期间继续保留所有权。启动扫描对缺少完整 archive.journal 的运行尝试非阻塞获取锁；仍存活的运行直接跳过。已退出运行通过 Journal 重放和既有尾部修复取得四条日志的确认位置，记录 reader_recovered_after_owner_exit / control_recovered_after_owner_exit，再保存最终归档任务。已准备的任务保持原 IDs 与结束位置，不追加已封口的源；恢复中再次退出可重新获取锁并继续准备。旧版本没有 run.lock/身份记录的未完成运行仍保留供迁移处理；已有旧版归档批次继续重放。运行中周期快照、缺失输入完成位置但已经准备了部分流的补归档、stderr 及整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。
+
 InputWorker 启动改为一次性所有权交接：先建立停止 socket/复制 stdin/创建线程，再通过有界通道将 InputAudit 和请求 sender 交给线程。任一步骤失败，InputStartFailure 同时返回原始启动错误与 close_unstarted 的确认位置或关闭错误；CLI 保留原启动错误作为控制结果，并将已确认的输入日志纳入后续归档。线程创建失败不再因闭包销毁而丢失日志 owner，未启动状态与 EOF 仍分别记录。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。运行中周期归档、异常退出恢复、stderr 覆盖及整体 finalizer 仍待完成。
 
 机器 CLI 的信号注册失败、资源打开失败和服务启动失败统一进入 fail_startup：保存具体阶段错误，消费未启动的 InputAudit 并记录 reader_not_started，以实际空输入和生命周期位置准备归档。服务部分启动时先停止已启动组件，拿到 writer 后继续发布；尚无 writer 时仅保存固定 IDs 的归档批次，由后续启动重放，不将本地准备解释为远端完成。正常控制循环后的 MachineRuntime::stop 若整体报错，也尝试关闭控制审计并保存批次，返回原关闭错误和记录/归档错误。读取线程启动失败后的输入恢复、运行中周期快照、进程异常退出恢复、stderr 及整体 finalizer 仍待完成。库/二进制 Clippy 通过，未编写或运行测试，未执行实装实验。

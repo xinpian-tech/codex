@@ -29,6 +29,9 @@ use archive::replay_control_archives;
 mod input_worker;
 use input_worker::InputWorker;
 
+#[path = "machine_runtime/recovery.rs"]
+mod recovery;
+
 #[path = "machine_runtime/signals.rs"]
 mod signals;
 use signals::ShutdownSignals;

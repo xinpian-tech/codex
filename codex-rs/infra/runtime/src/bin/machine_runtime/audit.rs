@@ -4,6 +4,7 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Write;
+use std::sync::Arc;
 
 use codex_infra_protocol::MessageId;
 use codex_infra_runtime::MachineLaunchConfig;
@@ -17,6 +18,7 @@ use super::Output;
 use super::Request;
 use super::archive::ControlArchive;
 use super::input_worker::InputStopped;
+use super::recovery::ControlIdentity;
 
 #[derive(Serialize)]
 pub(super) struct InputCompletion {
@@ -25,6 +27,7 @@ pub(super) struct InputCompletion {
 }
 
 pub(super) struct ControlAudit {
+    _run_lock: Arc<fs::File>,
     pub(super) run_id: MessageId,
     archive: ControlArchive,
     output: Journal,
@@ -32,6 +35,7 @@ pub(super) struct ControlAudit {
 }
 
 pub(super) struct InputAudit {
+    _run_lock: Arc<fs::File>,
     bytes: Journal,
     lifecycle: Journal,
 }
@@ -48,7 +52,14 @@ impl ControlAudit {
             .join(run_id.to_string());
         fs::create_dir_all(&directory)?;
         let directory = directory.canonicalize()?;
+        let run_lock = ControlIdentity {
+            root_session_id: config.root_session_id,
+            machine_id: config.machine_id.clone(),
+            run_id,
+        }
+        .create(&directory)?;
         let mut audit = Self {
+            _run_lock: Arc::clone(&run_lock),
             run_id,
             archive: ControlArchive {
                 directory: directory.clone(),
@@ -60,6 +71,7 @@ impl ControlAudit {
             lifecycle: Journal::open(&directory.join("lifecycle.journal"), |_| Ok(()))?,
         };
         let input = InputAudit {
+            _run_lock: run_lock,
             bytes: Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?,
             lifecycle: Journal::open(&directory.join("stdin-lifecycle.journal"), |_| Ok(()))?,
         };
@@ -96,8 +108,14 @@ impl ControlAudit {
             positions.push(("stdin", input.input));
             positions.push(("stdin-lifecycle", input.lifecycle));
         }
-        let Self { archive, .. } = self;
-        archive.prepare(&positions)
+        let Self {
+            archive,
+            _run_lock: run_lock,
+            ..
+        } = self;
+        let prepared = archive.prepare(&positions);
+        drop(run_lock);
+        prepared
     }
 
     /// Record exact intended output before terminal delivery. The lifecycle

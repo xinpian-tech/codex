@@ -16,6 +16,7 @@ use codex_infra_state::JournalReader;
 
 use super::audit::ControlAudit;
 use super::audit::InputCompletion;
+use super::recovery::recover_control;
 
 pub(super) struct ControlArchive {
     pub(super) directory: PathBuf,
@@ -59,8 +60,8 @@ impl ControlArchive {
 }
 
 /// Re-admit one saved run at a time without loading historical journal bodies.
-/// Runs without a complete prepared record remain available for recovery of
-/// their producers; they are not inferred complete from file lengths.
+/// Runs without a complete prepared record are recovered only after acquiring
+/// their run lock; positions come from journal replay, not raw file lengths.
 pub(super) async fn replay_control_archives(
     directory: PathBuf,
     archive: ArchiveController,
@@ -82,9 +83,11 @@ pub(super) async fn replay_control_archives(
                                 serde_json::from_slice::<Vec<ArchiveJob>>(&record.payload)
                                     .map_err(io::Error::other)?
                             }
-                            None => Vec::new(),
+                            None => recover_control(&entry.path())?,
                         },
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                            recover_control(&entry.path())?
+                        }
                         Err(error) => return Err(error),
                     };
                     Some(jobs)
