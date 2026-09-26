@@ -22,6 +22,7 @@ pub use control_decoder::ControlDecoder;
 pub use control_decoder::ControlRecord;
 pub use frame::FrameChunk;
 pub use frame::FrameDecoder;
+pub use frame::HostReady;
 pub use frame::TransportFrame;
 pub use frame::write_message;
 pub use socket::GatewayConnection;

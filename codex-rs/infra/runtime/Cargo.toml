@@ -16,3 +16,4 @@ codex-infra-protocol = { workspace = true }
 codex-infra-state = { workspace = true }
 codex-infra-tmux = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

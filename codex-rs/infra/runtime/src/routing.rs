@@ -30,7 +30,7 @@ impl FrameRouter<'_> {
     /// Local recipients also return a TCP endpoint, following the same path as
     /// remote recipients. Receipt direction is the reverse of the original route.
     pub fn outbound(&self, pane_id: &str, frame: &TransportFrame) -> io::Result<ForwardTarget> {
-        let (route, sender, recipient) = addresses(frame);
+        let (route, sender, recipient) = addresses(frame)?;
         let source = self.lookup(route, sender)?;
         if &source.machine_id != self.machine_id || source.tmux_pane != pane_id {
             return Err(io::Error::new(
@@ -51,7 +51,7 @@ impl FrameRouter<'_> {
     /// target and exact input bytes before invoking tmux's input command, and
     /// holds pending input until this host has completed its raw-mode handshake.
     pub fn incoming(&self, frame: &TransportFrame) -> io::Result<&AgentDescriptor> {
-        let (route, _, recipient) = addresses(frame);
+        let (route, _, recipient) = addresses(frame)?;
         let target = self.lookup(route, recipient)?;
         if &target.machine_id != self.machine_id {
             return Err(io::Error::new(
@@ -85,8 +85,8 @@ impl FrameRouter<'_> {
     }
 }
 
-fn addresses(frame: &TransportFrame) -> (&FrameRoute, AgentId, AgentId) {
-    match frame {
+fn addresses(frame: &TransportFrame) -> io::Result<(&FrameRoute, AgentId, AgentId)> {
+    Ok(match frame {
         TransportFrame::Chunk(chunk) => (
             &chunk.route,
             chunk.route.from_agent_id,
@@ -97,5 +97,11 @@ fn addresses(frame: &TransportFrame) -> (&FrameRoute, AgentId, AgentId) {
             receipt.route.to_agent_id,
             receipt.route.from_agent_id,
         ),
-    }
+        TransportFrame::Ready(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "host readiness is consumed by the local runtime",
+            ));
+        }
+    })
 }

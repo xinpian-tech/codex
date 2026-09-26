@@ -60,6 +60,12 @@ pub struct GatewaySender {
 
 impl GatewaySender {
     pub async fn send(&mut self, packet: &TransportFrame) -> io::Result<()> {
+        if matches!(packet, TransportFrame::Ready(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "host readiness belongs to the local collector",
+            ));
+        }
         let bytes = serde_json::to_vec(packet).map_err(io::Error::other)?;
         if bytes.len() > MAX_PACKET_BYTES {
             return Err(io::Error::new(
@@ -98,6 +104,12 @@ impl GatewayReceiver {
                 chunk.payload()?;
             }
             TransportFrame::Receipt(_) => {}
+            TransportFrame::Ready(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "host readiness cannot arrive through TCP",
+                ));
+            }
         }
         Ok(packet)
     }

@@ -3,9 +3,12 @@ use std::io::Write;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use codex_infra_protocol::AgentId;
 use codex_infra_protocol::AgentMessage;
 use codex_infra_protocol::DeliveryReceipt;
 use codex_infra_protocol::FrameRoute;
+use codex_infra_protocol::MessageId;
+use codex_infra_protocol::RootSessionId;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -20,6 +23,14 @@ const MAX_LINE_BYTES: usize = 32 * 1024;
 pub enum TransportFrame {
     Chunk(FrameChunk),
     Receipt(DeliveryReceipt),
+    Ready(HostReady),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostReady {
+    pub root_session_id: RootSessionId,
+    pub agent_id: AgentId,
+    pub launch_id: MessageId,
 }
 
 impl TransportFrame {

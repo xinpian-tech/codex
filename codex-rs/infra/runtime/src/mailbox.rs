@@ -20,6 +20,7 @@ use codex_infra_state::Journal;
 use codex_infra_state::OutboxEntry;
 use codex_infra_state::PresentedInput;
 use codex_infra_tmux::FrameDecoder;
+use codex_infra_tmux::HostReady;
 use codex_infra_tmux::MessageAssembler;
 use codex_infra_tmux::TransportFrame;
 use codex_infra_tmux::write_message;
@@ -30,6 +31,8 @@ use crate::recorded_writer::RecordedWriter;
 /// consumes only bytes read from that host's terminal stdin. Methods are
 /// serialized by the host, including presentation at a Codex input boundary.
 pub struct HostMailbox<W: Write> {
+    root_session_id: RootSessionId,
+    agent_id: AgentId,
     inbox: DurableInbox,
     outbox: DurableOutbox,
     assembler: MessageAssembler,
@@ -55,6 +58,8 @@ impl<W: Write> HostMailbox<W> {
         let input = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
         let journal = Journal::open(&directory.join("stdout.journal"), |_| Ok(()))?;
         Ok(Self {
+            root_session_id,
+            agent_id,
             inbox,
             outbox,
             assembler,
@@ -100,6 +105,17 @@ impl<W: Write> HostMailbox<W> {
 
     pub fn outbound(&self, message_id: MessageId) -> Option<&OutboxEntry> {
         self.outbox.get(message_id)
+    }
+
+    /// Called after the host has entered raw mode and opened its durable state.
+    /// The machine collector observes this through the host's own tmux output.
+    pub fn announce_ready(&mut self, launch_id: MessageId) -> io::Result<()> {
+        TransportFrame::Ready(HostReady {
+            root_session_id: self.root_session_id,
+            agent_id: self.agent_id,
+            launch_id,
+        })
+        .write(&mut self.output)
     }
 
     /// Re-emits the original envelope when waiting for a presentation receipt
@@ -159,6 +175,12 @@ impl<W: Write> HostMailbox<W> {
                 }
                 TransportFrame::Receipt(receipt) => {
                     outbox.acknowledge(receipt)?;
+                }
+                TransportFrame::Ready(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "host readiness is an output notification",
+                    ));
                 }
             }
             Ok(())
