@@ -15,6 +15,7 @@ workspace = true
 async-stream = { workspace = true }
 axum = { workspace = true, features = ["http1", "json", "tokio"] }
 bytes = { workspace = true }
+blake3 = { workspace = true }
 codex-infra-protocol = { workspace = true }
 eventsource-stream = { workspace = true }
 futures = { workspace = true, features = ["std"] }

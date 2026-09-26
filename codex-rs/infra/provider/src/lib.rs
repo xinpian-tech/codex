@@ -5,6 +5,7 @@ mod frontend;
 mod request;
 mod sse;
 mod stream;
+mod tools;
 
 // Responses names its opaque continuation field encrypted_content. This
 // adapter's versioned payload is plaintext provider reasoning, not ciphertext.
@@ -17,3 +18,4 @@ pub use request::translate_chat_request;
 pub use sse::ProviderStreamError;
 pub use sse::translate_chat_sse;
 pub use stream::ChatStream;
+pub use tools::ToolNames;

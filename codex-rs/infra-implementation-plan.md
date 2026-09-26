@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Provider HTTP 前端新增 ToolNames 映射：展开 Responses namespace 工具，按 namespace/name 的 BLAKE3 身份生成稳定 Chat Completions 别名，工具描述保留完整名称与命名空间说明；历史 function_call 和指定 tool_choice 使用相同映射。SSE 输出在 added/done item 和最终 response.output 中还原 name/namespace，工具列表重排不改变同一工具的别名。转换仍在独立 provider 包内，不改 core 工具路由。custom 工具自由文本封装、动态 additional_tools/tool_search 和工具格式能力解析仍待实现。复用 workspace blake3，Cargo.lock 与 Bazel 元数据更新；库级 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
+
 codex-infra-provider 新增 ChatFrontend/ChatFrontendConfig，按每个逻辑 Agent 的固定 InferenceBinding、完整 Chat Completions URL 和已选账户 headers 创建客户端，监听动态 loopback 端口并提供 /v1/responses/base_url。请求经既有转换器发送，成功响应串接 SSE 转换；供应商非成功状态、错误 body、request-id/retry-after 保留返回。请求/响应字节预算、连接/请求超时和本实例请求并发由配置给出，许可持有至 body 消费结束；停止通过 Axum graceful shutdown 停止接受连接并等待现有请求，丢弃 handle 也发送停止通知。此处并发只是逻辑客户端限制，尚不是跨 Agent 账户额度准入。库入口尚未接入启动器/Nix 配置，原始 HTTP 审计、凭据刷新、custom/namespace 工具、用量归属与完整关闭观察仍待完成。复用 workspace axum/reqwest/tokio/protocol 依赖，Cargo.lock 与 Bazel 元数据更新；库级 Clippy 通过，未编写或运行测试，未启动 HTTP 服务或调用供应商。
 
 codex-infra-provider 新增 translate_chat_sse，将异步 Bytes 响应体通过既有 eventsource-stream 解析器交给 ChatStream，再逐事件编码为 Responses SSE 帧。解析器复用 UTF-8 网络分片、多行 data、注释和 CRLF 处理；总原始响应字节预算在解析器缓存前执行，输出按下游拉取推进，取消消费会丢弃上游 body。显式 [DONE] 才调用 finish，提前 EOF 返回 Interrupted，JSON/协议/网络错误分别返回。新增的 async-stream/bytes/eventsource-stream/futures 均复用 workspace 版本，Cargo.lock 与 Bazel 元数据已刷新；库级 Clippy 通过（构建时下载缺少的依赖）。未编写或运行测试，未调用模型服务或实装。动态 HTTP 前端、请求/响应原始审计、custom/namespace 工具与账户绑定仍待接入。

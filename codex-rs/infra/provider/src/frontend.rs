@@ -27,6 +27,7 @@ use tokio::sync::Semaphore;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+use crate::ToolNames;
 use crate::translate_chat_request;
 use crate::translate_chat_sse;
 
@@ -121,8 +122,12 @@ impl Drop for ChatFrontend {
 }
 
 async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Response {
-    let request = match serde_json::from_slice::<Value>(&bytes) {
+    let mut request = match serde_json::from_slice::<Value>(&bytes) {
         Ok(request) => request,
+        Err(error) => return failure(StatusCode::BAD_REQUEST, error),
+    };
+    let tools = match ToolNames::normalize(&mut request) {
+        Ok(tools) => tools,
         Err(error) => return failure(StatusCode::BAD_REQUEST, error),
     };
     let request = match translate_chat_request(&request, &state.config.binding.model_id) {
@@ -164,6 +169,7 @@ async fn respond(State(state): State<Arc<FrontendState>>, bytes: Bytes) -> Respo
             upstream.bytes_stream(),
             format!("resp_{}", MessageId::new()),
             state.config.response_bytes,
+            tools,
         );
         Body::from_stream(async_stream::stream! {
             let _permit = permit;

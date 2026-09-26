@@ -9,6 +9,7 @@ use futures::StreamExt;
 use serde_json::Value;
 
 use crate::ChatStream;
+use crate::ToolNames;
 use crate::TranslationError;
 
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +35,7 @@ pub fn translate_chat_sse<S, E>(
     source: S,
     response_id: String,
     byte_budget: NonZeroUsize,
+    tools: ToolNames,
 ) -> impl Stream<Item = Result<Vec<u8>, ProviderStreamError>> + Send
 where
     S: Stream<Item = Result<Bytes, E>> + Send,
@@ -62,7 +64,8 @@ where
             } else {
                 converter.push(&serde_json::from_str::<Value>(&event.data)?)?
             };
-            for event in translated {
+            for mut event in translated {
+                tools.restore(&mut event);
                 let kind = event["type"].as_str().ok_or_else(|| {
                     TranslationError::Invalid("Responses event type".to_owned())
                 })?;
