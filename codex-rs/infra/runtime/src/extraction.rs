@@ -22,6 +22,10 @@ pub struct ControlCursor {
 }
 
 impl ControlCursor {
+    pub fn source_position(&self) -> JournalPosition {
+        self.position
+    }
+
     pub fn next_source_sequence(&self) -> u64 {
         self.position.next_sequence
     }

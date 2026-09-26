@@ -27,6 +27,7 @@ use serde::Serialize;
 use tokio::task::Id;
 use tokio::task::JoinSet;
 
+use crate::CollectorFinished;
 use crate::ControlCollector;
 use crate::ControlDispatch;
 use crate::ControlFrameReader;
@@ -324,6 +325,15 @@ impl TransportSession {
                 && !self.retiring.values().any(|retiring| retiring == id)
                 && source_exhausted
                 && attachment.dispatch.lanes().next().is_none()
+                && let Some(completed) = CollectorFinished::read(
+                    &self
+                        .config
+                        .directory
+                        .join("collectors")
+                        .join(id.to_string()),
+                    *id,
+                )?
+                && attachment.reader.cursor()?.source_position() == completed.stdout_position
             {
                 retired.push(*id);
             }

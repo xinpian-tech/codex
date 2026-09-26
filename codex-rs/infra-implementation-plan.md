@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ControlCollector 在真实子进程退出、stdout/stderr capture worker 完成及 lifecycle 最后一条记录落盘后，持久化 CollectorFinished 到独立 completion.journal，再返回 finish 结果。记录包含 attachment ID、可移植退出信息、原始字节计数和四条日志的精确完成位置；只读恢复入口对缺失/未完整写入记录返回未完成，不以文件长度推断 producer 已结束。TransportSession 仅在完成记录存在、stdout cursor 达到记录位置且 dispatch 队列为空时回收旧 attachment，修正重启后仅凭暂时 EOF 停止跟踪旧 collector 的路径。collector 属于机器的 Root Session，尚未接入机器归属的归档任务；缺失完成记录的旧 attachment 继续保留跟踪，退出后写完成记录前的中断仍需恢复核对。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
+
 HostMailbox 新增 MailboxArchiveJobs，从实际打开的规范化 spool 目录及 flush 后的位置生成 stdin/stdout/inbox/outbox/publications 五条归档任务；使用固定 job IDs 和 launch 派生的 receipt journal，可序列化保存后重放提交。completion 按原 job IDs 查询全部远端归档回执；归档回执不代表消息投递或模型处理完成。prepare_archive_snapshot 供运行中采样，finish_archive 则消费 mailbox 所有权，完成最后 flush、关闭日志后返回 ProducerFinished 任务，供最终消息之后的尾部归档。调用方仍需先结束输入和 publication worker，并持久化返回的任务；关闭与持久化之间的中断恢复、完整 finalizer 及 CLI 装配尚待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 ext/infra 增加 HostShutdownJournal / HostShutdownPlan，先持久化 identity、launch、receipt 目录和固定 job IDs，再由独立任务执行 shutdown_and_snapshot，并在返回前保存完整 HostArchiveJobs。状态变更先核对计划/阶段再写日志；取消调用方等待不取消 worker 的快照记录。archive 重放原任务入队、查询三项精确回执并持久化 Archived，处理部分提交或确认返回丢失；status 提供 Requested/Draining/Prepared/Archived 及最近关闭错误。恢复时 Prepared/Archived 直接继续归档阶段，不重新采样；Requested 也可能是关闭已发生但快照尚未持久化的中断，仍需实际 host/audit 状态核对。此日志仅管理三条宿主审计快照，不表达完整 Agent 终态；最终消息、其余 producer、快照前中断恢复及 CLI 驱动仍待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

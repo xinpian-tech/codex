@@ -15,9 +15,13 @@ use codex_infra_state::Journal;
 use codex_infra_state::JournalPosition;
 use codex_infra_tmux::TmuxClient;
 
+mod completion;
+pub use completion::CollectorFinished;
+
 /// One attachment has its own streams so a new control connection never joins
 /// the unfinished final line of a previous connection during journal replay.
 pub struct ControlCollector {
+    attachment_id: MessageId,
     directory: PathBuf,
     child: Child,
     input: Option<ChildStdin>,
@@ -42,8 +46,10 @@ impl ControlCollector {
     /// The runtime starts collection before releasing Agent startup. Capture
     /// threads only drain pipes to disk; gateways consume the journals separately.
     pub fn attach(client: &TmuxClient, session: &str, parent: &Path) -> io::Result<Self> {
-        let directory = parent.join(MessageId::new().to_string());
+        let attachment_id = MessageId::new();
+        let directory = parent.join(attachment_id.to_string());
         fs::create_dir_all(&directory)?;
+        let directory = directory.canonicalize()?;
         let stdout_journal = Journal::open(&directory.join("stdout.journal"), |_| Ok(()))?;
         let stderr_journal = Journal::open(&directory.join("stderr.journal"), |_| Ok(()))?;
         let commands = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
@@ -62,6 +68,7 @@ impl ControlCollector {
         let stdout = thread::spawn(move || capture(stdout, stdout_journal));
         let stderr = thread::spawn(move || capture(stderr, stderr_journal));
         Ok(Self {
+            attachment_id,
             directory,
             child,
             input,
@@ -113,7 +120,7 @@ impl ControlCollector {
             .append(format!("exit {status}; stdout={stdout:?}; stderr={stderr:?}").as_bytes())?;
         let stdout = stdout??;
         let stderr = stderr??;
-        Ok(CollectorCompletion {
+        let completed = CollectorCompletion {
             status,
             stdout_bytes: stdout.bytes,
             stderr_bytes: stderr.bytes,
@@ -121,7 +128,21 @@ impl ControlCollector {
             stderr_position: stderr.position,
             commands_position: self.commands.position(),
             lifecycle_position: self.lifecycle.position(),
-        })
+        };
+        CollectorFinished {
+            attachment_id: self.attachment_id,
+            exit_status: status.to_string(),
+            exit_code: status.code(),
+            success: status.success(),
+            stdout_bytes: completed.stdout_bytes,
+            stderr_bytes: completed.stderr_bytes,
+            stdout_position: completed.stdout_position,
+            stderr_position: completed.stderr_position,
+            commands_position: completed.commands_position,
+            lifecycle_position: completed.lifecycle_position,
+        }
+        .persist(&self.directory)?;
+        Ok(completed)
     }
 }
 
