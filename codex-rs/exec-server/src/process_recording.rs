@@ -105,8 +105,11 @@ pub trait ProcessRecorderFactory: Send + Sync {
         params: &'a WriteParams,
     ) -> ExecProcessFuture<'a, Arc<dyn ProcessInputRecorder>>;
 
-    fn open<'a>(
-        &'a self,
-        params: &'a ExecParams,
-    ) -> ExecProcessFuture<'a, Arc<dyn ProcessRecorder>>;
+    /// Synchronously retains the originating operation's lifetime before the
+    /// request is detached from its handler. The owned future performs durable
+    /// preparation later; dropping it before spawning releases the reservation.
+    fn prepare_start(
+        &self,
+        params: &ExecParams,
+    ) -> Result<ExecProcessFuture<'static, Arc<dyn ProcessRecorder>>, crate::ExecServerError>;
 }

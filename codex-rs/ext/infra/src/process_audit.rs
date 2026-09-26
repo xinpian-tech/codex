@@ -24,6 +24,8 @@ use serde::Serialize;
 
 use crate::ProcessActivity;
 use crate::StoreAuditIdentity;
+use crate::WorkspaceLease;
+use crate::WorkspaceOperations;
 
 /// Raw requested execution and producer events. Requested is not evidence that
 /// a process was created: retries and unsuccessful starts are retained too.
@@ -113,6 +115,7 @@ impl Writer {
 #[derive(Clone)]
 pub struct ProcessAudit {
     writer: Arc<Mutex<Writer>>,
+    operations: Option<WorkspaceOperations>,
 }
 
 impl ProcessAudit {
@@ -143,12 +146,19 @@ impl ProcessAudit {
         let sequence = journal.append(&serde_json::to_vec(&opened)?)?;
         let _ = activity.apply(sequence, &opened);
         Ok(Self {
+            operations: None,
             writer: Arc::new(Mutex::new(Writer {
                 journal,
                 failure: None,
                 activity,
             })),
         })
+    }
+
+    /// Binds the controller's operation registry before the host starts work.
+    pub fn with_operations(mut self, operations: WorkspaceOperations) -> Self {
+        self.operations = Some(operations);
+        self
     }
 
     /// Check after recorded requests and producers have drained. A final
@@ -188,13 +198,19 @@ impl ProcessRecorderFactory for ProcessAudit {
         })
     }
 
-    fn open<'a>(
-        &'a self,
-        params: &'a ExecParams,
-    ) -> ExecProcessFuture<'a, Arc<dyn ProcessRecorder>> {
-        Box::pin(async move {
-            let params = params.clone();
-            let writer = Arc::clone(&self.writer);
+    fn prepare_start(
+        &self,
+        params: &ExecParams,
+    ) -> Result<ExecProcessFuture<'static, Arc<dyn ProcessRecorder>>, ExecServerError> {
+        let lease = self
+            .operations
+            .as_ref()
+            .map(|operations| operations.reserve(params.metadata.as_ref()))
+            .transpose()
+            .map_err(recording_error)?;
+        let params = params.clone();
+        let writer = Arc::clone(&self.writer);
+        Ok(Box::pin(async move {
             tokio::task::spawn_blocking(move || {
                 let mut state = writer.lock().map_err(recording_error)?;
                 let process_id = params.process_id.clone();
@@ -205,12 +221,13 @@ impl ProcessRecorderFactory for ProcessAudit {
                     process_id,
                     requested_sequence,
                     writer: Arc::clone(&writer),
+                    lease: Mutex::new(lease),
                 });
                 Ok(recorder as Arc<dyn ProcessRecorder>)
             })
             .await
             .map_err(recording_error)?
-        })
+        }))
     }
 }
 
@@ -218,6 +235,7 @@ struct Recorder {
     process_id: ProcessId,
     requested_sequence: u64,
     writer: Arc<Mutex<Writer>>,
+    lease: Mutex<Option<WorkspaceLease>>,
 }
 
 struct InputRecorder {
@@ -251,13 +269,25 @@ impl ProcessInputRecorder for InputRecorder {
 impl Recorder {
     fn append(&self, event: ProcessAuditEvent) -> ExecProcessFuture<'_, ()> {
         let writer = Arc::clone(&self.writer);
+        let release = matches!(
+            &event,
+            ProcessAuditEvent::Closed { .. }
+                | ProcessAuditEvent::StartFinished {
+                    outcome: Err(_),
+                    ..
+                }
+        );
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || -> Result<(), ExecServerError> {
                 writer.lock().map_err(recording_error)?.append(&event)?;
                 Ok(())
             })
             .await
-            .map_err(recording_error)?
+            .map_err(recording_error)??;
+            if release {
+                self.lease.lock().map_err(recording_error)?.take();
+            }
+            Ok(())
         })
     }
 }

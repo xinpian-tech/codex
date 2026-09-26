@@ -11,6 +11,7 @@ mod store_audit;
 mod tool_activity;
 mod tool_audit;
 mod workspace_gate;
+mod workspace_operations;
 
 pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
@@ -35,3 +36,4 @@ pub use tool_audit::ToolOrigin;
 pub use tool_audit::ToolOutcome;
 pub use workspace_gate::WorkspaceGate;
 pub use workspace_gate::WorkspaceLease;
+pub use workspace_operations::WorkspaceOperations;

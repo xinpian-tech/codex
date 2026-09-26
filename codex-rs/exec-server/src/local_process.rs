@@ -315,13 +315,15 @@ impl LocalProcess {
                 .start_process_recorded(params, telemetry, /*recorder*/ None)
                 .await;
         };
+        let preparation = factory
+            .prepare_start(&params)
+            .map_err(|error| internal_error(error.to_string()))?;
         // The recording startup owns capture setup even if its requester drops
         // the response future after the OS process has already been created.
         let backend = self.clone();
         self.recording_tasks
             .spawn(async move {
-                let recorder = factory
-                    .open(&params)
+                let recorder = preparation
                     .await
                     .map_err(|error| internal_error(error.to_string()))?;
                 let result = backend

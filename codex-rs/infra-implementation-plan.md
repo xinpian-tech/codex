@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ProcessRecorderFactory 现通过同步 prepare_start 返回拥有资源的准备 future；local backend 在创建后台启动任务前调用，消除 handler 已取消而后台才尝试取得执行权的间隙。独立包增加 WorkspaceOperations，按 thread/call 登记控制方租约，以完整 ToolOperation 核对 checkpoint 交接；ProcessAudit 可在启动前绑定该登记表，同步为进程取得租约份额，成功记录 Closed 或启动失败结果后释放。已移交给 checkpoint 的控制份额等待这些后台份额结束。组合库 Clippy 已通过，未编写或运行测试。工具自动登记/移交、code mode 与进程控制工具分类、系统启动操作及失败恢复仍待装配；当前默认宿主尚未自动启用该绑定。
+
 WorkspaceCheckpoints 现创建并公开本工作区的 WorkspaceGate；控制方取得带 operation ID 的 WorkspaceLease，工具/进程可克隆同一操作的持有份额。checkpoint/recover 必须移交该 gate 的租约，由独立任务等待其余份额释放，再在 blocking 任务内完成 Git 与上下文发布；调用方取消等待不会提前释放正在交接或执行中的租约。不同 gate 的租约不能用于该服务。WorkspaceLease 已实现通用 ToolExecutionLease，实际工具 admission、进程启动前续持、code mode 协调和失败后的恢复调度仍待连接；目前没有自动为工具分配租约，也没有把普通 Drop 当作 checkpoint。组合库 Clippy 已通过，未编写或执行测试。
 
 ToolAudit 已使用 acquire_tool_execution，在 pre-tool hooks 之前持久化 Admitted 操作身份并更新活动账本；写入或账本关联失败直接返回工具错误，已有审计故障也不会继续接受新操作。账本分别保存 admitted/started/finished 序号，覆盖 hooks 阶段取消或拒绝、MCP 准备失败，以及旧日志缺少 admission 的情况。开始/结束观察阶段失败仍保留给宿主收尾检查，不能撤销已运行工具。本阶段返回空资源租约，实际 worktree 互斥与后台进程续持仍待装配。组合库 Clippy 已通过，未编写或运行测试。
