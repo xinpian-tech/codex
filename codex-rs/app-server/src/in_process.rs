@@ -210,7 +210,19 @@ enum InProcessClientMessage {
     Shutdown {
         done_tx: oneshot::Sender<()>,
     },
+    ShutdownDrained {
+        done_tx: oneshot::Sender<IoResult<()>>,
+    },
 }
+
+#[derive(Clone, Copy)]
+enum ShutdownMode {
+    Bounded,
+    Drain,
+}
+
+#[path = "in_process_shutdown.rs"]
+mod drained_shutdown;
 
 enum ProcessorCommand {
     Request(Box<ClientRequest>, tokio_util::sync::CancellationToken),
@@ -520,6 +532,7 @@ async fn start_uninitialized_with_services(
 
         let processor_outgoing = Arc::clone(&outgoing_message_sender);
         let (processor_tx, mut processor_rx) = mpsc::channel::<ProcessorCommand>(channel_capacity);
+        let (shutdown_mode_tx, shutdown_mode_rx) = oneshot::channel();
         let mut processor_handle = tokio::spawn(async move {
             let processor_args = MessageProcessorArgs {
                 outgoing: Arc::clone(&processor_outgoing),
@@ -626,12 +639,20 @@ async fn start_uninitialized_with_services(
                 .connection_closed(IN_PROCESS_CONNECTION_ID, &session)
                 .await;
             processor.clear_all_thread_listeners().await;
-            processor.drain_background_tasks().await;
-            processor.shutdown_threads().await;
+            match shutdown_mode_rx.await.unwrap_or(ShutdownMode::Bounded) {
+                ShutdownMode::Bounded => {
+                    processor.drain_background_tasks().await;
+                    processor.shutdown_threads().await;
+                    Ok(())
+                }
+                ShutdownMode::Drain => processor.drain_and_shutdown_threads().await,
+            }
         });
         let mut pending_request_responses =
             HashMap::<RequestId, oneshot::Sender<PendingClientRequestResponse>>::new();
         let mut shutdown_ack = None;
+        let mut drained_ack = None;
+        let mut shutdown_mode = ShutdownMode::Bounded;
 
         loop {
             tokio::select! {
@@ -701,6 +722,11 @@ async fn start_uninitialized_with_services(
                         }
                         Some(InProcessClientMessage::Shutdown { done_tx }) => {
                             shutdown_ack = Some(done_tx);
+                            break;
+                        }
+                        Some(InProcessClientMessage::ShutdownDrained { done_tx }) => {
+                            drained_ack = Some(done_tx);
+                            shutdown_mode = ShutdownMode::Drain;
                             break;
                         }
                         None => {
@@ -805,6 +831,7 @@ async fn start_uninitialized_with_services(
             }
         }
 
+        let _ = shutdown_mode_tx.send(shutdown_mode);
         drop(writer_rx);
         drop(processor_tx);
         outgoing_message_sender
@@ -821,20 +848,40 @@ async fn start_uninitialized_with_services(
             )));
         }
 
-        if let Err(_elapsed) = timeout(SHUTDOWN_TIMEOUT, &mut processor_handle).await {
-            processor_handle.abort();
-            let _ = processor_handle.await;
-        }
+        let mut shutdown_result = match shutdown_mode {
+            ShutdownMode::Bounded => {
+                if let Err(_elapsed) = timeout(SHUTDOWN_TIMEOUT, &mut processor_handle).await {
+                    processor_handle.abort();
+                    let _ = processor_handle.await;
+                }
+                Ok(())
+            }
+            ShutdownMode::Drain => processor_handle
+                .await
+                .map_err(IoError::other)
+                .and_then(|result| result),
+        };
         let _ = outbound_shutdown_tx.send(());
-        if let Err(_elapsed) = timeout(SHUTDOWN_TIMEOUT, &mut outbound_handle).await {
-            outbound_handle.abort();
-            let _ = outbound_handle.await;
+        match shutdown_mode {
+            ShutdownMode::Bounded => {
+                if let Err(_elapsed) = timeout(SHUTDOWN_TIMEOUT, &mut outbound_handle).await {
+                    outbound_handle.abort();
+                    let _ = outbound_handle.await;
+                }
+            }
+            ShutdownMode::Drain => {
+                shutdown_result =
+                    shutdown_result.and(outbound_handle.await.map_err(IoError::other));
+            }
         }
 
         analytics_events_flush_client.flush().await;
 
         if let Some(done_tx) = shutdown_ack {
             let _ = done_tx.send(());
+        }
+        if let Some(done_tx) = drained_ack {
+            let _ = done_tx.send(shutdown_result);
         }
     });
 

@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增 InProcessClientHandle::shutdown_drained 作为受管关闭接入点，默认 shutdown 继续原有有界行为。显式 drained 请求通过内部关闭模式传递给 processor，等待已接收后台任务、已跟踪线程的 shutdown_and_wait 以及 processor/outbound worker，不执行这些层级的超时 abort；确认丢失、worker 异常和 thread shutdown 提交失败返回给宿主。ThreadManager 的等待式关闭放在独立子模块，完成后按实例匹配移除线程；调用方仍须先停止线程创建。新增逻辑分别在 core/thread_manager 与 app-server 的小模块中，既有大文件只增加模式分派和模块接入，无依赖变化。此处不证明所有 detached producer 已结束，也不保存关闭前后的完整原始 app-server 通知流；受管宿主顺序装配、进程/发送排空与最终归档仍待完成。组合库 Clippy 已通过，未编写或运行测试。
+
 ManagedHost 新增 prepare_archive_jobs，从实际打开的 process/tool/thread-store writer 的规范化路径、审计身份和 settled position 生成 HostArchiveJobs，按 Snapshot/ProducerFinished 表达目标；源路径与身份不由发送任务的调用方重新填写。宿主启动核对 AgentContext、三类 audit identity 和 process/tool launch ID 一致。准备结果可序列化，供 finalizer 在提交前持久化；submit 连接 ArchiveController，completion 按三个固定 job ID 查询持久回执，全部完成才返回 HostArchiveReceipts。receipt journal 路径由既有绝对目录和 launch/流名派生。仍需 finalizer 先实际停止生产者、保存准备结果，再提交并等待，同时补齐 Provider、mailbox 和 machine 流。新增逻辑均在 ext/infra，无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。
 
 MachineArchiveWriter 新增按 job ID 索引的持久完成回执日志，内存只保留日志位置；先记录精确远端回执再完成队列任务，恢复时处理两次写入间的中断窗口，不重新生成已完成 job 的回执。ArchiveActor 通过有界命令通道接收持久入队和完成查询，定时推进流轮转；所有 writer/Git 操作放入 blocking worker，当前操作执行期间保留唯一 writer 所有权。controller 可主动读取最近调度状态，actor 关闭或异常退出后显示 Stopped。stop 等待当前操作并交还 writer，未完成任务仍在磁盘，不宣告归档排空。实际宿主向 actor 提交 producer 位置、finalizer 等待所需 job 集合，以及机器 CLI 启动装配尚待完成。无依赖变化。组合库 Clippy 已通过，未编写或运行测试，未启动实装实验。

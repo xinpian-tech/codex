@@ -1,5 +1,6 @@
 mod managed;
 mod shared_instructions;
+mod shutdown;
 
 use crate::CodexAppsToolsCache;
 use crate::agent::LocalAgentControl;
