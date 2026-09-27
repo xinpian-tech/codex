@@ -19,10 +19,13 @@ workspace = true
 
 [dependencies]
 blake3 = { workspace = true }
+codex-http-client = { workspace = true }
+codex-infra-account = { workspace = true }
 codex-infra-protocol = { workspace = true }
 codex-infra-provider = { workspace = true }
 codex-infra-state = { workspace = true }
 codex-infra-tmux = { workspace = true }
+codex-login = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "sync", "macros", "signal"] }

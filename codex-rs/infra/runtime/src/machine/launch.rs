@@ -16,6 +16,8 @@ use codex_infra_tmux::TmuxClient;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::MachineAccountConfig;
+use super::MachineAccountServicesConfig;
 use super::MachineRuntime;
 use super::MachineRuntimeConfig;
 use crate::MachineArchiveWriter;
@@ -62,6 +64,8 @@ pub struct MachineLaunchConfig {
     pub bind_address: IpAddr,
     pub programs: MachinePrograms,
     pub scheduling: MachineScheduling,
+    #[serde(default)]
+    pub accounts: Vec<MachineAccountConfig>,
 }
 
 impl MachineLaunchConfig {
@@ -135,6 +139,13 @@ impl MachineLaunchConfig {
             session,
             writer,
             MachineRuntimeConfig {
+                accounts: MachineAccountServicesConfig {
+                    git: config.programs.git,
+                    repository: config.team_state_repository,
+                    machine_id: config.machine_id.clone(),
+                    bind_address: config.bind_address,
+                    accounts: config.accounts,
+                },
                 provider_archives: ProviderArchiveConfig {
                     root_session_id: config.root_session_id,
                     machine_id: config.machine_id,

@@ -68,6 +68,7 @@ enum Output {
         root_session_id: RootSessionId,
         machine_id: MachineId,
         endpoint: std::net::SocketAddr,
+        accounts: Vec<codex_infra_runtime::MachineAccountEndpoint>,
     },
     Response {
         id: String,
@@ -158,6 +159,7 @@ async fn main() -> io::Result<()> {
             root_session_id,
             machine_id,
             endpoint: machine.endpoint(),
+            accounts: machine.account_endpoints(),
         })?;
         let controller = machine.controller()?;
         loop {

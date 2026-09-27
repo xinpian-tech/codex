@@ -3794,10 +3794,13 @@ name = "codex-infra-runtime"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "codex-http-client",
+ "codex-infra-account",
  "codex-infra-protocol",
  "codex-infra-provider",
  "codex-infra-state",
  "codex-infra-tmux",
+ "codex-login",
  "libc",
  "serde",
  "serde_json",

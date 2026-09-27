@@ -16,14 +16,20 @@ use crate::ShardArchiveActor;
 use crate::TransportArchiveActor;
 use crate::TransportSession;
 
+mod accounts;
 mod generation;
 mod launch;
+pub use accounts::MachineAccountConfig;
+pub use accounts::MachineAccountEndpoint;
+use accounts::MachineAccountServices;
+pub use accounts::MachineAccountServicesConfig;
 pub use generation::MachineLaunchProvenance;
 pub use launch::MachineLaunchConfig;
 pub use launch::MachinePrograms;
 pub use launch::MachineScheduling;
 
 pub struct MachineRuntimeConfig {
+    pub accounts: MachineAccountServicesConfig,
     pub provider_archives: ProviderArchiveConfig,
     pub transport_interval: Duration,
     pub archive_interval: Duration,
@@ -45,6 +51,7 @@ pub struct MachineRuntime {
     snapshots: Option<TransportArchiveActor>,
     shards: Option<ShardArchiveActor>,
     providers: Option<ProviderArchiveActor>,
+    accounts: MachineAccountServices,
 }
 
 /// Resources returned for final snapshots, backlog reconciliation and restart.
@@ -73,6 +80,7 @@ impl MachineRuntime {
             snapshots: None,
             shards: None,
             providers: None,
+            accounts: MachineAccountServices::default(),
         }
     }
 
@@ -146,11 +154,16 @@ impl MachineRuntime {
                 ProviderArchiveActor::start(self.config.provider_archives.clone(), archive).await?,
             );
         }
+        self.accounts.start(&self.config.accounts).await?;
         Ok(())
     }
 
     pub fn endpoint(&self) -> SocketAddr {
         self.endpoint
+    }
+
+    pub fn account_endpoints(&self) -> Vec<MachineAccountEndpoint> {
+        self.accounts.endpoints()
     }
 
     pub fn controller(&self) -> io::Result<SessionController> {
@@ -173,6 +186,7 @@ impl MachineRuntime {
     pub async fn stop(mut self) -> io::Result<MachineRuntimeExit> {
         tokio::spawn(async move {
             let mut failures = Vec::new();
+            failures.extend(std::mem::take(&mut self.accounts).stop().await);
             if let Some(transport) = self.transport.take() {
                 match transport.stop().await {
                     Ok(exit) => {
