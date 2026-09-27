@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+GitAccounts 由账户 CLI 私有模块移入账户库并导出，CLI 复用同一 publish/sync/recover 实现；新增 read_published_codex。读取从配置 remote fetch config ref 到唯一临时 ref，禁用 FETCH_HEAD 写入，按取得的精确 commit tree 解析 catalog，核对 credential revision 属于该已发布历史，再返回带 config commit 的 PublishedAccount。该路径不采用本地尚未 push 的 config ref，也不改变调用方 checkout/index；临时 ref 在作用域结束时清理，Git 操作保持阻塞 API 供 owner worker 调用。账户库/CLI Clippy 通过，Bazel 二进制改为依赖账户库；未编写或运行测试，未执行远端账户 fetch 或实装。该读取入口与既有发布入口将供刷新后端组合，尚未完成刷新 token 执行、跨机器归属确认、取消/重启恢复或服务装配。
+
 账户库新增 AccountService，按配置的机器可达 IP 绑定端口 0，返回含实际端口、hostid 和 owner revision 的 authority。每账户服务接受既有 AccountCredentialSource，将类型化 current/refresh 请求派发给来源，核对请求归属及来源返回的 provider/account，按同一 framing 协议返回结果。JoinSet 限制同时处理的连接数；读写分别使用配置 timeout/frame budget，后端账户操作不因客户端断开或服务停止而取消。stop/Drop 发出停止接收信号，拥有任务继续等待已开始操作与响应收尾；watch 状态保存活动/完成/失败计数及最近错误，任务 panic/accept 错误在 drain 后返回。刷新去重/持久化仍由具体来源实现，服务目前尚未接入 MachineRuntime、动态目录发布或原始 I/O 归档。账户库/CLI Clippy 通过；未编写或运行测试，未启动监听、连接账户服务或实装。
 
 账户库新增 AccountAuthority/AccountRequest/AccountResponse 控制协议和具体 RemoteAccountSource。Authority 包含 machine hostid、归属 commit 与动态 SocketAddr；客户端从 watch 目录视图逐请求取得当前 authority，以明文 TCP 发送带 request ID 的长度前缀 JSON，支持 current 与按 previous credential revision 刷新，响应核对 request/authority/provider/account。请求与响应帧预算、整次交换 timeout 由配置给出，每次交换独立连接，取消关闭连接且不重发半帧。此通道仅承载机器账户控制数据，不承载 Agent 任务消息；Agent 通讯仍使用 tmux I/O。RemoteAccountSource 可直接供 PublishedAccountAuth 使用；服务端、目录更新生产者、刷新去重/持久化及原始传输归档尚待实现，不能视为跨机器账户服务已完成。账户库/CLI Clippy 通过，Cargo.lock/Bazel 元数据刷新；未编写或运行测试，未建立账户连接或实装。

@@ -2,13 +2,12 @@ use std::io;
 use std::io::Read;
 use std::path::Path;
 
+use codex_infra_account::GitAccounts;
 use codex_infra_protocol::CommitId;
 use codex_infra_provider::AccountAuthentication;
 use codex_infra_provider::AccountCatalog;
 use codex_login::AuthCredentialsStoreMode;
 use codex_login::ServerOptions;
-
-mod publish;
 
 const USAGE: &str = "usage: codex-infra-account login <account-home>\n       codex-infra-account import <catalog.json> <provider> <account> <credential-commit> <bearer|header:NAME|codex-login> < credential-on-stdin\n       codex-infra-account publish <git> <repository> <remote> <config-ref> <provider> <account> <bearer|header:NAME|codex-login> < credential-on-stdin\n       codex-infra-account sync <git> <repository> <remote> <config-ref>\n       codex-infra-account recover <git> <repository> <remote> <config-ref> <operation-id>";
 
@@ -24,7 +23,7 @@ async fn main() -> io::Result<()> {
         || (args.len() == 5 && args[0] == "sync")
         || (args.len() == 6 && args[0] == "recover")
     {
-        let publisher = publish::GitAccounts {
+        let publisher = GitAccounts {
             git: args[1].clone().into(),
             repository: args[2].clone().into(),
             remote: text(/*index*/ 3)?.to_owned(),

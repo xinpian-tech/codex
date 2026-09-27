@@ -14,11 +14,13 @@ use codex_infra_provider::AccountDefinition;
 use serde_json::json;
 
 mod audit;
+mod read;
 mod recovery;
 use audit::PublicationAudit;
 
 /// Uses an isolated Git index; the Team State checkout and its staged changes
 /// are independent of the config ref being published.
+#[derive(Clone)]
 pub struct GitAccounts {
     pub git: PathBuf,
     pub repository: PathBuf,

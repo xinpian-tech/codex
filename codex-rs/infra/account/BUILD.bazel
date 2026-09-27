@@ -6,6 +6,10 @@ rust_library(
     srcs = [
         "src/external.rs",
         "src/lib.rs",
+        "src/publish.rs",
+        "src/publish/audit.rs",
+        "src/publish/read.rs",
+        "src/publish/recovery.rs",
         "src/remote.rs",
         "src/service.rs",
         "src/view.rs",
@@ -21,13 +25,10 @@ rust_binary(
     name = "codex-infra-account",
     srcs = [
         "src/main.rs",
-        "src/publish.rs",
-        "src/publish/audit.rs",
-        "src/publish/recovery.rs",
     ],
     crate_name = "codex_infra_account",
     crate_root = "src/main.rs",
     edition = "2024",
     visibility = ["//visibility:public"],
-    deps = all_crate_deps(),
+    deps = [":account"] + all_crate_deps(),
 )
