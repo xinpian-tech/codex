@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+app-server 增加 take_event_receiver 所有权转交接口；infra 在启动前准备 server-events.journal，启动后由独立后台任务持续接收并通过 blocking worker 落盘完整类型化 ServerRequest/ServerNotification、Lagged 和 Closed。消费者通过实际日志路径及持久位置 watch 跟进，RPC 等待不占用事件接收器；关闭时先完成 app-server drained shutdown，再等待事件接收通道排空和 Closed 落盘。server-events 已纳入宿主归档提交、远端回执等待和 shutdown 计划绑定核对，兼容读取缺少该字段的旧记录。库级 Clippy 通过，未编写或运行测试，未启动真实事件流。上游 Lagged 明确记录为丢失提示，不声称已还原所有通知；服务端请求的实际处理/答复、消费游标恢复和 CLI 事件循环仍待接通。
+
 为事件循环拆出可克隆 AgentHostClient，包含既有持久 RPC、发送句柄及模型证据读取资源，ManagedHost::request_client 生成它。thread ensure、输入 inject/start_turn 和呈现 advance 改为借用该句柄，不再跨 await 借用整个 ManagedHost，允许外层同时可变借用 app-server client 接收通知/服务端请求。原宿主仍持有唯一事件接收与关闭生命周期，已有关闭准入及请求持久化规则不变。extension 库级 Clippy 通过，未编写或运行测试，未运行事件循环。服务端事件记录/处理、CLI 循环及整体最终收尾仍待实现；此步骤只解除宿主 API 的借用耦合。
 
 Unix 宿主新增 AgentInputDelivery：track_delivery 校验原 inbox 内容/提交绑定并恢复已记录呈现证据，advance 每次最多扫描一个模型审计页，保留游标与续传核对状态，区分 Scanning/Waiting/Confirmed。找到证据后先写 input-submissions，再通过 TerminalMailbox 更新 inbox 并从 tmux stdout 刷出 Presented；取消或写出失败后重试复用原证据和 receipt sequence，同一实例已确认后不重复输出。重启已有证据时无需重扫，未完成证据则从审计重建。ModelInputAudit 新增持久位置 watch，通知发生在日志 fsync 之后，外层循环可在扫描追平后等待新记录。extension 库级 Clippy 通过，未编写或运行测试，未实际发送回执。CLI 事件循环仍需调用此驱动并协调输入/turn、关闭与恢复；Processed 和整体任务完成不由 Presented 推导。

@@ -245,6 +245,7 @@ impl State {
                 if jobs.account.is_some() != self.plan.jobs.account.is_some()
                     || jobs.rpc.is_some() != self.plan.jobs.rpc.is_some()
                     || jobs.model_inputs.is_some() != self.plan.jobs.model_inputs.is_some()
+                    || jobs.server_events.is_some() != self.plan.jobs.server_events.is_some()
                 {
                     return Err(io::Error::other(
                         "shutdown optional archives differ from plan",
@@ -277,6 +278,12 @@ impl State {
                         .iter()
                         .zip(self.plan.jobs.model_inputs)
                         .map(|(job, id)| (job, "model-inputs", id)),
+                )
+                .chain(
+                    jobs.server_events
+                        .iter()
+                        .zip(self.plan.jobs.server_events)
+                        .map(|(job, id)| (job, "server-events", id)),
                 ) {
                     if job.job_id != id
                         || job.stream.name != name
@@ -311,6 +318,7 @@ impl State {
                         jobs.account.is_some() != receipts.account.is_some()
                             || jobs.rpc.is_some() != receipts.rpc.is_some()
                             || jobs.model_inputs.is_some() != receipts.model_inputs.is_some()
+                            || jobs.server_events.is_some() != receipts.server_events.is_some()
                     })
                     || self
                         .receipts
@@ -321,6 +329,7 @@ impl State {
                         .chain(receipts.account.iter())
                         .chain(receipts.rpc.iter())
                         .chain(receipts.model_inputs.iter())
+                        .chain(receipts.server_events.iter())
                         .any(|receipt| receipt.session_ref != expected_ref)
                 {
                     return Err(io::Error::other(

@@ -1,0 +1,150 @@
+use std::io;
+use std::path::Path;
+use std::path::PathBuf;
+
+use codex_app_server::in_process::InProcessServerEvent;
+use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequest;
+use codex_infra_protocol::MessageId;
+use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
+use serde::Deserialize;
+use serde::Serialize;
+use tokio::sync::mpsc;
+use tokio::sync::watch;
+
+use crate::StoreAuditIdentity;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentServerEvent {
+    Opened {
+        identity: StoreAuditIdentity,
+        launch_id: MessageId,
+    },
+    Request {
+        request: Box<ServerRequest>,
+    },
+    Notification {
+        notification: Box<ServerNotification>,
+    },
+    Lagged {
+        skipped: usize,
+    },
+    Closed,
+}
+
+pub(crate) struct PreparedServerEvents {
+    path: PathBuf,
+    journal: Journal,
+}
+
+/// Independent event capture. Consumers follow the durable journal instead of
+/// holding up the app-server receiver while they wait on model or tool RPCs.
+/// A Lagged record preserves upstream loss explicitly; it is not reconstructed
+/// as a complete notification history.
+pub struct AgentServerEvents {
+    path: PathBuf,
+    progress: watch::Receiver<Result<JournalPosition, String>>,
+    task: tokio::task::JoinHandle<io::Result<JournalPosition>>,
+}
+
+impl PreparedServerEvents {
+    pub(crate) fn open(
+        path: &Path,
+        identity: StoreAuditIdentity,
+        launch_id: MessageId,
+    ) -> io::Result<Self> {
+        let mut journal = Journal::open(path, |record| {
+            if let AgentServerEvent::Opened {
+                identity: previous,
+                launch_id: previous_launch,
+            } = serde_json::from_slice(&record.payload)?
+                && (previous != identity || previous_launch != launch_id)
+            {
+                return Err(io::Error::other("server event launch binding changed"));
+            }
+            Ok(())
+        })?;
+        journal.append(&serde_json::to_vec(&AgentServerEvent::Opened {
+            identity,
+            launch_id,
+        })?)?;
+        Ok(Self {
+            path: path.canonicalize()?,
+            journal,
+        })
+    }
+
+    pub(crate) fn start(
+        self,
+        mut receiver: mpsc::Receiver<InProcessServerEvent>,
+    ) -> AgentServerEvents {
+        let (progress, updates) = watch::channel(Ok(self.journal.position()));
+        let path = self.path;
+        let task = tokio::spawn(async move {
+            let result: io::Result<JournalPosition> = async {
+                let mut journal = self.journal;
+                loop {
+                    let event = match receiver.recv().await {
+                        Some(InProcessServerEvent::ServerRequest(request)) => {
+                            AgentServerEvent::Request { request }
+                        }
+                        Some(InProcessServerEvent::ServerNotification(notification)) => {
+                            AgentServerEvent::Notification { notification }
+                        }
+                        Some(InProcessServerEvent::Lagged { skipped }) => {
+                            AgentServerEvent::Lagged { skipped }
+                        }
+                        None => AgentServerEvent::Closed,
+                    };
+                    let closed = matches!(event, AgentServerEvent::Closed);
+                    journal = tokio::task::spawn_blocking(move || {
+                        journal.append(&serde_json::to_vec(&event)?)?;
+                        Ok::<_, io::Error>(journal)
+                    })
+                    .await
+                    .map_err(io::Error::other)??;
+                    let _ = progress.send_replace(Ok(journal.position()));
+                    if closed {
+                        return Ok(journal.position());
+                    }
+                }
+            }
+            .await;
+            if let Err(error) = &result {
+                let _ = progress.send_replace(Err(error.to_string()));
+            }
+            result
+        });
+        AgentServerEvents {
+            path,
+            progress: updates,
+            task,
+        }
+    }
+}
+
+impl AgentServerEvents {
+    pub fn snapshot(&self) -> io::Result<(PathBuf, JournalPosition)> {
+        let position = self.progress.borrow().clone().map_err(io::Error::other)?;
+        Ok((self.path.clone(), position))
+    }
+
+    pub fn source(&self) -> &Path {
+        &self.path
+    }
+
+    /// Subscribe before reading the durable prefix. Each update follows fsync;
+    /// errors end capture and must be surfaced by the host loop.
+    pub fn subscribe(&self) -> watch::Receiver<Result<JournalPosition, String>> {
+        self.progress.clone()
+    }
+
+    /// Call after app-server shutdown. Channel closure is recorded after every
+    /// delivered event; no timeout or task abort substitutes for this drain.
+    pub async fn finish(self) -> io::Result<(PathBuf, JournalPosition)> {
+        let position = self.task.await.map_err(io::Error::other)??;
+        Ok((self.path, position))
+    }
+}

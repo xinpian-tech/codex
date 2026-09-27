@@ -29,6 +29,7 @@ impl ManagedHost {
         tokio::spawn(async move {
             let rpc = self.rpc.close().await;
             let inference = self.client.shutdown_drained().await;
+            let events = self.events.finish().await;
             let model_inputs = self.model_inputs.close().await;
             let provider = match self.provider.take() {
                 Some(provider) => provider.stop().await,
@@ -60,6 +61,7 @@ impl ManagedHost {
             // no completion snapshot is returned unless all have succeeded.
             rpc?;
             inference?;
+            let events = events?;
             model_inputs?;
             provider?;
             account?;
@@ -79,6 +81,7 @@ impl ManagedHost {
             jobs.attach_request_audits(
                 &self.rpc,
                 &self.model_inputs,
+                events,
                 &receipts,
                 &ids,
                 HostArchivePhase::Snapshot,

@@ -75,6 +75,7 @@ pub struct ManagedHostServices {
 /// start/stdin requests; the embedded client's shutdown alone does not do this.
 pub struct ManagedHost {
     pub client: InProcessClientHandle,
+    pub events: crate::AgentServerEvents,
     pub rpc: crate::AgentRpc,
     pub model_inputs: Arc<crate::ModelInputAudit>,
     exec_backend: Arc<dyn ExecBackend>,
@@ -90,7 +91,7 @@ pub struct ManagedHost {
 
 /// Cloneable request/evidence access, independent of the event receiver and
 /// shutdown owner. A terminal loop can await these requests while continuously
-/// consuming app-server events through ManagedHost.client.
+/// consuming the durable event stream through ManagedHost.events.
 #[derive(Clone)]
 pub struct AgentHostClient {
     pub rpc: crate::AgentRpc,
@@ -241,23 +242,28 @@ impl ManagedHostServices {
         let launch_binding = self.launch_binding.clone();
         let rpc_path = self.audit.path.with_file_name("rpc.journal");
         let model_input_path = self.audit.path.with_file_name("model-inputs.journal");
+        let event_path = self.audit.path.with_file_name("server-events.journal");
         let identity = self.audit.identity.clone();
         let launch_id = self.tools.launch_id;
-        let (rpc, model_inputs) = tokio::task::spawn_blocking(move || {
+        let (rpc, model_inputs, events) = tokio::task::spawn_blocking(move || {
             let rpc = crate::AgentRpc::open(&rpc_path, identity.clone(), launch_id)?;
             let model_inputs = Arc::new(crate::ModelInputAudit::open(
                 &model_input_path,
-                identity,
+                identity.clone(),
                 launch_id,
             )?);
-            Ok::<_, std::io::Error>((rpc, model_inputs))
+            let events =
+                crate::server_events::PreparedServerEvents::open(&event_path, identity, launch_id)?;
+            Ok::<_, std::io::Error>((rpc, model_inputs, events))
         })
         .await
         .map_err(std::io::Error::other)??;
         self.model_inputs = Some(Arc::clone(&model_inputs));
-        let client = start_with_host_services(args, Arc::new(self)).await?;
+        let mut client = start_with_host_services(args, Arc::new(self)).await?;
+        let events = events.start(client.take_event_receiver());
         Ok(ManagedHost {
             client,
+            events,
             rpc,
             model_inputs,
             exec_backend,

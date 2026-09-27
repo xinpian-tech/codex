@@ -1,5 +1,6 @@
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 
 use codex_infra_protocol::MessageId;
 use codex_infra_runtime::ArchiveController;
@@ -8,6 +9,7 @@ use codex_infra_runtime::ArchiveTarget;
 use codex_infra_state::ArchiveProducer;
 use codex_infra_state::ArchiveReceipt;
 use codex_infra_state::ArchiveStream;
+use codex_infra_state::JournalPosition;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -24,6 +26,8 @@ pub struct HostArchiveJobIds {
     pub rpc: Option<MessageId>,
     #[serde(default)]
     pub model_inputs: Option<MessageId>,
+    #[serde(default)]
+    pub server_events: Option<MessageId>,
 }
 
 #[derive(Clone, Copy)]
@@ -45,6 +49,8 @@ pub struct HostArchiveJobs {
     pub rpc: Option<ArchiveJob>,
     #[serde(default)]
     pub model_inputs: Option<ArchiveJob>,
+    #[serde(default)]
+    pub server_events: Option<ArchiveJob>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +64,8 @@ pub struct HostArchiveReceipts {
     pub rpc: Option<ArchiveReceipt>,
     #[serde(default)]
     pub model_inputs: Option<ArchiveReceipt>,
+    #[serde(default)]
+    pub server_events: Option<ArchiveReceipt>,
 }
 
 impl HostArchiveJobs {
@@ -97,6 +105,13 @@ impl HostArchiveJobs {
             },
             None => None,
         };
+        let server_events = match &self.server_events {
+            Some(job) => match controller.completion(job.job_id).await? {
+                Some(receipt) => Some(receipt),
+                None => return Ok(None),
+            },
+            None => None,
+        };
         Ok(Some(HostArchiveReceipts {
             processes,
             tools,
@@ -104,6 +119,7 @@ impl HostArchiveJobs {
             account,
             rpc,
             model_inputs,
+            server_events,
         }))
     }
 
@@ -113,6 +129,7 @@ impl HostArchiveJobs {
             .chain(self.account.iter())
             .chain(self.rpc.iter())
             .chain(self.model_inputs.iter())
+            .chain(self.server_events.iter())
         {
             controller.enqueue(job.clone()).await?;
         }
@@ -123,6 +140,7 @@ impl HostArchiveJobs {
         &mut self,
         rpc: &crate::AgentRpc,
         model_inputs: &crate::ModelInputAudit,
+        server_events: (PathBuf, JournalPosition),
         receipts: &Path,
         ids: &HostArchiveJobIds,
         phase: HostArchivePhase,
@@ -133,6 +151,9 @@ impl HostArchiveJobs {
         let model_input_id = ids
             .model_inputs
             .ok_or_else(|| io::Error::other("model input archive job ID is required"))?;
+        let server_event_id = ids
+            .server_events
+            .ok_or_else(|| io::Error::other("server event archive job ID is required"))?;
         let ArchiveProducer::Agent { launch_id, .. } = self.processes.stream.producer else {
             return Err(io::Error::other("host archive producer is not an Agent"));
         };
@@ -152,8 +173,10 @@ impl HostArchiveJobs {
         };
         let rpc = build("rpc", rpc_id, rpc.snapshot()?);
         let model_inputs = build("model-inputs", model_input_id, model_inputs.snapshot()?);
+        let server_events = build("server-events", server_event_id, server_events);
         self.rpc = Some(rpc);
         self.model_inputs = Some(model_inputs);
+        self.server_events = Some(server_events);
         Ok(())
     }
 }
@@ -178,7 +201,14 @@ impl ManagedHost {
             ids.clone(),
             phase,
         )?;
-        jobs.attach_request_audits(&self.rpc, &self.model_inputs, receipts, &ids, phase)?;
+        jobs.attach_request_audits(
+            &self.rpc,
+            &self.model_inputs,
+            self.events.snapshot()?,
+            receipts,
+            &ids,
+            phase,
+        )?;
         Ok(jobs)
     }
 }
@@ -238,6 +268,7 @@ pub(super) fn prepare_jobs(
         account,
         rpc: None,
         model_inputs: None,
+        server_events: None,
         processes: build(
             "processes",
             processes.path.clone(),

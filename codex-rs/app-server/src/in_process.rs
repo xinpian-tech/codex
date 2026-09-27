@@ -351,6 +351,14 @@ impl InProcessClientHandle {
         self.event_rx.recv().await
     }
 
+    /// Transfers the sole event receiver to an independently driven consumer.
+    /// Later next_event calls on this handle return None. The receiver owner
+    /// must keep draining through runtime shutdown to retain trailing events.
+    pub fn take_event_receiver(&mut self) -> mpsc::Receiver<InProcessServerEvent> {
+        let (_sender, empty) = mpsc::channel(/*buffer*/ 1);
+        std::mem::replace(&mut self.event_rx, empty)
+    }
+
     /// Requests runtime shutdown and waits for worker termination.
     ///
     /// Shutdown is bounded by internal timeouts and may abort background tasks
