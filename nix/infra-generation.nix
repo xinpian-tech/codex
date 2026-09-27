@@ -13,6 +13,7 @@
   memory,
   machineRuntime ? null,
   agentHost ? null,
+  agentRun ? null,
 }:
 let
   inputs = pkgs.writeText "codex-generation-inputs.json" (builtins.toJSON (
@@ -43,6 +44,9 @@ pkgs.runCommand "codex-config-generation" {
   cp -R ${accounts} "$out/accounts"
   cp -R ${skills} "$out/skills"
   cp -R ${memory} "$out/memory"
+  ${pkgs.lib.optionalString (agentRun != null) ''
+    cp ${agentRun} "$out/agent-run.json"
+  ''}
   ${pkgs.lib.optionalString (machineRuntime != null) ''
     cp ${machineRuntime} "$out/machine-runtime.json"
   ''}

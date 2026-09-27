@@ -8,6 +8,12 @@ license.workspace = true
 test = false
 doctest = false
 
+[[bin]]
+name = "codex-agent"
+path = "src/bin/codex-agent.rs"
+test = false
+bench = false
+
 [lints]
 workspace = true
 
@@ -36,6 +42,6 @@ codex-utils-path-uri = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "signal"] }
 tokio-util = { workspace = true, features = ["rt"] }
 toml = { workspace = true }

@@ -36,6 +36,10 @@
     {
       lib.mkInfraGeneration = import ./nix/infra-generation.nix;
       apps = forAllSystems (system: {
+        agent = {
+          type = "app";
+          program = "${self.packages.${system}.codex-rs}/bin/codex-agent";
+        };
         account = {
           type = "app";
           program = "${self.packages.${system}.codex-rs}/bin/codex-infra-account";
@@ -61,6 +65,10 @@
         in
         {
           codex-rs = codex-rs;
+          codex-agent = pkgs.runCommand "codex-agent-${version}" { } ''
+            mkdir -p "$out/bin"
+            ln -s ${codex-rs}/bin/codex-agent "$out/bin/codex-agent"
+          '';
           default = codex-rs;
         }
       );

@@ -594,6 +594,30 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 完整运行路径装配：Agent CLI 与机器启动服务
+
+实施重心已转为可执行系统装配。新增 `codex-agent` binary，Cargo/Bazel 入口以及 flake 的 `apps.agent`、`packages.codex-agent`；支持 launcher 原有的 `agent --binding <path>` 参数，也支持直接 `--binding <path>`。主循环实际调用 TerminalMailbox、PreparedAgentHost、provider/account startup、thread/input 驱动、服务端事件、模型呈现及 checkpoint，不再只提供待接入接口。每 Agent 的机器、repo、commit、角色和推理绑定沿用现有执行上下文，TaskSpec 携带 Nix 构建意图，角色定义从 generation 的 `roles/<role>.json` 读取。
+
+机器 runtime 启动动态明文 TCP launch service，地址输出在 Ready 的 `launch_endpoint`，同时写入 `<machine-spool>/agent-launch-endpoint.json`。该服务实际处理 Spawn、目录同步、父子路由连接和状态更新；Spawn 复用 GitWorkspace、LaunchCoordinator 和 SessionController，fetch 源仓库、创建 `/tmp/codex/<root>/<agent>/...` worktree、commit/push 初始状态、启动同一机器的 tmux session 内的独立 Agent，并注册采集与路由。stdin EOF 后机器服务继续运行，停止使用显式 Stop 或信号。控制 socket 仅传启动与目录元数据，任务正文和结果仍由 Agent 自己的 tmux stdout → gateway → tmux stdin 传递。
+
+模型工具已有实际业务处理：`infra_directory` 读取机器/角色目录和 provider/account/model profiles；`infra_spawn` 选择明确机器和 profile，创建 worker 并将 TaskSpec bootstrap 排队至本轮结束后的 tmux 发送；`infra_send` 定向消息；`infra_complete` 声明任务完成；`infra_escalate` 返回尝试结果和剩余问题，由 leader 选择 Codex profile 再启动独立 worker。leader 的后续输入循环接收子任务结果，指令要求整合 worker 已推送的 commit 后才完成。现有工具执行 hooks 负责变更 checkpoint，CLI 的发送和最终完成也实际调用 checkpoint/push。
+
+退出路径已调用输入驱动关闭、推理宿主停止、最终 checkpoint、结果/升级消息发送、终端停止与恢复、Mailbox/宿主/启动日志归档及远端回执等待。home、generation 中的 config/token/skill/memory/session 文件和 launch/checkpoint 文件按数据块写入归档 journal，再通过现有 SessionShard 发布到独立 Team State repo；最后更新拥有机器的 Agent 状态，并将目录元数据定向同步给父 Agent 所在机器。中断前写好的三个启动日志归档接口现在由 CLI finalizer 实际使用。
+
+#### Team State 运行配置接线
+
+`mkInfraGeneration` 新增可选 `agentRun` 文件输入，复制为 generation 的 `agent-run.json`。运行 Agent 时该文件包含：
+
+- `account`：已有 AgentAccountSource，Chat/DeepSeek 使用 `{"kind":"generation"}`；Codex 原生账户使用 `published` 的 replica/connection 配置。
+- `directory_file`：本机 runtime 写出的 `<machine-spool>/agent-directory.json`。
+- `machines_file`：机器 hostid 到当前动态 launch endpoint 的 JSON 映射，由部署流程根据各机器 Ready/endpoint 文件更新。
+- `worker_profiles`：以配置名索引的对象；每项包含完整 `generation`（含明确的 provider/account/model）、`host_program`（Nix closure 内 codex-agent）、`repositories`（hostid 到本地源仓库路径）和 Git `remote`。DeepSeek Flash 与 Codex 升级各自配置 profile，不硬编码供应商模型标识。
+- `initial_task`：仅 leader 配置的可选 TaskSpec。CLI 将该用户任务写入自己的 tmux 输出，经同一输入链返回并进入 bootstrap；普通 worker 不设置，等待 leader 的定向 bootstrap。
+
+启动机器使用已有 `codex-machine-runtime <generation>/machine-runtime.json`。创建首个 leader 可执行 `codex-agent launch <dynamic-launch-endpoint> <spawn.json>`；spawn.json 是 SpawnAgent 元数据（agent/task ID、parent 可空、role、目标机仓库路径、repo、source_commit、remote、generation、host_program）。其身份与 leader initial_task 对齐。实际 Agent 随后由 launcher 在 tmux 内执行，操作员命令不代理 Agent 语义通信。
+
+尚待完成的业务接线和实验待办保持明确：部署端生成并分发上述真实 Team State generation、机器 endpoint 映射和首个 leader Task；角色路由过滤/目录分页、初次启动失败的统一收尾、恢复中的未完成 turn，以及 final message 与归档完成的先后协调仍有粗糙处；远端 Nix closure 的准备、完整原始 OAuth/provider 流量覆盖和团队 skill/memory 整理流程继续按原需求推进。未新增或运行测试，未开始真实部署实验；当前编译/静态检查仅说明新增入口和调用链可编译，不能作为完整需求已完成或真实跨机执行成功的证据。
+
 AgentHostBootstrap 新增 launcher binding 到终端准备阶段的衔接：在 blocking worker 读取绑定文件与已选 generation，核对真实 hostid，按 root/agent/launch 建立 spool，并将原始 binding bytes、完整 launch 和 generation 写入 launch-binding.journal，之后由外层在返回的 mailbox_directory 打开 TerminalMailbox 并宣告 ready。prepare 从该终端持久选择 bootstrap，调用既有 generation/worktree 准备链，并返回完整 InboxEntry；HostMailbox::input 与 wait_bootstrap_entry 保留原 accepted_sequence、Presented 和 Processed 状态，已处理消息仍可按原 bootstrap 绑定恢复。终端所有权始终留给外层，准备失败后仍可停止输入、恢复终端及归档。runtime/extension 库级 Clippy 通过，未编写或运行测试，未调用真实 hostid、tmux 或启动服务。独立 CLI 尚未装配；launch-binding、preparation、input-lifecycle 等启动日志的归档和整体收尾仍待接通。
 
 StartedAgentHost 新增 begin_bootstrap，串接 Task 内容核对、thread 建立/恢复、已有模型呈现证据扫描、稳定注入请求及 turn 启动。已有呈现复用持久绑定和 Presented 回执；新启动仅使用本次注入前采样位置之后的匹配 append/flush，旧 RPC 成功或历史 flush 不自动触发新 turn。返回 thread 不确定、注入未解决、store 待恢复、已有呈现或 turn 调度结果；turn 分支附带后续呈现驱动。调用方需在独占启动阶段持续消费服务端事件，并将本次调度驱动到结果后再关闭。extension 库级 Clippy 通过，未编写或运行测试，未执行真实启动。已注入但尚未呈现的重启恢复仍需核对当前 thread 内容；该阶段返回明确恢复状态。独立 Agent CLI、具体请求处理、完整生命周期及最终归档继续待完成。
