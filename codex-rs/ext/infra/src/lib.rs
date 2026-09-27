@@ -75,6 +75,8 @@ pub use process_audit::RecordedProcessOutput;
 pub use rpc::AgentRpc;
 pub use rpc::AgentRpcOutcome;
 pub use server_events::AgentServerEvent;
+pub use server_events::AgentServerEventPage;
+pub use server_events::AgentServerEventRecord;
 pub use server_events::AgentServerEvents;
 pub use store::AuditedThreadStore;
 pub use store_audit::StoreAudit;

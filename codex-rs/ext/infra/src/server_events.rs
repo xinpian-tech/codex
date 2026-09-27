@@ -15,6 +15,10 @@ use tokio::sync::watch;
 
 use crate::StoreAuditIdentity;
 
+mod reader;
+pub use reader::AgentServerEventPage;
+pub use reader::AgentServerEventRecord;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentServerEvent {
@@ -37,6 +41,7 @@ pub enum AgentServerEvent {
 pub(crate) struct PreparedServerEvents {
     path: PathBuf,
     journal: Journal,
+    run_start: JournalPosition,
 }
 
 /// Independent event capture. Consumers follow the durable journal instead of
@@ -45,6 +50,7 @@ pub(crate) struct PreparedServerEvents {
 /// as a complete notification history.
 pub struct AgentServerEvents {
     path: PathBuf,
+    run_start: JournalPosition,
     progress: watch::Receiver<Result<JournalPosition, String>>,
     task: tokio::task::JoinHandle<io::Result<JournalPosition>>,
 }
@@ -66,6 +72,7 @@ impl PreparedServerEvents {
             }
             Ok(())
         })?;
+        let run_start = journal.position();
         journal.append(&serde_json::to_vec(&AgentServerEvent::Opened {
             identity,
             launch_id,
@@ -73,6 +80,7 @@ impl PreparedServerEvents {
         Ok(Self {
             path: path.canonicalize()?,
             journal,
+            run_start,
         })
     }
 
@@ -82,6 +90,7 @@ impl PreparedServerEvents {
     ) -> AgentServerEvents {
         let (progress, updates) = watch::channel(Ok(self.journal.position()));
         let path = self.path;
+        let run_start = self.run_start;
         let task = tokio::spawn(async move {
             let result: io::Result<JournalPosition> = async {
                 let mut journal = self.journal;
@@ -119,6 +128,7 @@ impl PreparedServerEvents {
         });
         AgentServerEvents {
             path,
+            run_start,
             progress: updates,
             task,
         }
@@ -126,6 +136,12 @@ impl PreparedServerEvents {
 }
 
 impl AgentServerEvents {
+    /// The Opened record for this app-server instance. Old runs remain in the
+    /// same journal for audit but their server requests are no longer live.
+    pub fn run_start(&self) -> JournalPosition {
+        self.run_start
+    }
+
     pub fn snapshot(&self) -> io::Result<(PathBuf, JournalPosition)> {
         let position = self.progress.borrow().clone().map_err(io::Error::other)?;
         Ok((self.path.clone(), position))
