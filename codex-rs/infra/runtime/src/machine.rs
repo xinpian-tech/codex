@@ -19,7 +19,9 @@ use crate::ShardArchiveActor;
 use crate::TransportArchiveActor;
 use crate::TransportSession;
 
+mod account_archive;
 mod accounts;
+use account_archive::AccountArchiveActor;
 mod generation;
 mod launch;
 pub use accounts::MachineAccountConfig;
@@ -56,6 +58,7 @@ pub struct MachineRuntime {
     accounts: MachineAccountServices,
     account_directory: Option<AccountDirectory>,
     account_updates: Vec<AccountDirectoryUpdate>,
+    account_archive: Option<AccountArchiveActor>,
 }
 
 /// Resources returned for final snapshots, backlog reconciliation and restart.
@@ -88,6 +91,7 @@ impl MachineRuntime {
             accounts: MachineAccountServices::default(),
             account_directory: None,
             account_updates: Vec::new(),
+            account_archive: None,
         }
     }
 
@@ -171,6 +175,19 @@ impl MachineRuntime {
         }
         self.accounts.start(&self.config.accounts).await?;
         self.account_updates = self.accounts.publish(&self.account_directory()?).await?;
+        if self.account_archive.is_none() {
+            self.account_archive = Some(
+                AccountArchiveActor::start(
+                    self.account_directory()?,
+                    self.archive_controller()?,
+                    self.config.provider_archives.root_session_id,
+                    self.config.accounts.machine_id.clone(),
+                    self.directory.join("account-archive"),
+                    self.config.archive_interval,
+                )
+                .await?,
+            );
+        }
         Ok(())
     }
 
@@ -186,6 +203,13 @@ impl MachineRuntime {
         self.account_directory
             .clone()
             .ok_or_else(|| io::Error::other("machine account directory has not opened"))
+    }
+
+    pub fn account_archive_state(&self) -> io::Result<crate::ArchiveWorkerState> {
+        self.account_archive
+            .as_ref()
+            .map(AccountArchiveActor::state)
+            .ok_or_else(|| io::Error::other("account archive actor has not started"))
     }
 
     pub fn controller(&self) -> io::Result<SessionController> {
@@ -216,6 +240,11 @@ impl MachineRuntime {
                 Vec::new()
             };
             failures.extend(std::mem::take(&mut self.accounts).stop().await);
+            if let Some(account_archive) = self.account_archive.take()
+                && let Err(error) = account_archive.stop().await
+            {
+                failures.push(format!("account directory archive: {error}"));
+            }
             if let Some(transport) = self.transport.take() {
                 match transport.stop().await {
                     Ok(exit) => {

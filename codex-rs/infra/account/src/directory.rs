@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_infra_protocol::MessageId;
 use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::watch;
@@ -27,6 +29,7 @@ pub struct AccountDirectoryUpdate {
 type AccountKey = (String, String);
 
 struct State {
+    source: PathBuf,
     journal: Journal,
     entries: BTreeMap<AccountKey, AccountDirectoryUpdate>,
     subscribers: BTreeMap<AccountKey, watch::Sender<Option<AccountAuthority>>>,
@@ -53,11 +56,22 @@ impl AccountDirectory {
         })?;
         Ok(Self {
             state: Arc::new(Mutex::new(State {
+                source: path.canonicalize()?,
                 journal,
                 entries,
                 subscribers: BTreeMap::new(),
             })),
         })
+    }
+
+    /// The producer-confirmed durable prefix, sampled under the append lock.
+    /// The stream remains open for subsequent publications and withdrawals.
+    pub fn archive_snapshot(&self) -> io::Result<(PathBuf, JournalPosition)> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        Ok((state.source.clone(), state.journal.position()))
     }
 
     pub fn current(

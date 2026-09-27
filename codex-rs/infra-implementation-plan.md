@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户目录接入机器归档：AccountDirectory 在 append 锁内提供真实 source 路径与 producer-confirmed JournalPosition；新增独立 AccountArchiveActor，保存固定机器流身份、稳定归档 job ID 和已准备的位置，重启继续提交同一任务。周期推进在当前任务取得远端回执后再采样下一位置，积压时合并尚未采样的变更；停止时先确保旧任务入队，再保存并提交包含撤下事件的最新前缀。MachineRuntime 在账户发布后启动该 actor，在停止归档 writer 前等待其收尾，并暴露最近归档状态。停止成功表示最新快照任务已持久入队，尚不代表远端完成或目录 producer 已封存；返回的机器 writer 继续承担积压恢复。runtime 库/机器 CLI Clippy 通过；未编写或运行测试，未执行归档 Git、账户服务或实装。账户目录的 Git 发现消费者、独立 Agent 副本、原始账户网络/OAuth/Git I/O 与凭据观察日志归档仍待完成。
+
 新增 NativeAccountBootstrap，将 generation 对应的 CodexAccountView、Agent 本地凭据观察 Journal 和 PublishedAccountAuth 包装成同一共享 ExternalAuth。prepare 在 blocking worker 中物化视图；cloud_config_bundle 复用既有 AuthManager/cloud-config loader，并在 loader 开始工作前安装该 ExternalAuth。受管原生宿主改为接收 bootstrap，在进入 app-server 前替换初始 cloud loader，后续 bootstrap/policy/serving manager 沿用已有注入接口；所有持有者共同保持账户视图存活。RemoteAccountSource 直接订阅 AccountDirectory 并保留目录句柄，目录创建者退出作用域不会提前释放客户端所需的订阅来源。新增依赖仅在 extension 中复用已有 cloud-config/config crates，未改动 core 或 login；extension 库 Clippy 通过，Cargo.lock 与 Bazel 元数据已刷新。独立 Agent CLI 仍需先加载本地配置、使用该 bootstrap 加载 cloud 层并装配宿主，账户请求审计与归档仍待完成。未编写或运行测试，未运行认证、cloud-config 网络请求或实装实验。
 
 账户地址新增 AccountDirectory：按 provider/account 保存带前驱事件 ID 的追加链，Journal 落盘后才更新本地视图和该账户的 watch 订阅；相同头事件重放幂等，前驱缺失时由分发端补齐。AccountAuthority 带每次启动生成的 instance_id，端口复用也能区分服务实例。RemoteAccountSource 接受可为空的 authority 订阅，尚未发现或已撤下地址时返回未连接。MachineRuntime 在启动时持久发布本地服务地址，Ready 输出完整目录事件；机器控制接口增加 account_directory 增量输入。stop 仅撤下仍属于本实例的地址，返回撤下事件并由 CLI Stopped 记录，然后等待账户服务收尾。账户/机器库及 CLI、extension 库 Clippy 通过；未编写或运行测试，未执行账户服务或实装。当前目录为本地可重放副本，跨机器自动传输、Git 首次发现/历史补齐、目录 Journal 归档以及独立 Agent CLI 的订阅装配仍待完成；原生宿主初始 cloud loader 仍需与 serving manager 共用同一账户 bootstrap。
