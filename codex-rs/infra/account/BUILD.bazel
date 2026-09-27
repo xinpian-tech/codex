@@ -7,6 +7,7 @@ rust_library(
         "src/external.rs",
         "src/lib.rs",
         "src/remote.rs",
+        "src/service.rs",
         "src/view.rs",
         "src/wire.rs",
     ],
