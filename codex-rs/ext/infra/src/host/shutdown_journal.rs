@@ -31,7 +31,7 @@ pub struct HostShutdownPlan {
 enum Event {
     Requested { plan: HostShutdownPlan },
     Prepared { jobs: Box<HostArchiveJobs> },
-    Archived { receipts: HostArchiveReceipts },
+    Archived { receipts: Box<HostArchiveReceipts> },
     Failed { message: String },
 }
 
@@ -191,7 +191,7 @@ impl HostShutdownJournal {
         self.update(move |writer| {
             if writer.state.receipts.as_ref() != Some(&receipts) {
                 writer.append(Event::Archived {
-                    receipts: receipts.clone(),
+                    receipts: Box::new(receipts.clone()),
                 })?;
             }
             Ok(Some(receipts))
@@ -244,6 +244,7 @@ impl State {
                 }
                 if jobs.account.is_some() != self.plan.jobs.account.is_some()
                     || jobs.rpc.is_some() != self.plan.jobs.rpc.is_some()
+                    || jobs.model_inputs.is_some() != self.plan.jobs.model_inputs.is_some()
                 {
                     return Err(io::Error::other(
                         "shutdown optional archives differ from plan",
@@ -270,6 +271,12 @@ impl State {
                         .iter()
                         .zip(self.plan.jobs.rpc)
                         .map(|(job, id)| (job, "rpc", id)),
+                )
+                .chain(
+                    jobs.model_inputs
+                        .iter()
+                        .zip(self.plan.jobs.model_inputs)
+                        .map(|(job, id)| (job, "model-inputs", id)),
                 ) {
                     if job.job_id != id
                         || job.stream.name != name
@@ -294,6 +301,7 @@ impl State {
                 self.failure = None;
             }
             Event::Archived { receipts } => {
+                let receipts = *receipts;
                 let expected_ref = format!(
                     "refs/codex/session-shards/{}/{}",
                     self.plan.identity.root_session_id, self.plan.identity.machine_id
@@ -302,6 +310,7 @@ impl State {
                     || self.jobs.as_ref().is_some_and(|jobs| {
                         jobs.account.is_some() != receipts.account.is_some()
                             || jobs.rpc.is_some() != receipts.rpc.is_some()
+                            || jobs.model_inputs.is_some() != receipts.model_inputs.is_some()
                     })
                     || self
                         .receipts
@@ -311,6 +320,7 @@ impl State {
                         .into_iter()
                         .chain(receipts.account.iter())
                         .chain(receipts.rpc.iter())
+                        .chain(receipts.model_inputs.iter())
                         .any(|receipt| receipt.session_ref != expected_ref)
                 {
                     return Err(io::Error::other(

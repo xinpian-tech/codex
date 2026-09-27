@@ -19,7 +19,10 @@ use serde::Serialize;
 
 use crate::StoreAuditIdentity;
 
+mod reader;
 mod response;
+pub use reader::ModelInputAuditPage;
+pub use reader::ModelInputAuditRecord;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -84,6 +87,16 @@ impl std::fmt::Debug for ModelInputAudit {
 }
 
 impl ModelInputAudit {
+    /// Samples the locally durable prefix. ProducerFinished archive jobs require
+    /// close first; a live snapshot is only a prefix, not producer completion.
+    pub fn snapshot(&self) -> io::Result<(PathBuf, JournalPosition)> {
+        let writer = self
+            .writer
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        Ok((writer.path.clone(), writer.journal.position()))
+    }
+
     /// Open on a blocking worker before registering the request contributor.
     pub fn open(
         path: &Path,

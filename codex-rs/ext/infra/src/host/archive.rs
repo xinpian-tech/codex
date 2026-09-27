@@ -22,6 +22,8 @@ pub struct HostArchiveJobIds {
     pub account: Option<MessageId>,
     #[serde(default)]
     pub rpc: Option<MessageId>,
+    #[serde(default)]
+    pub model_inputs: Option<MessageId>,
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +43,8 @@ pub struct HostArchiveJobs {
     pub account: Option<ArchiveJob>,
     #[serde(default)]
     pub rpc: Option<ArchiveJob>,
+    #[serde(default)]
+    pub model_inputs: Option<ArchiveJob>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +56,8 @@ pub struct HostArchiveReceipts {
     pub account: Option<ArchiveReceipt>,
     #[serde(default)]
     pub rpc: Option<ArchiveReceipt>,
+    #[serde(default)]
+    pub model_inputs: Option<ArchiveReceipt>,
 }
 
 impl HostArchiveJobs {
@@ -84,12 +90,20 @@ impl HostArchiveJobs {
             },
             None => None,
         };
+        let model_inputs = match &self.model_inputs {
+            Some(job) => match controller.completion(job.job_id).await? {
+                Some(receipt) => Some(receipt),
+                None => return Ok(None),
+            },
+            None => None,
+        };
         Ok(Some(HostArchiveReceipts {
             processes,
             tools,
             thread_store,
             account,
             rpc,
+            model_inputs,
         }))
     }
 
@@ -98,37 +112,48 @@ impl HostArchiveJobs {
             .into_iter()
             .chain(self.account.iter())
             .chain(self.rpc.iter())
+            .chain(self.model_inputs.iter())
         {
             controller.enqueue(job.clone()).await?;
         }
         Ok(())
     }
 
-    pub(super) fn attach_rpc(
+    pub(super) fn attach_request_audits(
         &mut self,
         rpc: &crate::AgentRpc,
+        model_inputs: &crate::ModelInputAudit,
         receipts: &Path,
-        job_id: Option<MessageId>,
+        ids: &HostArchiveJobIds,
         phase: HostArchivePhase,
     ) -> io::Result<()> {
-        let job_id =
-            job_id.ok_or_else(|| io::Error::other("host RPC archive job ID is required"))?;
-        let (source, position) = rpc.snapshot()?;
-        let mut stream = self.processes.stream.clone();
-        stream.name = "rpc".to_owned();
-        let ArchiveProducer::Agent { launch_id, .. } = stream.producer else {
+        let rpc_id = ids
+            .rpc
+            .ok_or_else(|| io::Error::other("host RPC archive job ID is required"))?;
+        let model_input_id = ids
+            .model_inputs
+            .ok_or_else(|| io::Error::other("model input archive job ID is required"))?;
+        let ArchiveProducer::Agent { launch_id, .. } = self.processes.stream.producer else {
             return Err(io::Error::other("host archive producer is not an Agent"));
         };
-        self.rpc = Some(ArchiveJob {
-            job_id,
-            stream,
-            source,
-            receipt_journal: receipts.join(format!("{launch_id}-rpc.journal")),
-            target: match phase {
-                HostArchivePhase::Snapshot => ArchiveTarget::Snapshot(position),
-                HostArchivePhase::ProducerFinished => ArchiveTarget::ProducerFinished(position),
-            },
-        });
+        let build = |name: &str, job_id, (source, position)| {
+            let mut stream = self.processes.stream.clone();
+            stream.name = name.to_owned();
+            ArchiveJob {
+                job_id,
+                stream,
+                source,
+                receipt_journal: receipts.join(format!("{launch_id}-{name}.journal")),
+                target: match phase {
+                    HostArchivePhase::Snapshot => ArchiveTarget::Snapshot(position),
+                    HostArchivePhase::ProducerFinished => ArchiveTarget::ProducerFinished(position),
+                },
+            }
+        };
+        let rpc = build("rpc", rpc_id, rpc.snapshot()?);
+        let model_inputs = build("model-inputs", model_input_id, model_inputs.snapshot()?);
+        self.rpc = Some(rpc);
+        self.model_inputs = Some(model_inputs);
         Ok(())
     }
 }
@@ -144,17 +169,16 @@ impl ManagedHost {
         ids: HostArchiveJobIds,
         phase: HostArchivePhase,
     ) -> io::Result<HostArchiveJobs> {
-        let rpc_id = ids.rpc;
         let mut jobs = prepare_jobs(
             &self.processes,
             &self.tools,
             &self.store_audit,
             self.account_observation.as_ref(),
             receipts,
-            ids,
+            ids.clone(),
             phase,
         )?;
-        jobs.attach_rpc(&self.rpc, receipts, rpc_id, phase)?;
+        jobs.attach_request_audits(&self.rpc, &self.model_inputs, receipts, &ids, phase)?;
         Ok(jobs)
     }
 }
@@ -213,6 +237,7 @@ pub(super) fn prepare_jobs(
     Ok(HostArchiveJobs {
         account,
         rpc: None,
+        model_inputs: None,
         processes: build(
             "processes",
             processes.path.clone(),

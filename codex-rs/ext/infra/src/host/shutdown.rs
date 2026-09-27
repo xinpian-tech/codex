@@ -67,17 +67,22 @@ impl ManagedHost {
             requests?;
             producers?;
             workspace?;
-            let rpc_id = ids.rpc;
             let mut jobs = prepare_jobs(
                 &self.processes,
                 &self.tools,
                 &self.store_audit,
                 self.account_observation.as_ref(),
                 &receipts,
-                ids,
+                ids.clone(),
                 HostArchivePhase::Snapshot,
             )?;
-            jobs.attach_rpc(&self.rpc, &receipts, rpc_id, HostArchivePhase::Snapshot)?;
+            jobs.attach_request_audits(
+                &self.rpc,
+                &self.model_inputs,
+                &receipts,
+                &ids,
+                HostArchivePhase::Snapshot,
+            )?;
             Ok(jobs)
         })
         .await

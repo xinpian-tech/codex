@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ModelInputAudit 新增持久前缀 snapshot 与按记录数分页 read_page，返回 start/next/durable_end 和完整类型化事件，读取在 blocking worker 中完成，不跨越采样时已落盘的边界。宿主归档加入 model-inputs stream，新生成任务要求对应 job ID，提交、远端回执等待及 HostShutdownJournal 的计划/归档绑定核对均覆盖它；新增字段默认可选以读取旧记录，扩大后的 Archived 内存载荷改用 Box，序列化格式不变。extension 库级 Clippy 通过，未编写或运行测试，未执行日志扫描或真实归档。请求片段与响应/续传的实际匹配、呈现回执、CLI 调度和整体最终封存仍待完成。
+
 请求观察接口现可返回该次尝试独有的响应观察器，core 将其置于既有 request interceptor 之前，以观察变换前的响应流。ModelInputAudit 使用 Prepared 的 attempt ID 关联 Created、Completed、ServerModel、StreamFailed、StreamEnded；完成记录保留 response ID、token usage、上游 usage metadata 和 end_turn，相关事件落盘后再交给原消费链，其他响应事件原样转交。未收到响应流、取消或没有 Completed 的记录仍不能当成完成；流自然结束也不等同于 Completed。新增 futures 工作区依赖，库级 Clippy 与 Bazel 依赖元数据刷新通过，MODULE.bazel.lock 无变化；未编写或运行测试，未调用真实供应商。请求证据分页与片段/续传核对、日志归档、Presented/Processed 及 CLI 收尾仍待完成。
 
 请求观察接入：既有 ModelRequestContributor 增加默认无操作的异步 observe，HTTP/WebSocket 在 wire item 准备和输入裁剪之后、transport 提交之前调用，传递 thread/可选 turn、模型、generation/warmup、最终输入及 previous_response_id。未改动上下文或现有 request interceptor 签名；core 只负责传递这一边界。infra 新增 ModelInputAudit 并在宿主启动注册，model-inputs.journal 绑定 launch/身份，blocking worker 将每次准备的完整输入落盘后才允许继续提交，宿主关闭推理后关闭该 writer。此证据只证明请求准备，不证明供应商接收或模型消费；WebSocket delta 与 warmup 显式保留，尚需结合响应及续传关系完成呈现判断。extension-api/core/app-server/infra 库级 Clippy 编译通过，未编写或运行测试，未执行真实模型请求。该新日志的分页核对/归档、请求结果关联、Presented/Processed 和 CLI 完整收尾仍待完成。
