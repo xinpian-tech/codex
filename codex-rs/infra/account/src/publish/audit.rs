@@ -12,7 +12,71 @@ use super::GitAccounts;
 
 pub(super) struct PublicationAudit(Journal);
 
+pub(super) struct RecoveryState {
+    pub details: Value,
+    pub before: Option<String>,
+    pub target: Option<String>,
+    pub completed: bool,
+}
+
 impl PublicationAudit {
+    pub(super) fn resume(
+        accounts: &GitAccounts,
+        operation: MessageId,
+    ) -> io::Result<(Self, RecoveryState)> {
+        let path = PathBuf::from(accounts.run(
+            &[
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                &format!("infra-account-publications/{operation}.journal"),
+            ],
+            &[],
+        )?);
+        fs::metadata(&path)?;
+        let mut opened = None;
+        let mut state = RecoveryState {
+            details: Value::Null,
+            before: None,
+            target: None,
+            completed: false,
+        };
+        let journal = Journal::open(&path, |record| {
+            let event: Value = serde_json::from_slice(&record.payload)?;
+            match event["event"].as_str() {
+                Some("opened") => opened = Some(event.clone()),
+                Some("base_selected") => {
+                    state.before = event["commit"].as_str().map(str::to_owned);
+                }
+                Some("ref_update_requested") => {
+                    state.before = event["before"].as_str().map(str::to_owned);
+                    state.target = event["config_commit"].as_str().map(str::to_owned);
+                }
+                Some("push_requested") => {
+                    state.target = event["config_commit"].as_str().map(str::to_owned);
+                }
+                Some("completed") => {
+                    state.target = event["config_commit"].as_str().map(str::to_owned);
+                    state.completed = true;
+                }
+                _ => {}
+            }
+            Ok(())
+        })?;
+        let opened = opened.ok_or_else(|| io::Error::other("publication identity missing"))?;
+        if opened["operation_id"] != json!(operation)
+            || opened["repository"] != json!(accounts.repository.canonicalize()?)
+            || opened["remote"] != json!(accounts.remote)
+            || opened["config_ref"] != json!(accounts.config_ref)
+        {
+            return Err(io::Error::other(
+                "publication belongs to a different binding",
+            ));
+        }
+        state.details = opened["details"].clone();
+        Ok((Self(journal), state))
+    }
+
     pub(super) fn open(
         accounts: &GitAccounts,
         operation: MessageId,

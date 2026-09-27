@@ -14,6 +14,7 @@ use codex_infra_provider::AccountDefinition;
 use serde_json::json;
 
 mod audit;
+mod recovery;
 use audit::PublicationAudit;
 
 /// Uses an isolated Git index; the Team State checkout and its staged changes
@@ -54,8 +55,18 @@ impl GitAccounts {
                 "authentication": authentication,
             }),
         )?;
-        let result =
-            self.publish_recorded(provider, account, authentication, operation, &mut audit);
+        eprintln!("Account publication operation: {operation}");
+        let result = (|| {
+            let before = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
+            self.publish_recorded(
+                provider,
+                account,
+                authentication,
+                operation,
+                &mut audit,
+                before,
+            )
+        })();
         audit.finish(&result)?;
         result
     }
@@ -67,8 +78,8 @@ impl GitAccounts {
         authentication: AccountAuthentication,
         operation: MessageId,
         audit: &mut PublicationAudit,
+        before: String,
     ) -> io::Result<CommitId> {
-        let before = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
         let _: CommitId = before.parse().map_err(io::Error::other)?;
         audit.record(json!({"event": "base_selected", "commit": before}))?;
         let source = format!("{before}:accounts/catalog.json");
@@ -92,7 +103,7 @@ impl GitAccounts {
                 "rev-parse",
                 "--path-format=absolute",
                 "--git-path",
-                &format!("infra-account-{operation}.index"),
+                &format!("infra-account-{operation}-{}.index", MessageId::new()),
             ],
             &[],
         )?;
@@ -185,7 +196,9 @@ impl GitAccounts {
     }
 
     pub fn sync(&self) -> io::Result<CommitId> {
-        let mut audit = PublicationAudit::open(self, MessageId::new(), json!({"kind": "sync"}))?;
+        let operation = MessageId::new();
+        let mut audit = PublicationAudit::open(self, operation, json!({"kind": "sync"}))?;
+        eprintln!("Account publication operation: {operation}");
         let result = (|| {
             let commit = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
             let revision = commit.parse().map_err(io::Error::other)?;
