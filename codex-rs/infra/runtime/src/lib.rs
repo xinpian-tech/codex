@@ -21,6 +21,8 @@ mod sender;
 mod session;
 mod session_actor;
 mod shard_archive;
+#[cfg(unix)]
+mod terminal_mailbox;
 mod transport_archive;
 
 pub use archive_actor::ArchiveActor;
@@ -91,4 +93,10 @@ pub use session_actor::SessionController;
 pub use session_actor::SessionExit;
 pub use session_actor::SessionUpdate;
 pub use shard_archive::ShardArchiveActor;
+#[cfg(unix)]
+pub use terminal_mailbox::TerminalInputState;
+#[cfg(unix)]
+pub use terminal_mailbox::TerminalMailbox;
+#[cfg(unix)]
+pub use terminal_mailbox::TerminalMailboxExit;
 pub use transport_archive::TransportArchiveActor;
