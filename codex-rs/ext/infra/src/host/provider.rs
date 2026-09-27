@@ -4,6 +4,7 @@ use std::sync::Arc;
 use codex_app_server::in_process::InProcessStartArgs;
 use codex_infra_provider::ChatFrontend;
 use codex_infra_provider::ChatFrontendConfig;
+use codex_infra_provider::ProviderAuditConfig;
 use codex_infra_runtime::LaunchIntent;
 use serde_json::json;
 
@@ -12,6 +13,25 @@ use super::ManagedHostServices;
 use crate::ProcessAudit;
 
 impl ManagedHostServices {
+    /// Resolves this launch's immutable Team State catalogs before assembling
+    /// the Chat Completions frontend and embedded host.
+    pub async fn start_with_chat_generation(
+        self,
+        args: InProcessStartArgs,
+        process_audit: ProcessAudit,
+        launch: &LaunchIntent,
+        audit: ProviderAuditConfig,
+    ) -> io::Result<ManagedHost> {
+        let generation = launch.generation.clone();
+        let provider_config = tokio::task::spawn_blocking(move || {
+            ChatFrontendConfig::read_generation(&generation, audit)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        self.start_with_chat_provider(args, process_audit, launch, provider_config)
+            .await
+    }
+
     /// Starts the resolved Chat Completions account alongside this Agent's
     /// embedded Codex host. Native Responses accounts use the existing start.
     /// Both initial config and thread reload overrides point at the same local

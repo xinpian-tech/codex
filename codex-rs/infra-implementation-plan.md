@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Provider 包新增 Team State generation 配置读取与公开 serde 类型。providers/catalog.json 按 provider ID 保存协议、完整请求 URL、headers、适用模型及每 Agent 传输参数；accounts/catalog.json 按 provider/account ID 保存 credential_revision、认证内容和账户 headers。ChatFrontendConfig::read_generation 从 ConfigGeneration 指定目录读取两份文件，按已选 binding 核对模型与 credential revision，合并 provider/account headers，再应用 bearer 或自定义 header token。CodexLogin 保留原 auth.json 对象供后续原生账户路径使用，此处尚不执行登录、导入或刷新。ManagedHostServices::start_with_chat_generation 在线程池读取目录并调用已有宿主/前端装配入口；endpoint/model/token 均来自 generation，未硬编码供应商型号。provider 与扩展库 Clippy 通过；未编写或运行测试，未启动服务或实装。Team State 目录实际生成、账户 CLI、原生登录视图、刷新协调和 Agent CLI 仍待接入。
+
 ManagedHostServices 新增 start_with_chat_provider，在 infra 扩展包中装配 ChatFrontend 与现有嵌入式 Codex 宿主。启动前核对 generation inference、root/machine/agent/launch 与宿主审计绑定；前端动态 base_url、model 和 provider 同时写入初始 Config 与线程重载 CLI overrides，账户 headers 留在前端配置。宿主持有前端，关闭时先 drain 推理服务，再停止前端，并继续尝试其余独立 drain；配置或宿主启动失败也关闭已启动前端。原生 Responses 仍沿用现有 start。此阶段只提供组合入口，Team State 账户解析、实际 Agent CLI 调用、动态配置装配记录与完整 finalizer 仍待完成。Cargo.lock 已更新，Bazel 依赖刷新完成且 lockfile 无变化；扩展库 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
 
 Provider SSE 增加 ProviderUsageObserver，在收到含 usage 的 chunk 时、等待 [DONE] 或客户端交付之前持久化用量观察。ProviderUsage 保留 provider response ID、实际返回 model、输入/输出/总 token、可选 cache/reasoning token 及原 usage 对象；AttemptAudit 绑定原有 opened 账户/credential_revision，以 usage_observed/revision 追加生命周期记录，相同报告跳过，变化报告属于同一响应的替代版本。新增 ProviderAttemptUsage::read，逐条重放生命周期并返回与原身份合并的最新 revision，核对 attempt/response ID 与版本顺序，汇总端可按 attempt 替换而非累加报告。用量随现有 lifecycle 快照/最终归档保存；跨 Agent 额度准入、团队汇总索引与按配置计费仍待实现。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未调用模型或启动实装。
