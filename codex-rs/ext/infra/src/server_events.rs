@@ -17,15 +17,17 @@ use tokio::sync::watch;
 
 use crate::StoreAuditIdentity;
 
+mod consumer;
 mod cursor;
 mod reader;
 mod reply;
+pub use consumer::AgentEventConsumerExit;
 pub use cursor::AgentEventCursor;
 pub use reader::AgentServerEventPage;
 pub use reader::AgentServerEventRecord;
 pub use reply::AgentServerReplyOutcome;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentServerEvent {
     Opened {

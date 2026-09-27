@@ -74,6 +74,7 @@ pub use process_audit::ProcessAuditEvent;
 pub use process_audit::RecordedProcessOutput;
 pub use rpc::AgentRpc;
 pub use rpc::AgentRpcOutcome;
+pub use server_events::AgentEventConsumerExit;
 pub use server_events::AgentEventCursor;
 pub use server_events::AgentServerEvent;
 pub use server_events::AgentServerEventPage;

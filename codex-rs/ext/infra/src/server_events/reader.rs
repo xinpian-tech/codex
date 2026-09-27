@@ -8,6 +8,7 @@ use codex_infra_state::JournalReader;
 use super::AgentServerEvent;
 use super::AgentServerEvents;
 
+#[derive(Clone, Debug)]
 pub struct AgentServerEventRecord {
     pub position: JournalPosition,
     pub event: AgentServerEvent,
