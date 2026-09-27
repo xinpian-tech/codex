@@ -1,7 +1,9 @@
 //! Account views and lifecycle integration around Codex's existing login library.
 
 mod directory;
+mod discovery;
 mod external;
+mod follower;
 mod owner;
 mod publish;
 mod refresh;
@@ -12,9 +14,14 @@ mod wire;
 
 pub use directory::AccountDirectory;
 pub use directory::AccountDirectoryUpdate;
+pub use discovery::AccountDirectoryPage;
+pub use discovery::PublishedAccountDirectory;
 pub use external::AccountCredentialSource;
 pub use external::PublishedAccount;
 pub use external::PublishedAccountAuth;
+pub use follower::AccountDirectoryFollower;
+pub use follower::AccountDirectoryProgress;
+pub use follower::AccountDirectorySource;
 pub use owner::AccountOwnerAssignment;
 pub use owner::GitAccountOwner;
 pub use publish::GitAccounts;

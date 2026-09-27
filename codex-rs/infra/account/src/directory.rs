@@ -115,26 +115,29 @@ impl AccountDirectory {
     /// Acknowledges only after journal persistence and watch publication. The
     /// owned blocking worker completes even if the caller cancels its waiter.
     pub async fn apply(&self, update: AccountDirectoryUpdate) -> io::Result<()> {
-        let state = Arc::clone(&self.state);
-        tokio::task::spawn_blocking(move || {
-            let mut state = state
-                .lock()
-                .map_err(|error| io::Error::other(error.to_string()))?;
-            let key = (update.provider_id.clone(), update.account_id.clone());
-            let previous = state.entries.get(&key);
-            check_update(previous, &update)?;
-            if previous == Some(&update) {
-                return Ok(());
-            }
-            state.journal.append(&serde_json::to_vec(&update)?)?;
-            if let Some(subscriber) = state.subscribers.get(&key) {
-                subscriber.send_replace(update.authority.clone());
-            }
-            state.entries.insert(key, update);
-            Ok(())
-        })
-        .await
-        .map_err(io::Error::other)?
+        let directory = self.clone();
+        tokio::task::spawn_blocking(move || directory.apply_update(update))
+            .await
+            .map_err(io::Error::other)?
+    }
+
+    pub(super) fn apply_update(&self, update: AccountDirectoryUpdate) -> io::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        let key = (update.provider_id.clone(), update.account_id.clone());
+        let previous = state.entries.get(&key);
+        check_update(previous, &update)?;
+        if previous == Some(&update) {
+            return Ok(());
+        }
+        state.journal.append(&serde_json::to_vec(&update)?)?;
+        if let Some(subscriber) = state.subscribers.get(&key) {
+            subscriber.send_replace(update.authority.clone());
+        }
+        state.entries.insert(key, update);
+        Ok(())
     }
 }
 

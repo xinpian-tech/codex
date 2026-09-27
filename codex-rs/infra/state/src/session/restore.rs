@@ -15,6 +15,19 @@ impl SessionShard {
     /// An older receipt revision remains valid when it is an ancestor of the
     /// fetched archive; restoration always reads that explicit revision.
     pub fn fetch_archive_revision(&mut self, revision: &CommitId) -> io::Result<()> {
+        let head = self.fetch_archive_head()?;
+        self.run([
+            "merge-base",
+            "--is-ancestor",
+            &revision.to_string(),
+            &head.to_string(),
+        ])?;
+        Ok(())
+    }
+
+    /// Fetches the published shard into the read cache and returns the exact
+    /// commit to use throughout a paginated discovery pass.
+    pub fn fetch_archive_head(&mut self) -> io::Result<CommitId> {
         let suffix = self
             .session_ref
             .strip_prefix("refs/codex/session-shards/")
@@ -28,9 +41,10 @@ impl SessionShard {
             &self.remote,
             &refspec,
         ])?;
-        let revision = revision.to_string();
-        self.run(["merge-base", "--is-ancestor", &revision, &cache])?;
-        Ok(())
+        self.run(["rev-parse", "--verify", &cache])?
+            .trim()
+            .parse()
+            .map_err(io::Error::other)
     }
 
     /// Restores one producer boundary from fetched objects. Pages and bodies

@@ -5,7 +5,9 @@ rust_library(
     name = "account",
     srcs = [
         "src/directory.rs",
+        "src/discovery.rs",
         "src/external.rs",
+        "src/follower.rs",
         "src/lib.rs",
         "src/owner.rs",
         "src/publish.rs",
