@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+启动装配新增 AgentInputSubmissions 所有者，在 app-server 启动前打开绑定完整 launch 的 input-submissions.journal。prepare 校验 inbox 目标并构造实际类型化输入，先落盘 message ID、accepted sequence、目标 thread、稳定 RPC request ID 与完整 ResponseItem，再返回注入意图；同一消息恢复时核对 thread、接收位置和输入摘要，返回原 request ID，内存仅保留绑定及摘要。持久化由拥有任务的 blocking worker 完成，调用方取消不会撤销已经准入的日志写入。close 关闭新意图准入并返回归档边界，不代替 RPC/推理收尾。extension 库级 Clippy 通过，未编写或运行测试，未执行真实启动或注入。CLI 仍需调用 prepare 后使用对应 request ID 注入，并完成审计证据恢复、turn 关联、Presented/Processed、此日志归档及最终收尾。
+
 新增 AgentInputEvidence，复用实际注入使用的 ResponseItem 构造逻辑，逐页核对指定 thread 的稳定片段 ID 与完整内容。仅成功 Finished 对应的 append 累积片段位图，全部片段写入成功后才接受新开始且成功结束的 flush_thread 或现有 local store 的 thread_preparation persist；其他 persist context 不充当 flush 证据。状态区分 AwaitingAppend、AwaitingFlush、Flushed，保留 flush 完成 sequence，页应用失败不推进游标；仅保留相关未决操作并限制数量，恢复时可从原始审计开头重建。该结果描述历史写入证据，不能证明当前历史未发生回滚、模型已消费输入或任务已完成，尚未触发 Presented/Processed。extension 库级 Clippy 通过，未编写或运行测试，未执行运行时实验。提交状态持久化、turn 关联、未决注入恢复决策、CLI 驱动与最终归档仍待完成。
 
 StoreAudit 新增运行中原始审计分页读取，ManagedHost 暴露 read_store_audit：在写锁内采样已 fsync 的 journal 位置，释放锁后由 blocking worker 按记录数量读取此固定前缀，返回每条事件的 sequence、下次 cursor 与本页 durable_end；不要求活动 store 操作全部结束，也不读取采样边界后的并发追加。游标、完整帧、校验和及遇到的身份记录均核对，writer 已报告的错误直接返回。分页限制的是记录数量，单条 payload 仍保留完整原始 store 写入，不截断审计数据。此接口为输入恢复提供压缩前证据，尚未实现消息片段匹配、append/flush 成功关联、turn 绑定或 Presented 回执，不能把读到 Started 或扫描追平当成输入已呈现。extension 库级 Clippy 通过，未编写或运行测试，未执行真实日志扫描或推理；CLI、输入恢复状态机及最终归档收尾继续待完成。

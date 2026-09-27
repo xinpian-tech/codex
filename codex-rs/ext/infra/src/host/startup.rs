@@ -18,6 +18,7 @@ use super::ManagedHost;
 use super::NativeAccountBootstrap;
 use super::PreparedAgentHost;
 use crate::AgentContext;
+use crate::AgentInputSubmissions;
 use crate::AgentThread;
 use crate::WorkspaceCheckpoints;
 
@@ -37,6 +38,7 @@ pub enum AgentAccountSource {
 pub struct StartedAgentHost {
     pub host: ManagedHost,
     pub thread: AgentThread,
+    pub inputs: AgentInputSubmissions,
     pub launch: LaunchIntent,
     pub task: TaskSpec,
     pub context: Arc<AgentContext>,
@@ -83,10 +85,15 @@ impl PreparedAgentHost {
             .await?;
         self.checkpoints.recover(lease).await?;
         let thread_path = self.directory.join("thread.journal");
+        let input_path = self.directory.join("input-submissions.journal");
         let launch = self.launch.clone();
-        let thread = tokio::task::spawn_blocking(move || AgentThread::open(&thread_path, launch))
-            .await
-            .map_err(io::Error::other)??;
+        let (thread, inputs) = tokio::task::spawn_blocking(move || {
+            let thread = AgentThread::open(&thread_path, launch.clone())?;
+            let inputs = AgentInputSubmissions::open(&input_path, launch)?;
+            Ok::<_, io::Error>((thread, inputs))
+        })
+        .await
+        .map_err(io::Error::other)??;
         let local_config = self.load_config(CloudConfigBundleLoader::default()).await?;
         let host = match source {
             AgentAccountSource::Generation => {
@@ -139,6 +146,7 @@ impl PreparedAgentHost {
         Ok(StartedAgentHost {
             host,
             thread,
+            inputs,
             launch: self.launch,
             task: self.task,
             context: self.context,
