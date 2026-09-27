@@ -28,6 +28,8 @@ pub use checkpoints::WorkspaceCheckpoints;
 pub use context::AgentContext;
 pub use hook_executor::RecordedHookExecutor;
 pub use host::AgentAccountSource;
+#[cfg(unix)]
+pub use host::AgentBootstrapOutcome;
 pub use host::AgentDriverArchiveJobIds;
 pub use host::AgentDriverArchiveJobs;
 pub use host::AgentDriverArchiveReceipts;

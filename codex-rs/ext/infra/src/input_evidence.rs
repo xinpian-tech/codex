@@ -37,6 +37,16 @@ pub struct AgentInputEvidence {
 }
 
 impl AgentInputEvidence {
+    pub(crate) fn since(
+        input: &AgentMessageInput,
+        thread_id: String,
+        cursor: JournalPosition,
+    ) -> io::Result<Self> {
+        let mut evidence = Self::new(input, thread_id)?;
+        evidence.cursor = cursor;
+        Ok(evidence)
+    }
+
     pub fn new(input: &AgentMessageInput, thread_id: String) -> io::Result<Self> {
         Ok(Self {
             thread_id,

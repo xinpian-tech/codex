@@ -20,6 +20,8 @@ use crate::ToolAudit;
 
 mod account;
 mod archive;
+#[cfg(unix)]
+mod bootstrap;
 mod config;
 mod driver_archive;
 mod generation;
@@ -35,6 +37,8 @@ pub use archive::HostArchiveJobIds;
 pub use archive::HostArchiveJobs;
 pub use archive::HostArchivePhase;
 pub use archive::HostArchiveReceipts;
+#[cfg(unix)]
+pub use bootstrap::AgentBootstrapOutcome;
 pub use config::AgentLoadedConfig;
 pub use driver_archive::AgentDriverArchiveJobIds;
 pub use driver_archive::AgentDriverArchiveJobs;
