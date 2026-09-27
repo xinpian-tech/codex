@@ -148,6 +148,12 @@ async fn main() -> io::Result<()> {
         };
         return fail_startup("startup_failed", error, audit, input_audit, writer).await;
     }
+    std::fs::write(
+        launch_config
+            .spool_directory
+            .join("account-directory-stream.json"),
+        serde_json::to_vec(&machine.account_archive_stream()?)?,
+    )?;
     let (send, mut receive) = mpsc::channel(capacity);
     let launches = codex_infra_runtime::LaunchService::start(
         launch_config,

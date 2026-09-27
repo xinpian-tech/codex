@@ -6,6 +6,10 @@ use std::io;
 use std::path::PathBuf;
 
 #[cfg(unix)]
+#[path = "agent/accounts.rs"]
+mod accounts;
+
+#[cfg(unix)]
 #[path = "agent/assets.rs"]
 mod assets;
 #[cfg(unix)]

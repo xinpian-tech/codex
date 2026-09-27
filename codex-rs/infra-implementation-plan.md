@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 原生账户发现接入部署与 Agent 启动
+
+机器启动后将现有 AccountArchiveActor 的实际 ArchiveStream 写入 spool/account-directory-stream.json；部署 publish 将它与 launch endpoint 一起提交到该机器的 Team State 分支。refresh 在同一次 Git fetch 后生成 hostid → ArchiveStream 映射，默认位置为 machinesFile + ".accounts.json"，也可通过机器配置 accountDirectoriesFile 指定。
+
+原生 Codex 的 agent-run.json 可使用 account_discovery，字段为 owner_machine、directories_file、page_size、batch_size、poll_interval_ms 和 connection（frame_bytes、request_timeout_ms、initial_sync_timeout_ms）。directories_file 指向本机刷新得到的账户目录映射；owner_machine 选择账户权威机器。Agent 启动时读取该机器的实际流，复用既有 AccountDirectoryReplica 和 AccountConnectionConfig，发现动态账户服务地址并获取账户。无需在不可变 generation 中预先填写首次启动才生成的流 ID。
+
+每个 Agent 的账户副本位于自身 launch/account-replica，解析后的来源及发现元数据随 launch 文件留存。原有显式 account 配置继续有效；省略 account 与 account_discovery 时使用 generation 账户（DeepSeek 等 Chat Completions provider）。运行时与 CLI 的定向编译检查和 Nix 语法解析已通过；Nix release 构建仍在进行，首次真实部署仍需独立 Team State 配置。未编写或运行测试。
+
 ### 独立可执行文件与 Nix 生产构建
 
 flake 新增 codex-infra 输出，明确只选择 codex-agent、codex-machine-runtime、codex-infra-account 三个可执行目标；agent/account/machine-runtime apps 和 codex-agent 输出引用该包。原 codex-rs 输出保持原有用途。沿用 doCheck=false 与 doInstallCheck=false，不选择测试目标。Team State 的 mkInfraDeployment 可以直接使用该包作为 codexPackage。

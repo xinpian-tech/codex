@@ -17,7 +17,10 @@ use serde::Deserialize;
 pub struct RunConfig {
     #[serde(default)]
     pub nix_program: Option<PathBuf>,
-    pub account: AgentAccountSource,
+    #[serde(default)]
+    pub account: Option<AgentAccountSource>,
+    #[serde(default)]
+    pub account_discovery: Option<super::accounts::AccountDiscovery>,
     pub directory_file: PathBuf,
     pub machines_file: PathBuf,
     #[serde(default)]
@@ -108,7 +111,12 @@ pub async fn run(binding: PathBuf) -> io::Result<()> {
             return Err(error);
         }
     };
-    let host = match prepared.start(config.account.clone()).await {
+    let started = async {
+        let source = super::accounts::resolve(&config, &bootstrap.launch, &bootstrap.directory)?;
+        prepared.start(source).await
+    }
+    .await;
+    let host = match started {
         Ok(host) => host,
         Err(error) => {
             terminal.stop().await?.restore_terminal()?;

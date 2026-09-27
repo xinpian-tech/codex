@@ -52,6 +52,7 @@ let
   commands = lib.mapAttrs (hostid: machine:
     let
       configuration = "${generations.${machine.generation}}/machine-runtime.json";
+      accountDirectoriesFile = machine.accountDirectoriesFile or "${machine.machinesFile}.accounts.json";
       common = ''
         config=${q configuration}
       '';
@@ -62,17 +63,26 @@ let
           repo=$(jq -r .team_state_repository "$config")
           remote=$(jq -r .archive_remote "$config")
           mkdir -p ${q (builtins.dirOf machine.machinesFile)}
+          mkdir -p ${q (builtins.dirOf accountDirectoriesFile)}
           temporary=$(mktemp ${q "${machine.machinesFile}.XXXXXX"})
+          accounts=$(mktemp ${q "${accountDirectoriesFile}.XXXXXX"})
           echo '{}' > "$temporary"
+          echo '{}' > "$accounts"
           ${lib.concatStringsSep "\n" (lib.mapAttrsToList (peer: _: ''
             if git -C "$repo" fetch --no-write-fetch-head "$remote" ${q "refs/heads/codex-machines/${peer}:refs/codex/machine-endpoints/${peer}"}; then
               endpoint=$(git -C "$repo" show ${q "refs/codex/machine-endpoints/${peer}:launch-endpoint.json"})
               jq --arg host ${q peer} --argjson endpoint "$endpoint" \
                 '. + {($host): $endpoint}' "$temporary" > "$temporary.next"
               mv "$temporary.next" "$temporary"
+              if stream=$(git -C "$repo" show ${q "refs/codex/machine-endpoints/${peer}:account-directory-stream.json"}); then
+                jq --arg host ${q peer} --argjson stream "$stream" \
+                  '. + {($host): $stream}' "$accounts" > "$accounts.next"
+                mv "$accounts.next" "$accounts"
+              fi
             fi
           '') machines)}
           mv "$temporary" ${q machine.machinesFile}
+          mv "$accounts" ${q accountDirectoriesFile}
         '';
       };
       publish = pkgs.writeShellApplication {
@@ -95,6 +105,8 @@ let
           git -C "$repo" read-tree --empty
           blob=$(git -C "$repo" hash-object -w "$spool/agent-launch-endpoint.json")
           git -C "$repo" update-index --add --cacheinfo "100644,$blob,launch-endpoint.json"
+          blob=$(git -C "$repo" hash-object -w "$spool/account-directory-stream.json")
+          git -C "$repo" update-index --add --cacheinfo "100644,$blob,account-directory-stream.json"
           tree=$(git -C "$repo" write-tree)
           parents=()
           if [ -n "$parent" ]; then parents=(-p "$parent"); fi
@@ -109,12 +121,12 @@ let
           spool=$(jq -r .spool_directory "$config")
           mkdir -p "$spool" ${q (builtins.dirOf machine.profilesFile)}
           cp ${catalog} ${q machine.profilesFile}
-          rm -f "$spool/agent-launch-endpoint.json"
+          rm -f "$spool/agent-launch-endpoint.json" "$spool/account-directory-stream.json"
           ${codexPackage}/bin/codex-machine-runtime "$config" < /dev/null &
           runtime_pid=$!
           discovery_pid=""
           trap 'if [ -n "$discovery_pid" ]; then kill "$discovery_pid" 2>/dev/null || true; fi; kill -TERM "$runtime_pid" 2>/dev/null || true; wait "$runtime_pid" || true' EXIT
-          until [ -s "$spool/agent-launch-endpoint.json" ]; do
+          until [ -s "$spool/agent-launch-endpoint.json" ] && [ -s "$spool/account-directory-stream.json" ]; do
             kill -0 "$runtime_pid"
             sleep 0.1
           done
@@ -130,7 +142,7 @@ let
           wait "$runtime_pid"
         '';
       };
-    in { inherit start publish refresh; }
+    in { inherit start publish refresh accountDirectoriesFile; }
   ) machines;
   leaderCommands = lib.mapAttrs (name: leader:
     let
