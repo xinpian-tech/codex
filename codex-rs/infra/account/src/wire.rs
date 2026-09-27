@@ -11,8 +11,10 @@ use crate::PublishedAccount;
 /// Published by the machine that currently owns refresh for this account.
 /// The endpoint is dynamically allocated; owner_revision identifies the
 /// committed ownership assignment used to route a request.
+/// instance_id changes on every listener start, even if its port is reused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountAuthority {
+    pub instance_id: MessageId,
     pub machine_id: MachineId,
     pub owner_revision: CommitId,
     pub endpoint: SocketAddr,

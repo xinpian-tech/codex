@@ -26,7 +26,7 @@ use crate::PublishedAccount;
 pub struct RemoteAccountSource {
     provider_id: String,
     account_id: String,
-    authority: watch::Receiver<AccountAuthority>,
+    authority: watch::Receiver<Option<AccountAuthority>>,
     frame_bytes: NonZeroUsize,
     timeout: Duration,
 }
@@ -35,7 +35,7 @@ impl RemoteAccountSource {
     pub fn new(
         provider_id: String,
         account_id: String,
-        authority: watch::Receiver<AccountAuthority>,
+        authority: watch::Receiver<Option<AccountAuthority>>,
         frame_bytes: NonZeroUsize,
         timeout: Duration,
     ) -> io::Result<Self> {
@@ -52,7 +52,12 @@ impl RemoteAccountSource {
     }
 
     async fn request(&self, action: AccountAction) -> io::Result<PublishedAccount> {
-        let authority = self.authority.borrow().clone();
+        let authority = self.authority.borrow().clone().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotConnected,
+                "account endpoint is not published",
+            )
+        })?;
         let request_id = MessageId::new();
         let request = AccountRequest {
             request_id,

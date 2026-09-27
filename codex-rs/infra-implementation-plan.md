@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户地址新增 AccountDirectory：按 provider/account 保存带前驱事件 ID 的追加链，Journal 落盘后才更新本地视图和该账户的 watch 订阅；相同头事件重放幂等，前驱缺失时由分发端补齐。AccountAuthority 带每次启动生成的 instance_id，端口复用也能区分服务实例。RemoteAccountSource 接受可为空的 authority 订阅，尚未发现或已撤下地址时返回未连接。MachineRuntime 在启动时持久发布本地服务地址，Ready 输出完整目录事件；机器控制接口增加 account_directory 增量输入。stop 仅撤下仍属于本实例的地址，返回撤下事件并由 CLI Stopped 记录，然后等待账户服务收尾。账户/机器库及 CLI、extension 库 Clippy 通过；未编写或运行测试，未执行账户服务或实装。当前目录为本地可重放副本，跨机器自动传输、Git 首次发现/历史补齐、目录 Journal 归档以及独立 Agent CLI 的订阅装配仍待完成；原生宿主初始 cloud loader 仍需与 serving manager 共用同一账户 bootstrap。
+
 MachineRuntime 现装配账户服务：machine-runtime.json 可提供 accounts 列表，逐项声明 provider/account、owner revision、跨 Root Session 共用的绝对目录、Git remote/config ref、ChatGPT 地址及连接参数。服务复用配置的 Git 程序与 Team State 仓库，在机器 bind address 上分配动态端口；CLI Ready 同时输出账户身份和实际 authority。部分启动后重试保留已启动服务，关闭时并行停止各账户接收并等待正在执行的刷新/发布，再继续机器归档收尾。新增逻辑位于 runtime 的独立 accounts 模块，未改动 core。跨机器目录发布/订阅、账户交接、账户原始 I/O 归档以及 Agent CLI 消费这些地址仍待装配；Ready 中输出地址不代表这些环节已完成。库/机器 CLI Clippy 通过，Cargo.lock 更新、Bazel 元数据刷新且 MODULE 锁无变化。未编写或运行测试，未启动账户服务、OAuth 或实装实验。
 
 账户 sync/recover 新增分叉整合。先尝试精确 push；失败后 fetch 远端到独立临时 ref，比较共同基础，按祖先关系快进或使用独立 Git index/read-tree 三方整合。accounts/catalog.json 出现双方修改时按 provider/account 条目做三方合并，保留不同账户及同值修改；同一条目两边不同、或其他文件出现未解冲突时返回明确冲突。合并提交保留双方父提交，ref 更新意图/结果与后续 push 继续进入原 operation journal。recover 也处理同一本地 ref 被其他发布推进：目标已包含则沿用当前提交，否则先整合待发布目标与当前 ref，再处理远端；所有 ref 更新仍 compare-and-swap，新的竞争留给后续恢复。初次普通 publish 的失败仍由已保存 operation 的恢复路径推进，未引入无限重试。账户库/CLI Clippy 通过；未编写或运行测试，未执行 Git 整合、push 或实装。归属交接、原始 I/O/会话归档与 MachineRuntime 装配继续待完成。

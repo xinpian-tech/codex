@@ -1,5 +1,6 @@
 //! Account views and lifecycle integration around Codex's existing login library.
 
+mod directory;
 mod external;
 mod owner;
 mod publish;
@@ -9,6 +10,8 @@ mod service;
 mod view;
 mod wire;
 
+pub use directory::AccountDirectory;
+pub use directory::AccountDirectoryUpdate;
 pub use external::AccountCredentialSource;
 pub use external::PublishedAccount;
 pub use external::PublishedAccountAuth;

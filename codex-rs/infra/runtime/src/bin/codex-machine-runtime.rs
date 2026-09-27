@@ -47,6 +47,9 @@ struct Request {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ControlCommand {
+    AccountDirectory {
+        update: codex_infra_account::AccountDirectoryUpdate,
+    },
     Directory {
         event: Box<DirectoryEvent>,
     },
@@ -68,13 +71,14 @@ enum Output {
         root_session_id: RootSessionId,
         machine_id: MachineId,
         endpoint: std::net::SocketAddr,
-        accounts: Vec<codex_infra_runtime::MachineAccountEndpoint>,
+        accounts: Vec<codex_infra_account::AccountDirectoryUpdate>,
     },
     Response {
         id: String,
         error: Option<String>,
     },
     Stopped {
+        account_updates: Vec<codex_infra_account::AccountDirectoryUpdate>,
         reason: StopReason,
         control_error: Option<String>,
         failures: Vec<String>,
@@ -159,7 +163,7 @@ async fn main() -> io::Result<()> {
             root_session_id,
             machine_id,
             endpoint: machine.endpoint(),
-            accounts: machine.account_endpoints(),
+            accounts: machine.account_updates(),
         })?;
         let controller = machine.controller()?;
         loop {
@@ -172,6 +176,16 @@ async fn main() -> io::Result<()> {
             };
             let Request { id, command } = request?;
             let update = match command {
+                ControlCommand::AccountDirectory { update } => {
+                    let error = machine
+                        .account_directory()?
+                        .apply(update)
+                        .await
+                        .err()
+                        .map(|error| error.to_string());
+                    audit.emit(Output::Response { id, error })?;
+                    continue;
+                }
                 ControlCommand::Directory { event } => SessionUpdate::Directory(event),
                 ControlCommand::Launch {
                     agent_id,
@@ -234,6 +248,7 @@ async fn main() -> io::Result<()> {
         recorded?;
         audit.event("services_stopped", &exit.failures)?;
         audit.emit(Output::Stopped {
+            account_updates: exit.account_updates,
             reason: result.as_ref().copied().unwrap_or(StopReason::ControlError),
             control_error: result.as_ref().err().map(ToString::to_string),
             failures: exit.failures,

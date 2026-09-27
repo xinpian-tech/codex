@@ -9,6 +9,8 @@ use std::time::Duration;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_infra_account::AccountAuthority;
+use codex_infra_account::AccountDirectory;
+use codex_infra_account::AccountDirectoryUpdate;
 use codex_infra_account::AccountOwnerAssignment;
 use codex_infra_account::AccountService;
 use codex_infra_account::AccountServiceConfig;
@@ -17,6 +19,7 @@ use codex_infra_account::GitAccountOwner;
 use codex_infra_account::GitAccounts;
 use codex_infra_protocol::CommitId;
 use codex_infra_protocol::MachineId;
+use codex_infra_protocol::MessageId;
 use codex_login::AuthRouteConfig;
 use serde::Deserialize;
 use serde::Serialize;
@@ -37,13 +40,10 @@ pub struct MachineAccountConfig {
     pub io_timeout_ms: NonZeroU64,
 }
 
-/// Actual dynamically allocated account endpoint, suitable for the directory
-/// publisher and RemoteAccountSource's authority feed.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct MachineAccountEndpoint {
-    pub provider_id: String,
-    pub account_id: String,
-    pub authority: AccountAuthority,
+struct MachineAccountEndpoint {
+    provider_id: String,
+    account_id: String,
+    authority: AccountAuthority,
 }
 
 pub struct MachineAccountServicesConfig {
@@ -122,11 +122,30 @@ impl MachineAccountServices {
         Ok(())
     }
 
-    pub(super) fn endpoints(&self) -> Vec<MachineAccountEndpoint> {
-        self.active
-            .iter()
-            .map(|(endpoint, _)| endpoint.clone())
-            .collect()
+    pub(super) async fn publish(
+        &self,
+        directory: &AccountDirectory,
+    ) -> io::Result<Vec<AccountDirectoryUpdate>> {
+        let mut updates = Vec::new();
+        for (endpoint, _) in &self.active {
+            let previous = directory.current(&endpoint.provider_id, &endpoint.account_id)?;
+            if let Some(previous) = &previous
+                && previous.authority.as_ref() == Some(&endpoint.authority)
+            {
+                updates.push(previous.clone());
+                continue;
+            }
+            let update = AccountDirectoryUpdate {
+                event_id: MessageId::new(),
+                provider_id: endpoint.provider_id.clone(),
+                account_id: endpoint.account_id.clone(),
+                previous_event_id: previous.map(|previous| previous.event_id),
+                authority: Some(endpoint.authority.clone()),
+            };
+            directory.apply(update.clone()).await?;
+            updates.push(update);
+        }
+        Ok(updates)
     }
 
     pub(super) async fn stop(self) -> Vec<String> {
@@ -146,5 +165,45 @@ impl MachineAccountServices {
             }
         }
         failures
+    }
+
+    pub(super) async fn withdraw(
+        &self,
+        directory: &AccountDirectory,
+    ) -> (Vec<AccountDirectoryUpdate>, Vec<String>) {
+        let mut updates = Vec::new();
+        let mut failures = Vec::new();
+        for (endpoint, _) in &self.active {
+            let result = async {
+                let Some(previous) =
+                    directory.current(&endpoint.provider_id, &endpoint.account_id)?
+                else {
+                    return Ok(None);
+                };
+                // A newer owner/instance may already have replaced this one.
+                if previous.authority.as_ref() != Some(&endpoint.authority) {
+                    return Ok(None);
+                }
+                let update = AccountDirectoryUpdate {
+                    event_id: MessageId::new(),
+                    provider_id: endpoint.provider_id.clone(),
+                    account_id: endpoint.account_id.clone(),
+                    previous_event_id: Some(previous.event_id),
+                    authority: None,
+                };
+                directory.apply(update.clone()).await?;
+                Ok::<_, io::Error>(Some(update))
+            }
+            .await;
+            match result {
+                Ok(Some(update)) => updates.push(update),
+                Ok(None) => {}
+                Err(error) => failures.push(format!(
+                    "withdraw account {}/{}: {error}",
+                    endpoint.provider_id, endpoint.account_id
+                )),
+            }
+        }
+        (updates, failures)
     }
 }

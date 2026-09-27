@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use codex_infra_protocol::CommitId;
 use codex_infra_protocol::MachineId;
+use codex_infra_protocol::MessageId;
 use codex_login::ExternalAuthRefreshContext;
 use codex_login::ExternalAuthRefreshReason;
 use tokio::io::AsyncReadExt;
@@ -64,6 +65,7 @@ impl AccountService {
         }
         let listener = TcpListener::bind((config.bind_ip, 0)).await?;
         let authority = AccountAuthority {
+            instance_id: MessageId::new(),
             machine_id: config.machine_id.clone(),
             owner_revision: config.owner_revision.clone(),
             endpoint: listener.local_addr()?,

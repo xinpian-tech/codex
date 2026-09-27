@@ -4,6 +4,9 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use codex_infra_account::AccountDirectory;
+use codex_infra_account::AccountDirectoryUpdate;
+
 use crate::ArchiveActor;
 use crate::ArchiveController;
 use crate::CollectorArchiveActor;
@@ -20,7 +23,6 @@ mod accounts;
 mod generation;
 mod launch;
 pub use accounts::MachineAccountConfig;
-pub use accounts::MachineAccountEndpoint;
 use accounts::MachineAccountServices;
 pub use accounts::MachineAccountServicesConfig;
 pub use generation::MachineLaunchProvenance;
@@ -52,11 +54,14 @@ pub struct MachineRuntime {
     shards: Option<ShardArchiveActor>,
     providers: Option<ProviderArchiveActor>,
     accounts: MachineAccountServices,
+    account_directory: Option<AccountDirectory>,
+    account_updates: Vec<AccountDirectoryUpdate>,
 }
 
 /// Resources returned for final snapshots, backlog reconciliation and restart.
 /// A successful service shutdown alone does not establish Agent/Session completion.
 pub struct MachineRuntimeExit {
+    pub account_updates: Vec<AccountDirectoryUpdate>,
     pub session: Option<TransportSession>,
     pub writer: Option<MachineArchiveWriter>,
     pub failures: Vec<String>,
@@ -81,6 +86,8 @@ impl MachineRuntime {
             shards: None,
             providers: None,
             accounts: MachineAccountServices::default(),
+            account_directory: None,
+            account_updates: Vec::new(),
         }
     }
 
@@ -154,7 +161,16 @@ impl MachineRuntime {
                 ProviderArchiveActor::start(self.config.provider_archives.clone(), archive).await?,
             );
         }
+        if self.account_directory.is_none() {
+            let path = self.directory.join("account-directory.journal");
+            self.account_directory = Some(
+                tokio::task::spawn_blocking(move || AccountDirectory::open(&path))
+                    .await
+                    .map_err(io::Error::other)??,
+            );
+        }
         self.accounts.start(&self.config.accounts).await?;
+        self.account_updates = self.accounts.publish(&self.account_directory()?).await?;
         Ok(())
     }
 
@@ -162,8 +178,14 @@ impl MachineRuntime {
         self.endpoint
     }
 
-    pub fn account_endpoints(&self) -> Vec<MachineAccountEndpoint> {
-        self.accounts.endpoints()
+    pub fn account_updates(&self) -> Vec<AccountDirectoryUpdate> {
+        self.account_updates.clone()
+    }
+
+    pub fn account_directory(&self) -> io::Result<AccountDirectory> {
+        self.account_directory
+            .clone()
+            .ok_or_else(|| io::Error::other("machine account directory has not opened"))
     }
 
     pub fn controller(&self) -> io::Result<SessionController> {
@@ -186,6 +208,13 @@ impl MachineRuntime {
     pub async fn stop(mut self) -> io::Result<MachineRuntimeExit> {
         tokio::spawn(async move {
             let mut failures = Vec::new();
+            let account_updates = if let Some(directory) = &self.account_directory {
+                let (updates, withdrawal_failures) = self.accounts.withdraw(directory).await;
+                failures.extend(withdrawal_failures);
+                updates
+            } else {
+                Vec::new()
+            };
             failures.extend(std::mem::take(&mut self.accounts).stop().await);
             if let Some(transport) = self.transport.take() {
                 match transport.stop().await {
@@ -228,6 +257,7 @@ impl MachineRuntime {
                 }
             }
             MachineRuntimeExit {
+                account_updates,
                 session: self.session,
                 writer: self.writer,
                 failures,
