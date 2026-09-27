@@ -30,6 +30,7 @@ pub use host::AgentAccountSource;
 pub use host::AgentDriverArchiveJobIds;
 pub use host::AgentDriverArchiveJobs;
 pub use host::AgentDriverArchiveReceipts;
+pub use host::AgentHostClient;
 pub use host::AgentHostConfig;
 pub use host::AgentHostGeneration;
 pub use host::AgentHostPrograms;

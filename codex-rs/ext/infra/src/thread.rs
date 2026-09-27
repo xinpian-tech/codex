@@ -24,9 +24,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::AgentHostClient;
 use crate::AgentRpc;
 use crate::AgentRpcOutcome;
-use crate::ManagedHost;
 
 /// A missing response remains unresolved until a matching durable thread is found.
 pub enum AgentThreadOutcome {
@@ -120,12 +120,12 @@ impl AgentThread {
     /// in this app-server; replaying an old resume reply would not establish that.
     pub async fn ensure(
         &self,
-        host: &ManagedHost,
+        host: &AgentHostClient,
         page_size: NonZeroU32,
     ) -> io::Result<AgentThreadOutcome> {
         let owner = self.clone();
         let rpc = host.rpc.clone();
-        let sender = host.client.sender();
+        let sender = host.sender.clone();
         tokio::spawn(async move {
             let gate = Arc::clone(&owner.gate).lock_owned().await;
             if *gate {

@@ -8,9 +8,9 @@ use codex_infra_state::InboxEntry;
 
 use super::AgentInputSubmission;
 use super::AgentInputSubmissions;
+use crate::AgentHostClient;
 use crate::AgentMessageInput;
 use crate::AgentRpcOutcome;
-use crate::ManagedHost;
 
 impl AgentInputSubmissions {
     /// Owns intent persistence and RPC dispatch through recorded completion.
@@ -20,14 +20,14 @@ impl AgentInputSubmissions {
     /// presentation. close waits for this operation even if its waiter cancels.
     pub async fn inject(
         &self,
-        host: &ManagedHost,
+        host: &AgentHostClient,
         entry: &InboxEntry,
         thread_id: String,
     ) -> io::Result<(AgentInputSubmission, AgentRpcOutcome)> {
         let inputs = self.clone();
         let entry = entry.clone();
         let rpc = host.rpc.clone();
-        let sender = host.client.sender();
+        let sender = host.sender.clone();
         tokio::spawn(async move {
             let _dispatch = Arc::clone(&inputs.dispatch).lock_owned().await;
             let submission = inputs.prepare(&entry, thread_id).await?;

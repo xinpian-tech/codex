@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use codex_app_server::host_services::HostServices;
 use codex_app_server::in_process::InProcessClientHandle;
+use codex_app_server::in_process::InProcessClientSender;
 use codex_app_server::in_process::InProcessStartArgs;
 use codex_app_server::in_process::start_with_host_services;
 use codex_core::config::Config;
@@ -87,6 +88,16 @@ pub struct ManagedHost {
     _launch_binding: Option<Arc<codex_infra_state::Journal>>,
 }
 
+/// Cloneable request/evidence access, independent of the event receiver and
+/// shutdown owner. A terminal loop can await these requests while continuously
+/// consuming app-server events through ManagedHost.client.
+#[derive(Clone)]
+pub struct AgentHostClient {
+    pub rpc: crate::AgentRpc,
+    pub model_inputs: Arc<crate::ModelInputAudit>,
+    pub(crate) sender: InProcessClientSender,
+}
+
 /// Completion boundaries for the host's currently recorded audit streams.
 /// These do not cover provider transport, terminal, mailbox, or machine logs.
 pub struct HostAuditPositions {
@@ -96,6 +107,14 @@ pub struct HostAuditPositions {
 }
 
 impl ManagedHost {
+    pub fn request_client(&self) -> AgentHostClient {
+        AgentHostClient {
+            rpc: self.rpc.clone(),
+            model_inputs: Arc::clone(&self.model_inputs),
+            sender: self.client.sender(),
+        }
+    }
+
     /// Reads bounded raw history evidence while inference and store writes
     /// continue. This does not acknowledge mailbox presentation by itself.
     pub async fn read_store_audit(

@@ -8,10 +8,10 @@ use codex_infra_state::PresentedInput;
 
 use super::AgentInputSubmission;
 use super::AgentInputSubmissions;
+use crate::AgentHostClient;
 use crate::AgentInputPresentation;
 use crate::AgentInputPresentationScan;
 use crate::AgentMessageInput;
-use crate::ManagedHost;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentInputDeliveryProgress {
@@ -77,7 +77,7 @@ impl AgentInputDelivery {
     /// This never sends Processed or treats model completion as Task completion.
     pub async fn advance(
         &mut self,
-        host: &ManagedHost,
+        host: &AgentHostClient,
         terminal: &TerminalMailbox,
         page_size: NonZeroUsize,
     ) -> io::Result<AgentInputDeliveryProgress> {

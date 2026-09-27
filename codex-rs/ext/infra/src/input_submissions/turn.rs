@@ -8,8 +8,8 @@ use codex_app_server_protocol::TurnStartResponse;
 use super::AgentInputSubmission;
 use super::AgentInputSubmissions;
 use super::Event;
+use crate::AgentHostClient;
 use crate::AgentRpcOutcome;
-use crate::ManagedHost;
 
 /// A recorded association is historical, not a claim that the turn is still
 /// running or that it has consumed the injected fragments.
@@ -35,13 +35,13 @@ impl AgentInputSubmissions {
     /// Cancellation drops only the waiter; close waits for the owned dispatch.
     pub async fn start_turn(
         &self,
-        host: &ManagedHost,
+        host: &AgentHostClient,
         submission: &AgentInputSubmission,
     ) -> io::Result<AgentInputTurnOutcome> {
         let inputs = self.clone();
         let submission = submission.clone();
         let rpc = host.rpc.clone();
-        let sender = host.client.sender();
+        let sender = host.sender.clone();
         tokio::spawn(async move {
             let _dispatch = Arc::clone(&inputs.dispatch).lock_owned().await;
             let request = inputs.prepare_turn(&submission).await?;
