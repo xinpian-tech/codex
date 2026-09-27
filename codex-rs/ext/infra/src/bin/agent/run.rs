@@ -29,6 +29,8 @@ pub struct RunConfig {
 }
 
 pub struct LoopState {
+    pub waiting_tasks: std::collections::BTreeMap<codex_infra_protocol::TaskId, serde_json::Value>,
+    pub tasks_changed: bool,
     pub role: codex_infra_protocol::RoleDefinition,
     pub active_input: AgentMessage,
     pub thread_id: String,
@@ -140,6 +142,12 @@ async fn drive(
         }
     };
     let mut state = LoopState {
+        waiting_tasks: match std::fs::read(host.directory.join("waiting-tasks.json")) {
+            Ok(bytes) => serde_json::from_slice(&bytes)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Default::default(),
+            Err(error) => return Err(error),
+        },
+        tasks_changed: true,
         role: serde_json::from_slice(&std::fs::read(
             host.home
                 .join("roles")
@@ -184,8 +192,14 @@ async fn drive(
             }
         }
         if !state.active {
-            super::contributions::publish_integrations(host, terminal, bootstrap, &mut state)
-                .await?;
+            super::contributions::publish_integrations(
+                host, config, terminal, bootstrap, &mut state,
+            )
+            .await?;
+            if state.tasks_changed {
+                state.tasks_changed = false;
+                super::tasks::start_ready(host, config, bootstrap, &mut state).await?;
+            }
             for message in std::mem::take(&mut state.pending) {
                 super::finish::publish(host, terminal, message).await?;
             }
@@ -216,6 +230,8 @@ async fn drive(
                         .contains(&entry.message.kind)
             }) {
                 input_cursor = entry.accepted_sequence + 1;
+                super::tasks::observe(host, config, &entry.message).await?;
+                state.tasks_changed = true;
                 submit(host, terminal, entry, &mut state).await?;
             } else if let Some(entry) = entries.last() {
                 input_cursor = entry.accepted_sequence + 1;

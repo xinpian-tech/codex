@@ -10,6 +10,7 @@ mod ingress;
 mod injector;
 mod input;
 mod launch_service;
+pub use launch_service::TaskCommand;
 mod launcher;
 pub use launch_service::{
     LaunchService, LaunchServiceRequest, LaunchServiceResponse, SpawnAgent, launch_request,

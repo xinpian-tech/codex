@@ -20,6 +20,8 @@ use crate::LaunchIntent;
 use crate::MachineLaunchConfig;
 use crate::SessionController;
 use crate::SessionUpdate;
+mod tasks;
+pub use tasks::TaskCommand;
 
 /// Machine control metadata. Task bodies are delivered only through tmux.
 #[derive(Clone, Serialize, Deserialize)]
@@ -39,6 +41,9 @@ pub struct SpawnAgent {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LaunchServiceRequest {
+    Task {
+        command: Box<TaskCommand>,
+    },
     Status {
         agent_id: AgentId,
         commit: CommitId,
@@ -59,6 +64,8 @@ pub enum LaunchServiceRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct LaunchServiceResponse {
+    #[serde(default)]
+    pub tasks: Vec<TaskRecord>,
     pub events: Vec<DirectoryEvent>,
     pub spawned: Option<AgentDescriptor>,
     pub error: Option<String>,
@@ -79,6 +86,9 @@ impl LaunchService {
         let listener = TcpListener::bind((config.bind_address, 0)).await?;
         let endpoint = listener.local_addr()?;
         let path = config.spool_directory.join("agent-directory.json");
+        let mut tasks =
+            codex_infra_state::TaskStore::open(&config.spool_directory.join("tasks.journal"))
+                .map_err(io::Error::other)?;
         let events: Vec<DirectoryEvent> = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
@@ -100,7 +110,14 @@ impl LaunchService {
                 let mut line = String::new();
                 socket.read_line(&mut line).await?;
                 let request = serde_json::from_str(&line).map_err(io::Error::other);
+                let mut task_records = Vec::new();
                 let result = match request {
+                    Ok(LaunchServiceRequest::Task { command }) => {
+                        tasks::apply(&mut tasks, &config.machine_id, *command).map(|records| {
+                            task_records = records;
+                            None
+                        })
+                    }
                     Ok(request) => {
                         handle(&config, &controller, tmux_endpoint, &mut events, request).await
                     }
@@ -108,6 +125,7 @@ impl LaunchService {
                 };
                 std::fs::write(&path, serde_json::to_vec(&events)?)?;
                 let response = LaunchServiceResponse {
+                    tasks: task_records,
                     spawned: result.as_ref().ok().cloned().flatten(),
                     error: result.err().map(|error| error.to_string()),
                     events: events.clone(),
@@ -156,6 +174,11 @@ async fn handle(
     request: LaunchServiceRequest,
 ) -> io::Result<Option<AgentDescriptor>> {
     let mut descriptor = match request {
+        LaunchServiceRequest::Task { .. } => {
+            return Err(io::Error::other(
+                "Task command belongs to the machine task writer",
+            ));
+        }
         LaunchServiceRequest::Status {
             agent_id,
             commit,

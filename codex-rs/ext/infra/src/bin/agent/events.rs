@@ -80,6 +80,7 @@ async fn tool(
     state: &mut LoopState,
 ) -> io::Result<String> {
     match name {
+        "infra_task" => super::tasks::query(host, config, arguments).await,
         "infra_contribute" | "infra_integrate" => {
             super::contributions::handle(host, config, bootstrap, name, arguments, state).await
         }
@@ -128,6 +129,11 @@ async fn tool(
             )
         }
         "infra_complete" | "infra_escalate" => {
+            if name == "infra_complete" && !state.waiting_tasks.is_empty() {
+                return Err(io::Error::other(
+                    "finish the waiting dependent Tasks before completing this Task",
+                ));
+            }
             let kind = if name == "infra_complete" {
                 MessageKind::Result
             } else {

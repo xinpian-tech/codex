@@ -7,6 +7,7 @@ use codex_infra_extension::StartedAgentHost;
 use codex_infra_protocol::*;
 use codex_infra_runtime::LaunchServiceRequest;
 use codex_infra_runtime::SpawnAgent;
+use codex_infra_runtime::TaskCommand;
 use codex_infra_runtime::launch_request;
 use codex_infra_state::InboxEntry;
 use serde::Deserialize;
@@ -56,7 +57,16 @@ pub async fn spawn(
         .get(&machine)
         .ok_or_else(|| io::Error::other("target machine endpoint missing"))?;
     let mut task = host.task.clone();
-    task.task_id = TaskId::new();
+    task.task_id = if arguments["task_id"].is_null() {
+        TaskId::new()
+    } else {
+        serde_json::from_value(arguments["task_id"].clone())?
+    };
+    task.dependencies = if arguments["dependencies"].is_null() {
+        Vec::new()
+    } else {
+        serde_json::from_value(arguments["dependencies"].clone())?
+    };
     task.assigned_agent = AgentId::new();
     task.owner_machine_id = host.launch.machine_id.clone();
     task.target_machine = machine.clone();
@@ -100,6 +110,55 @@ pub async fn spawn(
         ));
     }
     let known = launch_request(local, LaunchServiceRequest::List).await?;
+    let command = if arguments["task_id"].is_null() {
+        TaskCommand::Create {
+            record: TaskRecord::new(
+                task.task_id,
+                host.launch.machine_id.clone(),
+                task.dependencies.clone(),
+            ),
+        }
+    } else {
+        TaskCommand::Get {
+            task_id: task.task_id,
+        }
+    };
+    let records = super::tasks::request(config, &host.launch.machine_id, command).await?;
+    let record = records
+        .first()
+        .ok_or_else(|| io::Error::other("Task is not owned by this machine"))?;
+    std::fs::write(
+        host.directory.join(format!("task-{}.json", task.task_id)),
+        serde_json::to_vec_pretty(&json!({"task":task,"arguments":arguments,"record":record}))?,
+    )?;
+    if record.status() != TaskStatus::Ready {
+        if record.status() == TaskStatus::Waiting {
+            state.waiting_tasks.insert(task.task_id, arguments.clone());
+            std::fs::write(
+                host.directory.join("waiting-tasks.json"),
+                serde_json::to_vec_pretty(&state.waiting_tasks)?,
+            )?;
+        }
+        return Ok(serde_json::to_string(
+            &json!({"task":record,"launch":"not Ready; Waiting tasks are retained for automatic launch after dependency updates"}),
+        )?);
+    }
+    let assignment_id = AssignmentId::new();
+    let claimed = super::tasks::request(
+        config,
+        &host.launch.machine_id,
+        TaskCommand::Claim {
+            task_id: task.task_id,
+            revision: record.revision(),
+            assignment_id,
+            agent_id: task.assigned_agent,
+        },
+    )
+    .await?;
+    task.revision = claimed
+        .first()
+        .ok_or_else(|| io::Error::other("claim returned no Task"))?
+        .revision();
     if let Some(repository) = &profile.task_repository {
         task.repo = repository.repo.clone();
         task.source_commit = repository.commit.clone();
@@ -116,6 +175,13 @@ pub async fn spawn(
             .trim()
             .parse()
             .map_err(io::Error::other)?;
+    }
+    if let Some(Assignment {
+        status: AssignmentStatus::HandedOff { commit },
+        ..
+    }) = record.assignments().last()
+    {
+        task.source_commit = commit.clone();
     }
     if remote != local {
         launch_request(
@@ -189,8 +255,13 @@ pub async fn spawn(
         serde_json::to_string(&task)?,
     );
     message.task_id = task.task_id;
-    message.assignment_id = AssignmentId::new();
+    message.assignment_id = assignment_id;
     state.pending.push(message);
+    state.waiting_tasks.remove(&task.task_id);
+    std::fs::write(
+        host.directory.join("waiting-tasks.json"),
+        serde_json::to_vec_pretty(&state.waiting_tasks)?,
+    )?;
     Ok(serde_json::to_string(
         &json!({"agent":child,"task_id":task.task_id,"inference":profile.generation.inference,"delivery":"bootstrap queued for tmux at turn end"}),
     )?)

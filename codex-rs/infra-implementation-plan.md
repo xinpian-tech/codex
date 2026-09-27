@@ -594,6 +594,16 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### Task owner、依赖推进与同任务升级接线
+
+机器 launch service 已实际持有既有 TaskStore，以拥有机器串行处理 Task 创建、查询、claim、完成、handoff 和贡献依赖满足。协议只传 TaskRecord/assignment/commit 元数据，目标与正文继续由 tmux bootstrap 交付。infra_spawn 在创建 worker 前创建或认领 Task，bootstrap 使用已确认 assignment ID；可传入现有 Ready task_id，因此 DeepSeek 升级到 Codex 时沿用原 Task，并以先前 handoff commit 为新 worktree 起点。
+
+Agent 主循环在接收有效 Result/Escalation 后调用 Task owner 的完成/handoff 转换。完成推进同机拥有的 TaskOutput 依赖；已经完成的 TaskOutput 在新任务创建时也会满足。贡献的目标分支 push 成功后，整合流程调用 owner 满足 IntegratedContribution 依赖。infra_task 查询实际状态、待满足依赖和 assignment 历史。
+
+带未满足依赖的 infra_spawn 保留启动参数而不创建进程。CLI 在依赖结果处理、贡献整合及启动恢复后的轮次间检查这些任务，自动使用原参数启动已 Ready 的 worker，再将 bootstrap 放入既有 tmux 发送链；已有等待任务时 infra_complete 返回继续完成依赖任务的提示。waiting-tasks 与已观察结果文件进入现有 launch 留存，TaskStore 的 tasks.journal 保留在机器 spool。
+
+仍需接较晚创建的 IntegratedContribution 依赖回填、机器 Task journal 的 Git 归档，以及跨拥有机器的依赖通知；当前不声称这些已完成。知识候选确认/发布、真实 Team State 部署及完整实验也仍待推进。本轮只进行相关 Rust 库和两个实际 binary 的静态检查，未编写或运行测试，未启动真实 Task/worker 或执行 Git 操作。
+
 ### 会话读取与贡献整合业务接线
 
 新增实际模型工具 infra_session，复用 SessionShard 的归档 fetch、stream catalog 和 journal restore。list 返回固定 archive revision 上的分页流元数据；read 按所选 stream/required position 恢复已归档前缀，使用 JournalReader 选取有界记录片段，保留原 root/machine/Agent/launch、archive commit、事件 sequence 与片段位置。工具的 read 返回值只有控制状态和 message ID，正文排入 WorkingContext，经当前读取 Agent 的 tmux stdout → gateway → 自身 stdin 交付；知识读取角色配置自己角色的 WorkingContext 输入/输出。读取材料和查询结果保留在 launch 目录，进入已有退出归档。未归档完整的前缀在 list 标明可用性；跨 Agent 在线回答仍由负责该记录的 Agent 使用定向消息交付。

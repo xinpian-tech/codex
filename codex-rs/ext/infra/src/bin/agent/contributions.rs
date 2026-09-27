@@ -157,6 +157,7 @@ pub async fn handle(
 
 pub async fn publish_integrations(
     host: &StartedAgentHost,
+    config: &RunConfig,
     terminal: &TerminalMailbox,
     bootstrap: &InboxEntry,
     state: &mut LoopState,
@@ -200,7 +201,16 @@ pub async fn publish_integrations(
         contribution
             .integrate(host.launch.workspace.agent_id, receipt.pushed_commit)
             .map_err(io::Error::other)?;
+        super::tasks::request(
+            config,
+            &host.launch.machine_id,
+            codex_infra_runtime::TaskCommand::Integrated {
+                contribution_id: id,
+            },
+        )
+        .await?;
         let body = serde_json::to_string(&json!({"contribution":contribution}))?;
+        state.tasks_changed = true;
         std::fs::write(
             host.directory.join(format!("integration-{id}.json")),
             body.as_bytes(),

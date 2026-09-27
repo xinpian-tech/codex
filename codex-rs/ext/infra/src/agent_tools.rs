@@ -20,6 +20,7 @@ pub(crate) fn instructions(launch: &codex_infra_runtime::LaunchIntent) -> std::i
 
 pub(crate) fn specs() -> Vec<DynamicToolSpec> {
     [
+        ("infra_task", "Query owned Task status, pending dependencies and assignment history. Omit task_id to list a page; pass next as after. Ready tasks can be resumed with infra_spawn using the same task_id, including Codex escalation after handoff.", json!({"task_id":{"type":"string"},"after":{"type":"string"}}), vec![]),
         ("infra_contribute", "Deliver a ready contribution to its integration owner through tmux. Records actual Git HEAD, original base, target branch and dependencies. This is distinct from completing the whole Task.", json!({"owner":{"type":"string"},"target_branch":{"type":"string"},"summary":{"type":"string"},"dependencies":{"type":"array","items":{"type":"string"}}}), vec!["owner","target_branch","summary","dependencies"]),
         ("infra_integrate", "Cherry-pick the ready contribution in the current input into this integration owner's worktree. At turn end the host pushes the target branch and replies with the integrated commit. Resolve conflicts with normal file/Git tools before calling complete mode. For knowledge candidates, obtain team confirmation first.", json!({"mode":{"type":"string","enum":["cherry_pick","complete"]}}), vec!["mode"]),
         ("infra_session", "Inspect archived Session streams. list returns metadata and a revision/cursor. read uses a listed stream and required position; its bounded excerpt is delivered through your tmux input after this turn, with original archive/author references. Pass the returned record_cursor and payload_offset for further chunks.", json!({"action":{"type":"string","enum":["list","read"]},"machine_id":{"type":"string"},"root_session_id":{"type":"string"},"revision":{"type":"string"},"after":{"type":"string"},"stream":{"type":"object"},"required":{"type":"object","properties":{"next_sequence":{"type":"integer"},"byte_offset":{"type":"integer"}},"required":["next_sequence","byte_offset"]},"record_cursor":{"type":"object","properties":{"next_sequence":{"type":"integer"},"byte_offset":{"type":"integer"}},"required":["next_sequence","byte_offset"]},"payload_offset":{"type":"integer"}}), vec!["action","machine_id"]),
@@ -31,7 +32,11 @@ pub(crate) fn specs() -> Vec<DynamicToolSpec> {
         ("infra_escalate", "Report a problem requiring a Codex worker to the task owner. Include attempted approaches and the remaining problem, then finish this turn.", json!({"result":{"type":"string"}}), vec!["result"]),
     ]
     .into_iter()
-    .map(|(name, description, properties, required)| {
+    .map(|(name, description, mut properties, required)| {
+        if name == "infra_spawn" {
+            properties["task_id"] = json!({"type":"string","description":"Existing Ready Task to claim; omit for a new Task."});
+            properties["dependencies"] = json!({"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["task_output","integrated_contribution"]},"task_id":{"type":"string"},"contribution_id":{"type":"string"}},"required":["kind"]},"description":"Dependencies for a new Task. Waiting Tasks are recorded without launching until their dependencies resolve."});
+        }
         DynamicToolSpec::Function(DynamicToolFunctionSpec {
             name: name.to_owned(), description: description.to_owned(),
             input_schema: json!({"type":"object", "properties":properties, "required":required, "additionalProperties":false}),

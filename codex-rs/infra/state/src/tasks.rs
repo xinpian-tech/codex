@@ -57,6 +57,10 @@ impl TaskStore {
         self.records.get(&task_id)
     }
 
+    pub fn records(&self) -> impl Iterator<Item = &TaskRecord> {
+        self.records.values()
+    }
+
     pub fn create(&mut self, record: TaskRecord) -> Result<u64, TaskStoreError> {
         if self.records.contains_key(&record.task_id()) {
             return Err(TaskStoreError::Exists(record.task_id()));

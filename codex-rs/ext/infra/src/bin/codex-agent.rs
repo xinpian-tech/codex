@@ -28,6 +28,9 @@ mod sessions;
 #[cfg(unix)]
 #[path = "agent/spawn.rs"]
 mod spawn;
+#[cfg(unix)]
+#[path = "agent/tasks.rs"]
+mod tasks;
 
 fn main() -> io::Result<()> {
     let mut args = std::env::args_os().skip(1);
