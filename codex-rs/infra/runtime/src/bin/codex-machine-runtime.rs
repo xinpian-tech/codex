@@ -71,6 +71,7 @@ enum Output {
         root_session_id: RootSessionId,
         machine_id: MachineId,
         endpoint: std::net::SocketAddr,
+        launch_endpoint: std::net::SocketAddr,
         accounts: Vec<codex_infra_account::AccountDirectoryUpdate>,
         account_directory_archive: codex_infra_state::ArchiveStream,
     },
@@ -117,6 +118,7 @@ async fn main() -> io::Result<()> {
     let root_session_id = config.root_session_id;
     let machine_id = config.machine_id.clone();
     let control_directory = config.spool_directory.join("machine-control");
+    let launch_config = config.clone();
     let mut machine = match config.open().await {
         Ok(machine) => machine,
         Err(error) => {
@@ -147,6 +149,12 @@ async fn main() -> io::Result<()> {
         return fail_startup("startup_failed", error, audit, input_audit, writer).await;
     }
     let (send, mut receive) = mpsc::channel(capacity);
+    let launches = codex_infra_runtime::LaunchService::start(
+        launch_config,
+        machine.controller()?,
+        machine.endpoint(),
+    )
+    .await?;
     let input_worker = InputWorker::start(input_audit, send);
     let result = async {
         input_worker
@@ -164,16 +172,18 @@ async fn main() -> io::Result<()> {
             root_session_id,
             machine_id,
             endpoint: machine.endpoint(),
+            launch_endpoint: launches.endpoint,
             accounts: machine.account_updates(),
             account_directory_archive: machine.account_archive_stream()?,
         })?;
         let controller = machine.controller()?;
+        let mut stdin_open = true;
         loop {
             let request = tokio::select! {
                 reason = signals.receive() => return reason,
-                request = receive.recv() => match request {
+                request = receive.recv(), if stdin_open => match request {
                     Some(request) => request,
-                    None => return Ok(StopReason::StdinClosed),
+                    None => { stdin_open = false; continue; },
                 },
             };
             let Request { id, command } = request?;
@@ -212,6 +222,7 @@ async fn main() -> io::Result<()> {
     }
     .await;
     drop(receive);
+    launches.stop().await?;
     let input_stopped = match input_worker {
         Ok(worker) => worker.stop().await,
         Err(failure) => failure.completion,

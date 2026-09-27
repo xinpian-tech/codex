@@ -9,7 +9,11 @@ mod gateway;
 mod ingress;
 mod injector;
 mod input;
+mod launch_service;
 mod launcher;
+pub use launch_service::{
+    LaunchService, LaunchServiceRequest, LaunchServiceResponse, SpawnAgent, launch_request,
+};
 mod machine;
 mod mailbox;
 mod provider_archive;

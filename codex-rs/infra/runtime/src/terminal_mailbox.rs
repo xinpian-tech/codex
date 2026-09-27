@@ -5,6 +5,7 @@ use std::os::fd::AsFd;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
@@ -18,6 +19,7 @@ use tokio::sync::watch;
 use crate::HostMailbox;
 use crate::LaunchIntent;
 
+mod archive;
 mod bootstrap;
 
 /// Input progress is notification metadata; message bodies stay in HostMailbox.
@@ -31,6 +33,8 @@ pub enum TerminalInputState {
 /// Owns the Agent's raw terminal and an independent, interruptible stdin reader.
 /// Use `with_mailbox` to serialize local operations with incoming tmux frames.
 pub struct TerminalMailbox {
+    launch: LaunchIntent,
+    lifecycle_path: PathBuf,
     shared: Arc<Mutex<Option<HostMailbox<io::Stdout>>>>,
     state: watch::Receiver<TerminalInputState>,
     stop: UnixStream,
@@ -41,6 +45,8 @@ pub struct TerminalMailbox {
 /// Input has ended. The finalizer can still send/flush the last checkpointed
 /// messages before explicitly restoring the terminal and archiving its tails.
 pub struct TerminalMailboxExit {
+    launch: LaunchIntent,
+    lifecycle_path: PathBuf,
     pub mailbox: HostMailbox<io::Stdout>,
     terminal: Arc<Mutex<AgentTerminal>>,
     pub input_lifecycle: JournalPosition,
@@ -81,7 +87,8 @@ impl TerminalMailbox {
             launch.workspace.agent_id,
             io::stdout(),
         )?;
-        let mut lifecycle = Journal::open(&directory.join("input-lifecycle.journal"), |_| Ok(()))?;
+        let lifecycle_path = directory.canonicalize()?.join("input-lifecycle.journal");
+        let mut lifecycle = Journal::open(&lifecycle_path, |_| Ok(()))?;
         lifecycle.append(&serde_json::to_vec(&InputEvent::Opened { launch })?)?;
         let (stop, wake) = UnixStream::pair()?;
         mailbox.announce_ready(launch.launch_id)?;
@@ -137,6 +144,8 @@ impl TerminalMailbox {
                 Ok(lifecycle.position())
             })?;
         Ok(Self {
+            launch: launch.clone(),
+            lifecycle_path,
             shared,
             state: receiver,
             stop,
@@ -178,6 +187,8 @@ impl TerminalMailbox {
     /// receipts will be handled; it does not imply message delivery completion.
     pub async fn stop(self) -> io::Result<TerminalMailboxExit> {
         let Self {
+            launch,
+            lifecycle_path,
             shared,
             state,
             stop,
@@ -201,6 +212,8 @@ impl TerminalMailbox {
                 .take()
                 .ok_or_else(|| io::Error::other("terminal mailbox already handed off"))?;
             Ok(TerminalMailboxExit {
+                launch,
+                lifecycle_path,
                 mailbox,
                 terminal,
                 input_lifecycle,

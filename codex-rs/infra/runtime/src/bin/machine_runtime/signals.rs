@@ -6,7 +6,6 @@ use serde::Serialize;
 #[serde(rename_all = "snake_case")]
 pub(super) enum StopReason {
     Requested,
-    StdinClosed,
     Interrupt,
     #[cfg(unix)]
     Terminate,
