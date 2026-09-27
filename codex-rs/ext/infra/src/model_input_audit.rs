@@ -64,27 +64,52 @@ pub enum ModelInputAuditEvent {
     },
 }
 
+/// Durable progress and terminal writer state for event-driven consumers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelInputAuditState {
+    Running { position: JournalPosition },
+    Closed { position: JournalPosition },
+    Failed { error: String },
+}
+
 /// Records final transport inputs before submission. These records are evidence
 /// of preparation, not provider receipt. Warmup and WebSocket deltas remain
 /// explicit so recovery does not mistake them for full generation requests.
 #[derive(Clone)]
 pub struct ModelInputAudit {
     writer: Arc<Mutex<Writer>>,
-    changes: tokio::sync::watch::Receiver<JournalPosition>,
+    changes: tokio::sync::watch::Receiver<ModelInputAuditState>,
 }
 
 struct Writer {
     path: PathBuf,
     journal: Journal,
     closed: bool,
-    changed: tokio::sync::watch::Sender<JournalPosition>,
+    changed: tokio::sync::watch::Sender<ModelInputAuditState>,
 }
 
 impl Writer {
     fn append(&mut self, event: &ModelInputAuditEvent) -> io::Result<()> {
-        self.journal.append(&serde_json::to_vec(event)?)?;
-        self.changed.send_replace(self.journal.position());
-        Ok(())
+        if let ModelInputAuditState::Failed { error } = &*self.changed.borrow() {
+            return Err(io::Error::other(error.clone()));
+        }
+        match serde_json::to_vec(event)
+            .map_err(io::Error::other)
+            .and_then(|bytes| self.journal.append(&bytes))
+        {
+            Ok(_) => {
+                self.changed.send_replace(ModelInputAuditState::Running {
+                    position: self.journal.position(),
+                });
+                Ok(())
+            }
+            Err(error) => {
+                self.changed.send_replace(ModelInputAuditState::Failed {
+                    error: error.to_string(),
+                });
+                Err(error)
+            }
+        }
     }
 }
 
@@ -99,7 +124,7 @@ impl std::fmt::Debug for ModelInputAudit {
 impl ModelInputAudit {
     /// Subscribe before scanning, then wait for changes after catching up.
     /// Notifications follow durable writes; consumers read evidence by cursor.
-    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<JournalPosition> {
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<ModelInputAuditState> {
         self.changes.clone()
     }
 
@@ -110,6 +135,9 @@ impl ModelInputAudit {
             .writer
             .lock()
             .map_err(|error| io::Error::other(error.to_string()))?;
+        if let ModelInputAuditState::Failed { error } = &*writer.changed.borrow() {
+            return Err(io::Error::other(error.clone()));
+        }
         Ok((writer.path.clone(), writer.journal.position()))
     }
 
@@ -134,7 +162,9 @@ impl ModelInputAudit {
             identity,
             launch_id,
         })?)?;
-        let (changed, changes) = tokio::sync::watch::channel(journal.position());
+        let (changed, changes) = tokio::sync::watch::channel(ModelInputAuditState::Running {
+            position: journal.position(),
+        });
         Ok(Self {
             changes,
             writer: Arc::new(Mutex::new(Writer {
@@ -155,6 +185,12 @@ impl ModelInputAudit {
                 .lock()
                 .map_err(|error| io::Error::other(error.to_string()))?;
             writer.closed = true;
+            if let ModelInputAuditState::Failed { error } = &*writer.changed.borrow() {
+                return Err(io::Error::other(error.clone()));
+            }
+            writer.changed.send_replace(ModelInputAuditState::Closed {
+                position: writer.journal.position(),
+            });
             Ok((writer.path.clone(), writer.journal.position()))
         })
         .await

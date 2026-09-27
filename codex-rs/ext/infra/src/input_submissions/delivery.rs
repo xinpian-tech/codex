@@ -5,6 +5,7 @@ use std::sync::Arc;
 use codex_infra_runtime::TerminalMailbox;
 use codex_infra_state::InboxEntry;
 use codex_infra_state::PresentedInput;
+use tokio_util::sync::CancellationToken;
 
 use super::AgentInputSubmission;
 use super::AgentInputSubmissions;
@@ -12,6 +13,14 @@ use crate::AgentHostClient;
 use crate::AgentInputPresentation;
 use crate::AgentInputPresentationScan;
 use crate::AgentMessageInput;
+use crate::ModelInputAuditState;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AgentInputDeliveryWait {
+    Confirmed { input: PresentedInput },
+    Stopped,
+    ClosedWithoutPresentation,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentInputDeliveryProgress {
@@ -71,6 +80,42 @@ impl AgentInputSubmissions {
 }
 
 impl AgentInputDelivery {
+    /// Waits on durable audit changes between bounded scans. Cooperative stop
+    /// completes the current scan/receipt operation before returning; callers
+    /// retain this driver to continue from the same cursor later.
+    pub async fn wait(
+        &mut self,
+        host: &AgentHostClient,
+        terminal: &TerminalMailbox,
+        page_size: NonZeroUsize,
+        stop: CancellationToken,
+    ) -> io::Result<AgentInputDeliveryWait> {
+        let mut changes = host.model_inputs.subscribe();
+        loop {
+            if stop.is_cancelled() {
+                return Ok(AgentInputDeliveryWait::Stopped);
+            }
+            let state = changes.borrow_and_update().clone();
+            if let ModelInputAuditState::Failed { error } = &state {
+                return Err(io::Error::other(error.clone()));
+            }
+            match self.advance(host, terminal, page_size).await? {
+                AgentInputDeliveryProgress::Confirmed { input } => {
+                    return Ok(AgentInputDeliveryWait::Confirmed { input });
+                }
+                AgentInputDeliveryProgress::Scanning => continue,
+                AgentInputDeliveryProgress::Waiting => {}
+            }
+            if matches!(state, ModelInputAuditState::Closed { .. }) {
+                return Ok(AgentInputDeliveryWait::ClosedWithoutPresentation);
+            }
+            tokio::select! {
+                _ = stop.cancelled() => return Ok(AgentInputDeliveryWait::Stopped),
+                changed = changes.changed() => changed.map_err(io::Error::other)?,
+            }
+        }
+    }
+
     /// Reads at most one audit page, then records proof before emitting a
     /// Presented receipt through tmux stdout. Cancellation can leave either
     /// durable write complete; retry reuses those bindings and receipt sequence.

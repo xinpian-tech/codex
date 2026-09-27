@@ -59,6 +59,8 @@ pub use input_presentation::AgentInputPresentationScan;
 pub use input_submissions::AgentInputDelivery;
 #[cfg(unix)]
 pub use input_submissions::AgentInputDeliveryProgress;
+#[cfg(unix)]
+pub use input_submissions::AgentInputDeliveryWait;
 pub use input_submissions::AgentInputSubmission;
 pub use input_submissions::AgentInputSubmissions;
 pub use input_submissions::AgentInputTurnOutcome;
@@ -66,6 +68,7 @@ pub use model_input_audit::ModelInputAudit;
 pub use model_input_audit::ModelInputAuditEvent;
 pub use model_input_audit::ModelInputAuditPage;
 pub use model_input_audit::ModelInputAuditRecord;
+pub use model_input_audit::ModelInputAuditState;
 pub use process_activity::ProcessActivity;
 pub use process_activity::ProcessSettlement;
 pub use process_activity::ProcessSettlementOutcome;

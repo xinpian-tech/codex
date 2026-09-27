@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+AgentInputDelivery 新增 wait 循环，逐页推进既有证据核对和 Presented 回执，追平后等待持久位置通知，协作停止完成当前步骤后返回并保留驱动游标。ModelInputAudit 通知改为 Running/Closed/Failed，关闭通知携带最终位置；序列化或写入失败保存并通知错误，后续 snapshot/close 不把失败 writer 当成正常完成。等待方区分 Confirmed、Stopped 与 ClosedWithoutPresentation，避免审计已关闭却继续永久等待。extension 库级 Clippy 通过，未编写或运行测试，未调用真实模型或终端。CLI 仍需并行装配输入/事件消费者及停止流程，具体服务端请求处理和整体恢复/最终封存待完成。
+
 StartedAgentHost 新增 close_event_consumer：确认游标绑定本宿主的事件源与 run_start 后关闭推进，使用实际 cursor journal 最终位置生成 ProducerFinished 归档任务。stream/receipt 名带运行起点，区分同一 launch 多次 app-server 实例的消费进度；归属来自宿主 launch，不由消费者自行拼接。关闭与采样在拥有任务的 blocking worker 中完成。extension 库级 Clippy 通过，未编写或运行测试，未执行真实封存。外层仍需先停止并等待消费者、持久化原归档任务、提交并等待对应远端回执；历史中断实例的游标归档恢复及 CLI 完整收尾尚待接通。
 
 AgentServerEvents 新增 consume 驱动：订阅持久进度后按页读取，逐个等待传入的业务处理器完成或完成持久交接，整页成功后才确认消费游标；处理错误保留未确认页，处理器须按原事件位置实现可重放副作用。协作停止信号在当前页处理/确认完成后生效，追平时等待 watch 更新，处理并确认 Closed 后返回 SourceClosed；不会凭通知通道消失推断正常完成。此驱动不替调用方决定审批、用户输入、动态工具或账户刷新策略。extension 库级 Clippy 通过，未编写或运行测试，未消费真实事件。具体处理器、游标归档与 CLI 对输入调度/停止/最终收尾的装配仍待完成。

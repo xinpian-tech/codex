@@ -29,6 +29,8 @@ mod turn;
 pub use delivery::AgentInputDelivery;
 #[cfg(unix)]
 pub use delivery::AgentInputDeliveryProgress;
+#[cfg(unix)]
+pub use delivery::AgentInputDeliveryWait;
 pub use turn::AgentInputTurnOutcome;
 
 /// Durable injection intent. Its request ID is reused after interruption so the
