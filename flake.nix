@@ -35,6 +35,7 @@
     in
     {
       lib.mkInfraGeneration = import ./nix/infra-generation.nix;
+      lib.mkInfraDeployment = import ./nix/infra-deployment.nix;
       apps = forAllSystems (system: {
         agent = {
           type = "app";

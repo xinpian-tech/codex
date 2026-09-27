@@ -594,6 +594,18 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### Team State 部署包接线
+
+新增 source flake `lib.mkInfraDeployment`，输入已构建的 `generations`、worker `profiles`、机器配置 `machines` 和首个任务的 `leaders`，输出完整 ConfigGeneration bindings、worker catalog、每机器启动/发布/刷新命令、leader 启动命令及汇总 package。binding 在 Nix 构建时读取真实 generation.json 并填入对应 derivation/store path；profile 和 leader spawn 文件引用该 binding，运行命令直接调用上一阶段的 codex-machine-runtime 与 codex-agent。
+
+AgentRun 新增 `worker_profiles_file`，CLI 实际读取该 JSON 并合并 profiles，同时把读取的原始文件保留在 launch 目录供退出归档。Team State 使用这个外部部署目录路径，可以让所有 Agent 选择同一批 worker profiles，而不会出现 generation 内嵌自身完整 ConfigGeneration 所导致的 Nix 循环依赖。原有内嵌 `worker_profiles` 仍可用于不产生循环的配置。
+
+部署函数的 `machines.<hostid>` 配置 `generation` 名称、`profilesFile` 和 `machinesFile` 两个本机路径；这些路径分别与 AgentRun 的 `worker_profiles_file`、`machines_file` 一致。`profiles.<name>` 配置 generation 名称、按 hostid 索引的 repositories、remote 和可选 host_program。`leaders.<name>` 配置 machine/generation 名称及 SpawnAgent 的其余身份与仓库字段；leader generation 的 initial_task 使用相同 agent/task ID。全部实际值由独立 Team State flake 提供，源码仓库不加入生产 token 或虚构机器配置。
+
+机器启动命令 `codex-start-machine-<hostid>` 安装 catalog、启动常驻 runtime、等待本次动态 endpoint 后发布，并每十秒更新本机 endpoint 映射。地址发布使用 Team State repo 的 `refs/heads/codex-machines/<hostid>`，通过独立 Git index/commit-tree 写入该机器的 launch-endpoint.json；各机器有自己的分支，语义消息仍走 tmux。`codex-refresh-machines-<hostid>` 拉取这些分支并替换运行中的 machinesFile，尚未发布的机器留待后续刷新。`codex-launch-leader-<name>` 刷新映射后直接调用 codex-agent launch。刷新使用各机器独立本地 ref，不复用 FETCH_HEAD。
+
+本阶段完成的是生成与启动命令的实际装配。已做 Nix 语法解析和 Agent binary 静态检查，没有编写或运行测试，没有启动机器服务或执行 Git endpoint 发布。仍需提供/接入真实 Team State flake 的配置值并完成剩余业务需求后，再开始真实部署实验；上一节列出的业务待办继续保留。
+
 ### 完整运行路径装配：Agent CLI 与机器启动服务
 
 实施重心已转为可执行系统装配。新增 `codex-agent` binary，Cargo/Bazel 入口以及 flake 的 `apps.agent`、`packages.codex-agent`；支持 launcher 原有的 `agent --binding <path>` 参数，也支持直接 `--binding <path>`。主循环实际调用 TerminalMailbox、PreparedAgentHost、provider/account startup、thread/input 驱动、服务端事件、模型呈现及 checkpoint，不再只提供待接入接口。每 Agent 的机器、repo、commit、角色和推理绑定沿用现有执行上下文，TaskSpec 携带 Nix 构建意图，角色定义从 generation 的 `roles/<role>.json` 读取。

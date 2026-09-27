@@ -18,7 +18,10 @@ pub struct RunConfig {
     pub account: AgentAccountSource,
     pub directory_file: PathBuf,
     pub machines_file: PathBuf,
+    #[serde(default)]
     pub worker_profiles: std::collections::BTreeMap<String, super::spawn::WorkerProfile>,
+    #[serde(default)]
+    pub worker_profiles_file: Option<PathBuf>,
     #[serde(default)]
     pub initial_task: Option<codex_infra_protocol::TaskSpec>,
 }
@@ -43,7 +46,14 @@ pub async fn run(binding: PathBuf) -> io::Result<()> {
         .generation
         .config_store_path
         .join("agent-run.json");
-    let config: RunConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
+    let mut config: RunConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
+    if let Some(path) = &config.worker_profiles_file {
+        let bytes = std::fs::read(path)?;
+        std::fs::write(bootstrap.directory.join("worker-profiles.json"), &bytes)?;
+        config.worker_profiles.extend(serde_json::from_slice::<
+            std::collections::BTreeMap<String, super::spawn::WorkerProfile>,
+        >(&bytes)?);
+    }
     let directory = bootstrap.mailbox_directory.clone();
     let launch = bootstrap.launch.clone();
     let terminal = tokio::task::spawn_blocking(move || TerminalMailbox::open(&directory, &launch))
