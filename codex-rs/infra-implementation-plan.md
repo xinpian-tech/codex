@@ -594,6 +594,12 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 远端 LLVM 分配失败与映射上限调整
+
+z3compile 的首次主包编译在 codex-core 与 codex-app-server 优化阶段报告 rustc-LLVM ERROR: out of memory。降低 --cores 64 到 16 后仍出现同样错误；机器当时有约 471 GiB 可用内存，未发现 cgroup memory.failcnt 记录。第二次构建采样显示编译进程的映射数量达到 61,502，接近 vm.max_map_count=65,530，而该进程常驻内存约 4 GiB，提示映射数量限制可能是分配失败原因。
+
+已在远端 /etc/sysctl.d/90-codex-build.conf 设置 vm.max_map_count=262144 并即时生效，保持 --cores 16 重新编译同一固定 derivation；尚待实际结果确认。失败日志与采样保留在 /root/codex-builds/cfa3628175 下，分别为 full-build.log、full-build-cores16.log、memory-before-map-limit.log。当前日志仍为 build-offline.log，当前内存记录为 memory-cores16.log；所有编译均在远端执行，未运行测试。
+
 ### 切换到 z3compile 的离线远程编译
 
 后续编译仅在 root@henan-z3compile（主机名 z3compile、x86_64-linux）执行。本机只用于源码编辑、Nix 求值、依赖下载及 rsync 传输。远端 /etc/nix/nix.conf 已启用 nix-command 与 flakes。源码 cfa3628175 通过 rsync 同步至 /root/projects/codex；依赖导出为文件型 Nix binary cache，约 824 MiB，经 rsync 传至 /root/codex-builds/nix-cache，并在远端导入。
