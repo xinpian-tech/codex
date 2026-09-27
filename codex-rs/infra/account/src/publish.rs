@@ -155,7 +155,7 @@ impl GitAccounts {
         selected: PublicationAccount,
         operation: MessageId,
         audit: &mut PublicationAudit,
-        before: String,
+        mut before: String,
     ) -> io::Result<CommitId> {
         let PublicationAccount {
             provider,
@@ -164,16 +164,27 @@ impl GitAccounts {
             expected,
         } = selected;
         let _: CommitId = before.parse().map_err(io::Error::other)?;
-        if let Some(expected) = &expected {
-            self.run(
-                &[
-                    "merge-base",
-                    "--is-ancestor",
-                    &expected.config_commit.to_string(),
-                    &before,
-                ],
-                &[],
-            )?;
+        if let Some(expected) = &expected
+            && expected.config_commit.to_string() != before
+        {
+            let published_base = expected.config_commit.to_string();
+            let common = self.run(&["merge-base", &before, &published_base], &[])?;
+            if common == before {
+                audit.record(json!({
+                    "event": "base_advance_requested", "before": before,
+                    "published_base": published_base,
+                }))?;
+                self.run(
+                    &["update-ref", &self.config_ref, &published_base, &before],
+                    &[],
+                )?;
+                audit.record(json!({"event": "base_advanced", "commit": published_base}))?;
+                before = published_base;
+            } else if common != published_base {
+                return Err(io::Error::other(
+                    "local and published account config require integration",
+                ));
+            }
         }
         audit.record(json!({"event": "base_selected", "commit": before}))?;
         let source = format!("{before}:accounts/catalog.json");

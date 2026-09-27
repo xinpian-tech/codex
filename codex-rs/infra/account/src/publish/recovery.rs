@@ -6,6 +6,7 @@ use serde_json::json;
 
 use super::GitAccounts;
 use super::PublicationAccount;
+use super::PublicationExpectation;
 use super::audit::PublicationAudit;
 
 impl GitAccounts {
@@ -45,9 +46,18 @@ impl GitAccounts {
                     Ok(revision)
                 }
                 Some("publish") => {
-                    let before = state.before.unwrap_or(current.clone());
+                    let expected: Option<PublicationExpectation> =
+                        serde_json::from_value(state.details["expected"].clone())?;
+                    let mut before = state.before.unwrap_or(current.clone());
                     if current != before {
-                        return Err(io::Error::other("publication base requires integration"));
+                        if expected.is_none() {
+                            return Err(io::Error::other("publication base requires integration"));
+                        }
+                        self.run(&["merge-base", "--is-ancestor", &before, &current], &[])?;
+                        audit.record(json!({
+                            "event": "base_reselected", "before": before, "current": current,
+                        }))?;
+                        before = current;
                     }
                     let provider = state.details["provider_id"]
                         .as_str()
@@ -64,7 +74,7 @@ impl GitAccounts {
                             provider,
                             account,
                             authentication,
-                            expected: serde_json::from_value(state.details["expected"].clone())?,
+                            expected,
                         },
                         operation,
                         &mut audit,

@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+刷新发布补齐本地 config ref 落后远端的推进路径：读取过的 published base 与本地 ref 比较 merge-base，落后时先持久化 base_advance_requested，再 compare-and-swap 快进本地 ref，记录 base_advanced 后继续原账户 revision 核对和两阶段提交；本地已包含 published base 时沿用现有提交，分叉仍交给整合。PublicationAudit 重放新增推进阶段，中断后重新观察 ref。recover 对尚无目标 commit、且带 expected revision 的刷新发布，允许原基础版本的后续提交作为新基础，追加 base_reselected 后重新校对账户条件；普通导入行为不变。已有目标 commit 与远端分叉后的整合仍待实现。账户库/CLI Clippy 通过，未编写或运行测试，未执行实际 ref 更新、远端操作或实装。
+
 新增具体 AccountCredentialSource 实现 GitAccountOwner，组合已发布账户读取、单 revision OAuth 和 Git 刷新结果发布。Team State 的 accounts/owners/<provider/account 身份 hash>.json 保存 AccountOwnerAssignment，owner revision 取该文件最后修改 commit，独立于普通 config tip 推进；读取账户时在同一 config commit 核对机器和归属 revision。refresh 以本地 per-account/per-credential 流程 Journal 串行，提前持久化发布 operation ID，重复请求先读取远端新版本；需要刷新时复用 refresh_codex_account，发布前再次核对归属/版本，通过 resume_refresh_publication 开始或恢复原操作，最终重新读取远端已发布凭据并核对 ChatGPT 账户。外层拥有任务覆盖刷新与发布，调用取消不终止工作；Git 错误与 publication journal 不存在分别处理，避免错误重建已有操作。后端可直接传给 AccountService，但仍未完成归属交接（必须先 drain 前 owner）、远端并发整合、本地落后 ref 同步、原始 I/O/流程归档及 MachineRuntime 装配。账户库/CLI Clippy 通过；未编写或运行测试，未访问账户远端、调用 OAuth 或实装。
 
 GitAccounts 新增 publish_refreshed(operation, previous, auth)，将未发布的 OAuth 结果接入已有两阶段 Git 发布。先核对 ChatGPT 账户一致，再把旧 config commit/credential revision 作为 PublicationExpectation 写入 opened 日志；实际生成提交前要求旧 config commit 属于当前基础历史，且 catalog 中目标账户仍引用旧 credential revision。其他账户在配置中的后续更新可以保留，目标账户版本变化则交给整合流程处理。调用方提前持久化 operation ID，失败/中断后使用既有 recover；恢复重建 PublicationAccount 时沿用 expected 条件，旧日志缺少该字段仍解析为普通导入。库/CLI Clippy 通过；未编写或运行测试，未执行凭据 Git 发布或实装。完整刷新 owner 仍需组合远端读取、归属确认、单 revision OAuth 与此发布入口，并处理远端并发推进及服务生命周期。

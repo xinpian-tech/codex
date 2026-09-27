@@ -48,6 +48,14 @@ impl PublicationAudit {
                 Some("base_selected") => {
                     state.before = event["commit"].as_str().map(str::to_owned);
                 }
+                Some("base_advance_requested") => {
+                    // No account commit exists yet. On restart select the
+                    // observed local ref and reapply the recorded expectation.
+                    state.before = None;
+                }
+                Some("base_advanced") => {
+                    state.before = event["commit"].as_str().map(str::to_owned);
+                }
                 Some("ref_update_requested") => {
                     state.before = event["before"].as_str().map(str::to_owned);
                     state.target = event["config_commit"].as_str().map(str::to_owned);
