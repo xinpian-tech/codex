@@ -80,6 +80,7 @@ async fn tool(
     state: &mut LoopState,
 ) -> io::Result<String> {
     match name {
+        "infra_memory" => super::memory::tool(host, config, bootstrap, arguments, state),
         "infra_knowledge" => {
             super::knowledge::handle(host, config, bootstrap, arguments, state).await
         }

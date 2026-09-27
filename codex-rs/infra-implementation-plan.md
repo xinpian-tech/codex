@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### Session 工作记忆接入 Agent 主循环
+
+infra_memory 已实际接入 CLI：publish 把作者自己的观察、结论、附带 scope 的未成功尝试、claim 或贡献摘要送入自身 tmux 输入；宿主从真实消息头补齐作者/机器/角色、task/assignment、root、repo/已 push commit、配置 commit/generation 与源消息，写入 working-memory.journal。修正追加新 entry/revision 并引用 supersedes，原记录保留。这里复用既有 Journal，退出时随 launch 文件进入 Team State 留存。
+
+query、subscribe、unsubscribe 指向明确 owner Agent，按 task/role/topic/source event 筛选。请求也走 tmux，拥有者宿主在轮次间直接处理，查询每次回复一个有界历史条目与下一页位置；订阅只对匹配该订阅的新增条目发送定向通知。回复保留原作者及来源，通过正常 tmux 输入路径交给接收方模型。模型工具本身仅返回 message ID/投递状态，不把其他 Agent 正文放入直接工具返回值；无全局广播。
+
+条目正文和信封有字节上限。该实现提供追加历史查询，尚未增加全文排序检索或自动知识策略；Agent 按 supersedes 解释修正链。角色需要明确允许 WorkingContext 双向路由，作者发布还需要允许自身角色输入。真实 Team State 部署、下一代配置的实际 realization/部署以及完整运行实验尚未执行；本轮未编写或运行测试。
+
 ### 知识候选、团队 reviewer 与正式文件发布
 
 Agent CLI 新增 infra_knowledge 实际工具：propose 把当前 Team State worktree 的候选文件映射、原 Session/root/Agent/event/repo commit 引用和既有 Contribution 一起定向发送给指定团队 reviewer；confirm 由收到候选的 reviewer Agent 根据团队角色指令作出决定，记录来源消息、reviewer 与候选 head_commit。接受后经 tmux 转交 integration owner，拒绝则经 tmux 返回作者。这里的团队确认由任务指定的 reviewer Agent 执行，人工参与方式仍由团队角色约定定义，没有另加人机审批平台。

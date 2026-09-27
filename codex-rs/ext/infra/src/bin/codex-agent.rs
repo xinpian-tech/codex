@@ -23,6 +23,9 @@ mod finish;
 #[path = "agent/knowledge.rs"]
 mod knowledge;
 #[cfg(unix)]
+#[path = "agent/memory.rs"]
+mod memory;
+#[cfg(unix)]
 #[path = "agent/run.rs"]
 mod run;
 #[cfg(unix)]

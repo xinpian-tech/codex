@@ -29,6 +29,7 @@ pub struct RunConfig {
 }
 
 pub struct LoopState {
+    pub memory: super::memory::WorkingMemory,
     pub waiting_tasks: std::collections::BTreeMap<codex_infra_protocol::TaskId, serde_json::Value>,
     pub tasks_changed: bool,
     pub role: codex_infra_protocol::RoleDefinition,
@@ -139,6 +140,7 @@ async fn drive(
         }
     };
     let mut state = LoopState {
+        memory: super::memory::WorkingMemory::open(&host.directory.join("working-memory.journal"))?,
         waiting_tasks: match std::fs::read(host.directory.join("waiting-tasks.json")) {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => Default::default(),
@@ -227,6 +229,25 @@ async fn drive(
                         .contains(&entry.message.kind)
             }) {
                 input_cursor = entry.accepted_sequence + 1;
+                match super::memory::receive(host, bootstrap, &entry.message, &mut state) {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => {
+                        let mut reply = super::events::message(
+                            host,
+                            bootstrap,
+                            entry.message.from.clone(),
+                            codex_infra_protocol::MessageKind::WorkingContext,
+                            format!(
+                                "Working memory request {} failed: {error}",
+                                entry.message.message_id
+                            ),
+                        );
+                        reply.reply_to = Some(entry.message.message_id);
+                        state.pending.push(reply);
+                        continue;
+                    }
+                }
                 super::tasks::observe(host, config, &entry.message).await?;
                 state.tasks_changed = true;
                 submit(host, terminal, entry, &mut state).await?;
