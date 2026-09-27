@@ -5,10 +5,16 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use codex_infra_protocol::MachineId;
+use codex_infra_protocol::MessageId;
+use codex_infra_runtime::ArchiveJob;
+use codex_infra_runtime::ArchiveTarget;
 use codex_infra_runtime::LaunchIntent;
 use codex_infra_runtime::TerminalMailbox;
+use codex_infra_state::ArchiveProducer;
+use codex_infra_state::ArchiveStream;
 use codex_infra_state::InboxEntry;
 use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -19,6 +25,7 @@ use super::PreparedAgentHost;
 /// The owner opens TerminalMailbox at mailbox_directory and retains it across
 /// preparation failures so terminal input can still be stopped and archived.
 pub struct AgentHostBootstrap {
+    binding_position: JournalPosition,
     pub launch: LaunchIntent,
     pub generation: AgentHostGeneration,
     pub directory: PathBuf,
@@ -81,10 +88,41 @@ impl AgentHostBootstrap {
             journal.append(&serde_json::to_vec(&binding)?)?;
         }
         Ok(Self {
+            binding_position: journal.position(),
             launch: binding.launch,
             generation: binding.generation,
             mailbox_directory: directory.join("mailbox"),
             directory,
+        })
+    }
+
+    /// The immutable binding writer closes in read, so this prefix is final
+    /// even when terminal or workspace preparation subsequently fails.
+    pub fn binding_archive_job(
+        &self,
+        receipts: &Path,
+        job_id: MessageId,
+    ) -> io::Result<ArchiveJob> {
+        if !receipts.is_absolute() {
+            return Err(io::Error::other(
+                "binding receipt directory must be absolute",
+            ));
+        }
+        let launch = &self.launch;
+        Ok(ArchiveJob {
+            job_id,
+            stream: ArchiveStream {
+                root_session_id: launch.workspace.root_session_id,
+                machine_id: launch.machine_id.clone(),
+                producer: ArchiveProducer::Agent {
+                    agent_id: launch.workspace.agent_id,
+                    launch_id: launch.launch_id,
+                },
+                name: "launch-binding".to_owned(),
+            },
+            source: self.directory.join("launch-binding.journal"),
+            receipt_journal: receipts.join(format!("{}-launch-binding.journal", launch.launch_id)),
+            target: ArchiveTarget::ProducerFinished(self.binding_position),
         })
     }
 

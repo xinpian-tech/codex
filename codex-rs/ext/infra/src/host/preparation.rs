@@ -112,7 +112,8 @@ impl PreparedAgentHost {
             let context = Arc::new(AgentContext::for_launch(
                 launch,
                 &task,
-                Some(bootstrap.from.agent_id),
+                (bootstrap.from.agent_id != launch.workspace.agent_id)
+                    .then_some(bootstrap.from.agent_id),
             )?);
             let output = Command::new(&binding.config.hostid).output()?;
             if !output.status.success() {

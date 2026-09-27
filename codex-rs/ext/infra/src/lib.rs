@@ -108,3 +108,4 @@ pub use tool_workspace::ToolWorkspace;
 pub use workspace_gate::WorkspaceGate;
 pub use workspace_gate::WorkspaceLease;
 pub use workspace_operations::WorkspaceOperations;
+mod agent_tools;

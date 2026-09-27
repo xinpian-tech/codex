@@ -29,6 +29,7 @@ mod home;
 #[cfg(unix)]
 mod launch_bootstrap;
 mod preparation;
+mod preparation_archive;
 mod provider;
 mod shutdown;
 mod shutdown_journal;

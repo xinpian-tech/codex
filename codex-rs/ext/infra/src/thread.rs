@@ -179,6 +179,10 @@ impl AgentThread {
                         ClientRequest::ThreadStart {
                             request_id: create_id.clone(),
                             params: ThreadStartParams {
+                                dynamic_tools: Some(crate::agent_tools::specs()),
+                                developer_instructions: Some(crate::agent_tools::instructions(
+                                    &self.launch,
+                                )?),
                                 model: Some(self.launch.generation.inference.model_id.clone()),
                                 model_provider: Some(
                                     self.launch.generation.inference.provider_id.clone(),
