@@ -41,10 +41,7 @@ pub struct LoopState {
     pub pending: Vec<AgentMessage>,
     pub accepted: BTreeSet<MessageId>,
     pub deliveries: Vec<AgentInputDelivery>,
-    pub integrations: Vec<(
-        codex_infra_protocol::Contribution,
-        codex_infra_protocol::MessageAddress,
-    )>,
+    pub integrations: Vec<super::contributions::PendingIntegration>,
 }
 
 pub async fn run(binding: PathBuf) -> io::Result<()> {

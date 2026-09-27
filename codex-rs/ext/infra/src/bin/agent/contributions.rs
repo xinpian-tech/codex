@@ -13,6 +13,13 @@ use serde_json::json;
 use super::run::LoopState;
 use super::run::RunConfig;
 
+pub struct PendingIntegration {
+    contribution: Contribution,
+    recipient: MessageAddress,
+    reply_to: MessageId,
+    knowledge: Option<super::knowledge::KnowledgeCandidate>,
+}
+
 pub async fn handle(
     host: &StartedAgentHost,
     config: &RunConfig,
@@ -32,9 +39,14 @@ pub async fn handle(
     }
     if name == "infra_contribute" {
         let owner: AgentId = serde_json::from_value(arguments["owner"].clone())?;
+        let recipient_id = if arguments["recipient"].is_null() {
+            owner
+        } else {
+            serde_json::from_value(arguments["recipient"].clone())?
+        };
         let directory = super::directory::read(&config.directory_file)?;
         let recipient = directory
-            .get(&owner)
+            .get(&recipient_id)
             .ok_or_else(|| io::Error::other("integration owner missing from directory"))?;
         if !state.role.routes_to_roles.contains(&recipient.role) {
             return Err(io::Error::other(
@@ -71,7 +83,7 @@ pub async fn handle(
             integration_owner: owner,
         });
         let body = serde_json::to_string(
-            &json!({"contribution":contribution,"summary":arguments["summary"]}),
+            &json!({"contribution":contribution,"summary":arguments["summary"],"knowledge":arguments["knowledge"]}),
         )?;
         std::fs::write(
             host.directory.join(format!(
@@ -84,7 +96,7 @@ pub async fn handle(
             host,
             bootstrap,
             MessageAddress {
-                agent_id: owner,
+                agent_id: recipient_id,
                 machine_id: recipient.machine_id.clone(),
                 role: recipient.role.clone(),
             },
@@ -102,6 +114,8 @@ pub async fn handle(
     }
     let body: Value = serde_json::from_str(&state.active_input.body)?;
     let contribution: Contribution = serde_json::from_value(body["contribution"].clone())?;
+    let knowledge: Option<super::knowledge::KnowledgeCandidate> =
+        serde_json::from_value(body["knowledge"].clone())?;
     if contribution.proposal.integration_owner != host.launch.workspace.agent_id
         || contribution.proposal.repo != host.task.repo
     {
@@ -146,9 +160,15 @@ pub async fn handle(
     })
     .await
     .map_err(io::Error::other)??;
-    state
-        .integrations
-        .push((contribution, state.active_input.from.clone()));
+    if let Some(candidate) = &knowledge {
+        super::knowledge::promote(candidate, &contribution, &host.launch.workspace.worktree)?;
+    }
+    state.integrations.push(PendingIntegration {
+        contribution,
+        recipient: state.active_input.from.clone(),
+        reply_to: state.active_input.message_id,
+        knowledge,
+    });
     Ok(
         "Integration staged. End this turn for target-branch push and integrated notification."
             .to_owned(),
@@ -162,7 +182,13 @@ pub async fn publish_integrations(
     bootstrap: &InboxEntry,
     state: &mut LoopState,
 ) -> io::Result<()> {
-    for (mut contribution, recipient) in std::mem::take(&mut state.integrations) {
+    for PendingIntegration {
+        mut contribution,
+        recipient,
+        reply_to,
+        knowledge,
+    } in std::mem::take(&mut state.integrations)
+    {
         let id = contribution.proposal.contribution_id;
         let lease = host
             .checkpoints
@@ -209,7 +235,8 @@ pub async fn publish_integrations(
             },
         )
         .await?;
-        let body = serde_json::to_string(&json!({"contribution":contribution}))?;
+        let body =
+            serde_json::to_string(&json!({"contribution":contribution,"knowledge":knowledge}))?;
         state.tasks_changed = true;
         std::fs::write(
             host.directory.join(format!("integration-{id}.json")),
@@ -219,7 +246,7 @@ pub async fn publish_integrations(
             super::events::message(host, bootstrap, recipient, MessageKind::Contribution, body);
         message.task_id = contribution.proposal.task_id;
         message.assignment_id = contribution.proposal.assignment_id;
-        message.reply_to = Some(state.active_input.message_id);
+        message.reply_to = Some(reply_to);
         super::finish::publish(host, terminal, message).await?;
     }
     Ok(())

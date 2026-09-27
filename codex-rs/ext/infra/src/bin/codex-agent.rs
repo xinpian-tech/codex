@@ -20,6 +20,9 @@ mod events;
 #[path = "agent/finish.rs"]
 mod finish;
 #[cfg(unix)]
+#[path = "agent/knowledge.rs"]
+mod knowledge;
+#[cfg(unix)]
 #[path = "agent/run.rs"]
 mod run;
 #[cfg(unix)]

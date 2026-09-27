@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 知识候选、团队 reviewer 与正式文件发布
+
+Agent CLI 新增 infra_knowledge 实际工具：propose 把当前 Team State worktree 的候选文件映射、原 Session/root/Agent/event/repo commit 引用和既有 Contribution 一起定向发送给指定团队 reviewer；confirm 由收到候选的 reviewer Agent 根据团队角色指令作出决定，记录来源消息、reviewer 与候选 head_commit。接受后经 tmux 转交 integration owner，拒绝则经 tmux 返回作者。这里的团队确认由任务指定的 reviewer Agent 执行，人工参与方式仍由团队角色约定定义，没有另加人机审批平台。
+
+infra_integrate 对知识贡献复用已有 fetch/cherry-pick 和冲突处理。正式发布把已确认候选复制到明确的 Skills/Memory 相对路径，保留既有内容格式，并写入 knowledge/publications 的来源与确认记录；随后由已有 checkpoint 和目标分支 push 发布新的 Team State commit。整合通知保留 knowledge 元数据及原输入的 reply_to。配置 generation 继续以已发布 revision 为 Nix 输入；尚未自动构建和部署下一 generation。
+
+这一阶段连接了候选 → reviewer → owner → 正式文件/目标分支；Session 工作记忆发布、查询和订阅以及真实部署仍待接通。只做 Rust 编译/静态检查，未写或运行测试，未启动业务实验。
+
 ### Task owner、依赖推进与同任务升级接线
 
 机器 launch service 已实际持有既有 TaskStore，以拥有机器串行处理 Task 创建、查询、claim、完成、handoff 和贡献依赖满足。协议只传 TaskRecord/assignment/commit 元数据，目标与正文继续由 tmux bootstrap 交付。infra_spawn 在创建 worker 前创建或认领 Task，bootstrap 使用已确认 assignment ID；可传入现有 Ready task_id，因此 DeepSeek 升级到 Codex 时沿用原 Task，并以先前 handoff commit 为新 worktree 起点。

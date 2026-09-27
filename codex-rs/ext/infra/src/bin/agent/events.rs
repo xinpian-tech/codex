@@ -80,6 +80,9 @@ async fn tool(
     state: &mut LoopState,
 ) -> io::Result<String> {
     match name {
+        "infra_knowledge" => {
+            super::knowledge::handle(host, config, bootstrap, arguments, state).await
+        }
         "infra_task" => super::tasks::query(host, config, arguments).await,
         "infra_contribute" | "infra_integrate" => {
             super::contributions::handle(host, config, bootstrap, name, arguments, state).await
