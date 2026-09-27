@@ -18,6 +18,19 @@ mod read;
 mod recovery;
 use audit::PublicationAudit;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PublicationExpectation {
+    config_commit: CommitId,
+    credential_revision: CommitId,
+}
+
+struct PublicationAccount {
+    provider: String,
+    account: String,
+    authentication: AccountAuthentication,
+    expected: Option<PublicationExpectation>,
+}
+
 /// Uses an isolated Git index; the Team State checkout and its staged changes
 /// are independent of the config ref being published.
 #[derive(Clone)]
@@ -46,28 +59,64 @@ impl GitAccounts {
         account: String,
         authentication: AccountAuthentication,
     ) -> io::Result<CommitId> {
-        let operation = MessageId::new();
+        self.publish_account(
+            MessageId::new(),
+            PublicationAccount {
+                provider,
+                account,
+                authentication,
+                expected: None,
+            },
+        )
+    }
+
+    /// Publishes the result of refreshing exactly the supplied account snapshot.
+    /// Persist operation before calling; use recover(operation) after an
+    /// interrupted attempt. Later config commits may include other accounts;
+    /// the selected account must still reference the original credential.
+    pub fn publish_refreshed(
+        &self,
+        operation: MessageId,
+        previous: &crate::PublishedAccount,
+        auth: codex_login::AuthDotJson,
+    ) -> io::Result<CommitId> {
+        crate::refresh::validate_result(&previous.auth, &auth)?;
+        self.publish_account(
+            operation,
+            PublicationAccount {
+                provider: previous.provider_id.clone(),
+                account: previous.account_id.clone(),
+                authentication: AccountAuthentication::CodexLogin {
+                    auth: serde_json::to_value(auth)?,
+                },
+                expected: Some(PublicationExpectation {
+                    config_commit: previous.config_commit.clone(),
+                    credential_revision: previous.credential_revision.clone(),
+                }),
+            },
+        )
+    }
+
+    fn publish_account(
+        &self,
+        operation: MessageId,
+        selected: PublicationAccount,
+    ) -> io::Result<CommitId> {
         let mut audit = PublicationAudit::open(
             self,
             operation,
             json!({
                 "kind": "publish",
-                "provider_id": provider,
-                "account_id": account,
-                "authentication": authentication,
+                "provider_id": selected.provider,
+                "account_id": selected.account,
+                "authentication": selected.authentication,
+                "expected": selected.expected,
             }),
         )?;
         eprintln!("Account publication operation: {operation}");
         let result = (|| {
             let before = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
-            self.publish_recorded(
-                provider,
-                account,
-                authentication,
-                operation,
-                &mut audit,
-                before,
-            )
+            self.publish_recorded(selected, operation, &mut audit, before)
         })();
         audit.finish(&result)?;
         result
@@ -75,14 +124,29 @@ impl GitAccounts {
 
     fn publish_recorded(
         &self,
-        provider: String,
-        account: String,
-        authentication: AccountAuthentication,
+        selected: PublicationAccount,
         operation: MessageId,
         audit: &mut PublicationAudit,
         before: String,
     ) -> io::Result<CommitId> {
+        let PublicationAccount {
+            provider,
+            account,
+            authentication,
+            expected,
+        } = selected;
         let _: CommitId = before.parse().map_err(io::Error::other)?;
+        if let Some(expected) = &expected {
+            self.run(
+                &[
+                    "merge-base",
+                    "--is-ancestor",
+                    &expected.config_commit.to_string(),
+                    &before,
+                ],
+                &[],
+            )?;
+        }
         audit.record(json!({"event": "base_selected", "commit": before}))?;
         let source = format!("{before}:accounts/catalog.json");
         let present = self.run(
@@ -100,6 +164,19 @@ impl GitAccounts {
         } else {
             serde_json::from_str(&self.run(&["show", &source], &[])?)?
         };
+        if let Some(expected) = expected {
+            let current = catalog
+                .0
+                .get(&provider)
+                .and_then(|accounts| accounts.get(&account));
+            if current.map(|account| &account.credential_revision)
+                != Some(&expected.credential_revision)
+            {
+                return Err(io::Error::other(
+                    "account credential revision changed before publication",
+                ));
+            }
+        }
         let git_path = self.run(
             &[
                 "rev-parse",

@@ -205,7 +205,7 @@ fn prepare(directory: &Path, account: &PublishedAccount) -> io::Result<Prepared>
     })
 }
 
-fn validate_result(before: &AuthDotJson, after: &AuthDotJson) -> io::Result<()> {
+pub(crate) fn validate_result(before: &AuthDotJson, after: &AuthDotJson) -> io::Result<()> {
     let before = before
         .tokens
         .as_ref()

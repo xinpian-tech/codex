@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+GitAccounts 新增 publish_refreshed(operation, previous, auth)，将未发布的 OAuth 结果接入已有两阶段 Git 发布。先核对 ChatGPT 账户一致，再把旧 config commit/credential revision 作为 PublicationExpectation 写入 opened 日志；实际生成提交前要求旧 config commit 属于当前基础历史，且 catalog 中目标账户仍引用旧 credential revision。其他账户在配置中的后续更新可以保留，目标账户版本变化则交给整合流程处理。调用方提前持久化 operation ID，失败/中断后使用既有 recover；恢复重建 PublicationAccount 时沿用 expected 条件，旧日志缺少该字段仍解析为普通导入。库/CLI Clippy 通过；未编写或运行测试，未执行凭据 Git 发布或实装。完整刷新 owner 仍需组合远端读取、归属确认、单 revision OAuth 与此发布入口，并处理远端并发推进及服务生命周期。
+
 账户库新增 refresh_codex_account/CodexRefreshConfig，复用 AuthManager 的 refresh_token_from_authority。执行目录按 provider/account 身份 hash 与 credential revision 划分，Journal writer 锁串行同一 revision 的尝试；先保存并核对原始登录快照，再持久化 refresh_requested，启动真正刷新。拥有任务在调用方取消等待后继续，刷新结果 sync 后记 refreshed；重复调用返回已保存结果。重启若 requested 后 auth.json 已更新且账户匹配，则补记 recovered 结果；没有可确认的新快照时保留失败/未知结果，不再次消费该 revision。返回值明确为未发布 AuthDotJson，必须由账户 owner 后续 commit/push，不能直接作为 PublishedAccount 返回。当前仍需外层跨机器刷新归属确认、发布恢复、OAuth 原始 I/O 记录与 MachineRuntime 装配。账户库/CLI Clippy 通过，Cargo.lock/Bazel 元数据刷新；未编写或运行测试，未发出 OAuth 请求或实装。
 
 GitAccounts 由账户 CLI 私有模块移入账户库并导出，CLI 复用同一 publish/sync/recover 实现；新增 read_published_codex。读取从配置 remote fetch config ref 到唯一临时 ref，禁用 FETCH_HEAD 写入，按取得的精确 commit tree 解析 catalog，核对 credential revision 属于该已发布历史，再返回带 config commit 的 PublishedAccount。该路径不采用本地尚未 push 的 config ref，也不改变调用方 checkout/index；临时 ref 在作用域结束时清理，Git 操作保持阻塞 API 供 owner worker 调用。账户库/CLI Clippy 通过，Bazel 二进制改为依赖账户库；未编写或运行测试，未执行远端账户 fetch 或实装。该读取入口与既有发布入口将供刷新后端组合，尚未完成刷新 token 执行、跨机器归属确认、取消/重启恢复或服务装配。

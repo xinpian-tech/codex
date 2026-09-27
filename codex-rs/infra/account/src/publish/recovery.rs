@@ -5,6 +5,7 @@ use codex_infra_protocol::MessageId;
 use serde_json::json;
 
 use super::GitAccounts;
+use super::PublicationAccount;
 use super::audit::PublicationAudit;
 
 impl GitAccounts {
@@ -59,9 +60,12 @@ impl GitAccounts {
                     let authentication =
                         serde_json::from_value(state.details["authentication"].clone())?;
                     self.publish_recorded(
-                        provider,
-                        account,
-                        authentication,
+                        PublicationAccount {
+                            provider,
+                            account,
+                            authentication,
+                            expected: serde_json::from_value(state.details["expected"].clone())?,
+                        },
                         operation,
                         &mut audit,
                         before,
