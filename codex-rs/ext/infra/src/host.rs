@@ -19,6 +19,7 @@ use crate::ToolAudit;
 
 mod account;
 mod archive;
+mod preparation;
 mod provider;
 mod shutdown;
 mod shutdown_journal;
@@ -27,6 +28,8 @@ pub use archive::HostArchiveJobIds;
 pub use archive::HostArchiveJobs;
 pub use archive::HostArchivePhase;
 pub use archive::HostArchiveReceipts;
+pub use preparation::AgentPreparationConfig;
+pub use preparation::PreparedAgentHost;
 pub use shutdown_journal::HostShutdownJournal;
 pub use shutdown_journal::HostShutdownPlan;
 pub use shutdown_journal::HostShutdownStatus;
@@ -46,6 +49,7 @@ pub struct ManagedHostServices {
     tools: Arc<ToolAudit>,
     hooks: Option<Arc<RecordedHookExecutor>>,
     external_auth: Option<Arc<dyn codex_login::ExternalAuth>>,
+    launch_binding: Option<Arc<codex_infra_state::Journal>>,
 }
 
 /// The initialized app-server and its recorded execution lifecycle boundary.
@@ -61,6 +65,7 @@ pub struct ManagedHost {
     provider: Option<codex_infra_provider::ChatFrontend>,
     account_replica: Option<codex_infra_account::AccountRuntimeControl>,
     account_observation: Option<codex_infra_account::AccountObservation>,
+    _launch_binding: Option<Arc<codex_infra_state::Journal>>,
 }
 
 /// Completion boundaries for the host's currently recorded audit streams.
@@ -123,6 +128,7 @@ impl ManagedHostServices {
             tools,
             hooks: None,
             external_auth: None,
+            launch_binding: None,
         }
     }
 
@@ -177,6 +183,7 @@ impl ManagedHostServices {
         ));
         self.hooks = Some(Arc::clone(&hooks));
         let store_audit = self.audit.clone();
+        let launch_binding = self.launch_binding.clone();
         let client = start_with_host_services(args, Arc::new(self)).await?;
         Ok(ManagedHost {
             client,
@@ -188,6 +195,7 @@ impl ManagedHostServices {
             provider: None,
             account_replica: None,
             account_observation: None,
+            _launch_binding: launch_binding,
         })
     }
 }
