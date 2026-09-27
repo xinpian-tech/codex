@@ -596,6 +596,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ### 远端 QEMU aarch64 构建与本地验证
 
+本地后续流程已启动，等待远端 export-exit-code 成功后自动 rsync result-cache、导入 Nix store，再执行三个 CLI 的原生启动/参数处理验证以及 Agent 内置 apply-patch 的实际文件修改。记录位于 /tmp/codex-arm-local-259a1af：progress.log 为等待状态，results.log 为各项结果，status 为最终结果。当前远端 Cargo 已运行约 50 分钟，仍有活跃编译进程；尚无本地验证结果。完整模型任务实验仍需实际 Team State 与账户配置。
+
 用户要求改为在远端通过 QEMU 编译 aarch64 产物，再传回本地测试。本地仅下载、求值及传输，编译继续在 root@henan-z3compile 执行。QEMU 10.1.2 x86_64 静态程序从 Nix 缓存下载后经 rsync 传输；远端通过 /etc/binfmt.d/codex-aarch64.conf 注册带 F 标记的 aarch64 ELF 解释器，并在 Nix extra-platforms 中启用 aarch64-linux。
 
 源码 259a1af9e6 和约 1.3 GiB aarch64 离线依赖经 rsync 同步。tmux 会话 codex-infra-arm 已启动 /nix/store/sf0257w736gfzz6qbkg4wcqr869sg0av-codex-infra-0.0.0-dev+259a1af.drv，使用 --offline、空 substituters、--cores 16、--max-jobs 4。工作目录为 /root/codex-builds/arm-259a1af，日志 build.log，终态 exit-code，产物链接 result；构建成功后自动导出 result-cache，待 rsync 回本机导入并验证。已观察到远端 cargo 和 rustc 运行，尚未取得构建终态或本地验证结果。
