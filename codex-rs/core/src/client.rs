@@ -1754,7 +1754,7 @@ impl ModelClientSession {
                 }
                 request.input = input;
             }
-            crate::model_request::observe(
+            let mut observers = crate::model_request::observe(
                 &self.client.request_contributors,
                 codex_extension_api::ModelRequestObservation {
                     kind: codex_extension_api::ModelRequestKind::Generation,
@@ -1767,6 +1767,8 @@ impl ModelClientSession {
             )
             .await
             .map_err(CodexErr::Io)?;
+            observers.extend(interceptors);
+            let interceptors = observers;
             inference_trace_attempt.record_started(&request);
             let client = ApiResponsesClient::new(
                 transport,
@@ -2060,7 +2062,7 @@ impl ModelClientSession {
                 payload.input = input;
             }
             let ResponsesWsRequest::ResponseCreate(payload) = &ws_request;
-            crate::model_request::observe(
+            let mut observers = crate::model_request::observe(
                 &self.client.request_contributors,
                 codex_extension_api::ModelRequestObservation {
                     kind: if warmup {
@@ -2077,6 +2079,8 @@ impl ModelClientSession {
             )
             .await
             .map_err(CodexErr::Io)?;
+            observers.extend(interceptors);
+            let interceptors = observers;
             if !previous_response_id_from_untraced_warmup {
                 inference_trace_attempt.record_started(&ws_request);
             }

@@ -50,11 +50,14 @@ pub trait ModelRequestContributor: Send + Sync + std::fmt::Debug {
     /// Completes host-owned observation before sending this transport attempt.
     /// Implementations must leave input unchanged and move blocking I/O off the
     /// executor. Returning an error prevents this attempt from being submitted.
+    /// An optional interceptor observes the response for this exact attempt,
+    /// before the interceptors returned by request transform its events.
     fn observe<'a>(
         &'a self,
         _input: ModelRequestObservation<'a>,
-    ) -> crate::ExtensionFuture<'a, std::io::Result<()>> {
-        Box::pin(async { Ok(()) })
+    ) -> crate::ExtensionFuture<'a, std::io::Result<Option<Box<dyn ModelResponseInterceptor>>>>
+    {
+        Box::pin(async { Ok(None) })
     }
 }
 

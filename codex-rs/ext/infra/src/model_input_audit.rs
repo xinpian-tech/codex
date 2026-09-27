@@ -19,6 +19,8 @@ use serde::Serialize;
 
 use crate::StoreAuditIdentity;
 
+mod response;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModelInputAuditEvent {
@@ -34,6 +36,28 @@ pub enum ModelInputAuditEvent {
         warmup: bool,
         previous_response_id: Option<String>,
         input: Vec<ResponseItem>,
+    },
+    Created {
+        attempt_id: MessageId,
+        response_id: Option<String>,
+    },
+    Completed {
+        attempt_id: MessageId,
+        response_id: String,
+        token_usage: Option<codex_protocol::protocol::TokenUsage>,
+        usage_metadata: Option<codex_protocol::ResponseUsageMetadata>,
+        end_turn: Option<bool>,
+    },
+    ServerModel {
+        attempt_id: MessageId,
+        model: String,
+    },
+    StreamFailed {
+        attempt_id: MessageId,
+        error: String,
+    },
+    StreamEnded {
+        attempt_id: MessageId,
     },
 }
 
@@ -114,10 +138,11 @@ impl ModelRequestContributor for ModelInputAudit {
     fn observe<'a>(
         &'a self,
         input: ModelRequestObservation<'a>,
-    ) -> ExtensionFuture<'a, io::Result<()>> {
+    ) -> ExtensionFuture<'a, io::Result<Option<Box<dyn ModelResponseInterceptor>>>> {
         Box::pin(async move {
+            let attempt_id = MessageId::new();
             let event = ModelInputAuditEvent::Prepared {
-                attempt_id: MessageId::new(),
+                attempt_id,
                 thread_id: input.thread_id.to_owned(),
                 turn_id: input.turn_id.map(str::to_owned),
                 model: input.model.to_owned(),
@@ -137,7 +162,11 @@ impl ModelRequestContributor for ModelInputAudit {
                 Ok(())
             })
             .await
-            .map_err(io::Error::other)?
+            .map_err(io::Error::other)??;
+            Ok(Some(Box::new(response::ResponseAudit {
+                audit: self.clone(),
+                attempt_id,
+            }) as Box<dyn ModelResponseInterceptor>))
         })
     }
 }

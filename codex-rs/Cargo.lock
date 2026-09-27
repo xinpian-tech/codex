@@ -3750,6 +3750,7 @@ dependencies = [
  "codex-protocol",
  "codex-thread-store",
  "codex-utils-path-uri",
+ "futures",
  "serde",
  "serde_json",
  "tokio",

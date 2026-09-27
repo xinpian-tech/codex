@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+请求观察接口现可返回该次尝试独有的响应观察器，core 将其置于既有 request interceptor 之前，以观察变换前的响应流。ModelInputAudit 使用 Prepared 的 attempt ID 关联 Created、Completed、ServerModel、StreamFailed、StreamEnded；完成记录保留 response ID、token usage、上游 usage metadata 和 end_turn，相关事件落盘后再交给原消费链，其他响应事件原样转交。未收到响应流、取消或没有 Completed 的记录仍不能当成完成；流自然结束也不等同于 Completed。新增 futures 工作区依赖，库级 Clippy 与 Bazel 依赖元数据刷新通过，MODULE.bazel.lock 无变化；未编写或运行测试，未调用真实供应商。请求证据分页与片段/续传核对、日志归档、Presented/Processed 及 CLI 收尾仍待完成。
+
 请求观察接入：既有 ModelRequestContributor 增加默认无操作的异步 observe，HTTP/WebSocket 在 wire item 准备和输入裁剪之后、transport 提交之前调用，传递 thread/可选 turn、模型、generation/warmup、最终输入及 previous_response_id。未改动上下文或现有 request interceptor 签名；core 只负责传递这一边界。infra 新增 ModelInputAudit 并在宿主启动注册，model-inputs.journal 绑定 launch/身份，blocking worker 将每次准备的完整输入落盘后才允许继续提交，宿主关闭推理后关闭该 writer。此证据只证明请求准备，不证明供应商接收或模型消费；WebSocket delta 与 warmup 显式保留，尚需结合响应及续传关系完成呈现判断。extension-api/core/app-server/infra 库级 Clippy 编译通过，未编写或运行测试，未执行真实模型请求。该新日志的分页核对/归档、请求结果关联、Presented/Processed 和 CLI 完整收尾仍待完成。
 
 StartedAgentHost 新增 close_input_drivers，独立拥有关闭任务，先等待 input/turn 调度再关闭 thread 绑定；即使其中一个关闭返回错误也尝试另一个。两者成功后，以实际日志路径及关闭后的最终位置构造 thread-binding/input-submissions 的 ProducerFinished 归档任务，保留 launch/机器/root/Agent 归属与各自 receipt journal。新增 AgentDriverArchiveJobs 的提交及两份远端完成回执查询，调用方需在提交前持久化原任务并在恢复时重放。此入口要求先停止外层 dispatch，且在宿主 RPC 关闭前调用；不会停止推理或代替 Agent 最终完成。extension 库级 Clippy 通过，未编写或运行测试，未执行真实关闭或归档。驱动归档的最终状态日志与 CLI 接线、terminal/preparation/home 等归档、实际输入消费证据及完整收尾仍待实现。

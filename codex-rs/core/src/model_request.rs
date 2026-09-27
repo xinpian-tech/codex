@@ -11,11 +11,14 @@ use std::sync::Arc;
 pub(crate) async fn observe(
     contributors: &[Arc<dyn ModelRequestContributor>],
     input: ModelRequestObservation<'_>,
-) -> std::io::Result<()> {
+) -> std::io::Result<Vec<Box<dyn ModelResponseInterceptor>>> {
+    let mut interceptors = Vec::new();
     for contributor in contributors {
-        contributor.observe(input).await?;
+        if let Some(interceptor) = contributor.observe(input).await? {
+            interceptors.push(interceptor);
+        }
     }
-    Ok(())
+    Ok(interceptors)
 }
 
 pub(crate) fn prepare(
