@@ -79,6 +79,7 @@ fn validate_response_item_image_urls(items: &[ResponseItem]) -> Result<(), JSONR
 
 #[derive(Clone)]
 pub(crate) struct TurnRequestProcessor {
+    pub(crate) memory_generation: crate::host_services::MemoryGeneration,
     agent_runner: AgentRunner,
     auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
@@ -156,6 +157,7 @@ impl TurnRequestProcessor {
     ) -> Self {
         let agent_runner = AgentRunner::new(Arc::downgrade(&thread_manager));
         Self {
+            memory_generation: crate::host_services::MemoryGeneration::BuiltIn,
             agent_runner,
             auth_manager,
             thread_manager,
@@ -683,7 +685,10 @@ impl TurnRequestProcessor {
             }
         };
 
-        if turn_has_input && started {
+        if turn_has_input
+            && started
+            && self.memory_generation == crate::host_services::MemoryGeneration::BuiltIn
+        {
             let config_snapshot = thread.config_snapshot().await;
             if config_snapshot.is_primary_environment_configured() {
                 codex_memories_write::start_memories_startup_task(

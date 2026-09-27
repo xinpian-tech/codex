@@ -19,6 +19,7 @@ use crate::ToolAudit;
 
 mod account;
 mod archive;
+mod config;
 mod generation;
 mod home;
 mod preparation;
@@ -30,6 +31,7 @@ pub use archive::HostArchiveJobIds;
 pub use archive::HostArchiveJobs;
 pub use archive::HostArchivePhase;
 pub use archive::HostArchiveReceipts;
+pub use config::AgentLoadedConfig;
 pub use generation::AgentHostConfig;
 pub use generation::AgentHostGeneration;
 pub use preparation::AgentPreparationConfig;
@@ -212,6 +214,10 @@ impl ManagedHostServices {
 }
 
 impl HostServices for ManagedHostServices {
+    fn memory_generation(&self) -> codex_app_server::host_services::MemoryGeneration {
+        codex_app_server::host_services::MemoryGeneration::ManagedTasks
+    }
+
     fn external_auth(&self) -> Option<Arc<dyn codex_login::ExternalAuth>> {
         self.external_auth.clone()
     }

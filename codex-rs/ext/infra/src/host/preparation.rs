@@ -36,6 +36,7 @@ pub struct AgentPreparationConfig {
 /// Resources prepared before inference starts. The caller handles pending
 /// checkpoint recovery before admitting work, then starts the managed services.
 pub struct PreparedAgentHost {
+    pub launch: LaunchIntent,
     pub services: ManagedHostServices,
     pub processes: ProcessAudit,
     pub checkpoints: WorkspaceCheckpoints,
@@ -210,6 +211,7 @@ impl PreparedAgentHost {
             services.launch_binding = Some(Arc::new(journal));
             services.home = Some(home.clone());
             Ok(Self {
+                launch: binding.launch,
                 services,
                 processes,
                 checkpoints,

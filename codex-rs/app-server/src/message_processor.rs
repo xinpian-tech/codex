@@ -537,7 +537,7 @@ impl MessageProcessor {
             turn_cost_worker.as_ref().map(TurnCostWorker::handle),
             config_warnings,
         );
-        let turn_processor = TurnRequestProcessor::new(
+        let mut turn_processor = TurnRequestProcessor::new(
             auth_manager,
             Arc::clone(&thread_manager),
             outgoing.clone(),
@@ -550,6 +550,7 @@ impl MessageProcessor {
             Arc::clone(&skills_watcher),
             turn_cost_worker.as_ref().map(TurnCostWorker::handle),
         );
+        turn_processor.memory_generation = host_services.memory_generation();
         if let Some(startup_config) = plugin_startup_tasks {
             // Keep plugin startup warmups aligned at app-server startup.
             let reload_config = match startup_config {

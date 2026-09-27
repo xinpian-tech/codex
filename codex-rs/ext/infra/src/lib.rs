@@ -21,6 +21,7 @@ pub use context::AgentContext;
 pub use hook_executor::RecordedHookExecutor;
 pub use host::AgentHostConfig;
 pub use host::AgentHostGeneration;
+pub use host::AgentLoadedConfig;
 pub use host::AgentPreparationConfig;
 pub use host::HostArchiveJobIds;
 pub use host::HostArchiveJobs;
