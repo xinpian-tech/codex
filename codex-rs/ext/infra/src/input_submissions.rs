@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::TurnStartParams;
 use codex_infra_protocol::MessageId;
 use codex_infra_runtime::LaunchIntent;
 use codex_infra_state::InboxEntry;
@@ -37,6 +40,7 @@ struct Writer {
     path: PathBuf,
     journal: Journal,
     entries: BTreeMap<MessageId, (AgentInputSubmission, blake3::Hash)>,
+    turns: BTreeMap<MessageId, MessageId>,
     closed: bool,
 }
 
@@ -50,6 +54,10 @@ enum Event {
         submission: AgentInputSubmission,
         items: Vec<Value>,
     },
+    TurnPrepared {
+        message_id: MessageId,
+        request_id: MessageId,
+    },
 }
 
 impl AgentInputSubmissions {
@@ -58,6 +66,7 @@ impl AgentInputSubmissions {
     pub fn open(path: &Path, launch: LaunchIntent) -> io::Result<Self> {
         let mut opened = false;
         let mut entries = BTreeMap::new();
+        let mut turns = BTreeMap::new();
         let mut journal = Journal::open(path, |record| {
             match serde_json::from_slice::<Event>(&record.payload)? {
                 Event::Opened { launch: previous } => {
@@ -73,6 +82,16 @@ impl AgentInputSubmissions {
                     let digest = blake3::hash(&serde_json::to_vec(&items)?);
                     entries.insert(submission.message_id, (submission, digest));
                 }
+                Event::TurnPrepared {
+                    message_id,
+                    request_id,
+                } => {
+                    if !entries.contains_key(&message_id)
+                        || turns.insert(message_id, request_id).is_some()
+                    {
+                        return Err(io::Error::other("invalid input turn intent order"));
+                    }
+                }
             }
             Ok(())
         })?;
@@ -87,6 +106,7 @@ impl AgentInputSubmissions {
                 path: path.canonicalize()?,
                 journal,
                 entries,
+                turns,
                 closed: false,
             })),
         })
@@ -142,6 +162,57 @@ impl AgentInputSubmissions {
         })
         .await
         .map_err(io::Error::other)?
+    }
+
+    /// Prepares an empty-input turn/start after the caller has reconciled the
+    /// injection. Peer text remains in typed context fragments, not user.text.
+    /// Submit the returned request through AgentRpc; uncertain results require
+    /// reconciliation, and a turn/start reply alone is not a Presented receipt.
+    /// Reopening preserves the request ID and does not start a second turn.
+    pub async fn prepare_turn(
+        &self,
+        submission: &AgentInputSubmission,
+    ) -> io::Result<ClientRequest> {
+        let params = TurnStartParams {
+            thread_id: submission.thread_id.clone(),
+            input: Vec::new(),
+            turn_trigger: Some(format!("infra:{}", submission.message_id)),
+            ..Default::default()
+        };
+        let submission = submission.clone();
+        let writer = Arc::clone(&self.writer);
+        let request_id = tokio::task::spawn_blocking(move || {
+            let mut writer = writer
+                .lock()
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            if writer.closed {
+                return Err(io::Error::other("input submission admission is closed"));
+            }
+            let Some((recorded, _)) = writer.entries.get(&submission.message_id) else {
+                return Err(io::Error::other("turn input was not prepared"));
+            };
+            if recorded != &submission {
+                return Err(io::Error::other("turn input binding changed"));
+            }
+            if let Some(request_id) = writer.turns.get(&submission.message_id) {
+                return Ok(*request_id);
+            }
+            let request_id = MessageId::new();
+            writer
+                .journal
+                .append(&serde_json::to_vec(&Event::TurnPrepared {
+                    message_id: submission.message_id,
+                    request_id,
+                })?)?;
+            writer.turns.insert(submission.message_id, request_id);
+            Ok(request_id)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        Ok(ClientRequest::TurnStart {
+            request_id: RequestId::String(request_id.to_string()),
+            params,
+        })
     }
 
     /// Closes intent admission and returns its final archive boundary. The

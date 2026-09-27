@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+AgentInputSubmissions 新增 prepare_turn：核对已持久化的完整提交绑定，再为消息追加独立 TurnPrepared request ID，返回既有类型化 turn/start 请求，input 为空、turn_trigger 为 infra:<message-id>，重复准备及重启均复用原 ID。源码确认 app-server/core 支持从既有上下文启动空输入 turn，不必引入 user.text 或伪造工具输出；仍由调用方先协调注入和线程活动状态，再通过 AgentRpc 提交。此步骤仅准备请求，没有把 turn/start 的返回当作输入已被消费，也尚未完成不确定请求的 turn 查找或 turn ID 持久关联。extension 库级 Clippy 通过，未编写或运行测试，未启动真实 turn。CLI 调度、活动 turn 竞态处理、Presented/Processed、恢复与归档收尾仍待完成。
+
 启动装配新增 AgentInputSubmissions 所有者，在 app-server 启动前打开绑定完整 launch 的 input-submissions.journal。prepare 校验 inbox 目标并构造实际类型化输入，先落盘 message ID、accepted sequence、目标 thread、稳定 RPC request ID 与完整 ResponseItem，再返回注入意图；同一消息恢复时核对 thread、接收位置和输入摘要，返回原 request ID，内存仅保留绑定及摘要。持久化由拥有任务的 blocking worker 完成，调用方取消不会撤销已经准入的日志写入。close 关闭新意图准入并返回归档边界，不代替 RPC/推理收尾。extension 库级 Clippy 通过，未编写或运行测试，未执行真实启动或注入。CLI 仍需调用 prepare 后使用对应 request ID 注入，并完成审计证据恢复、turn 关联、Presented/Processed、此日志归档及最终收尾。
 
 新增 AgentInputEvidence，复用实际注入使用的 ResponseItem 构造逻辑，逐页核对指定 thread 的稳定片段 ID 与完整内容。仅成功 Finished 对应的 append 累积片段位图，全部片段写入成功后才接受新开始且成功结束的 flush_thread 或现有 local store 的 thread_preparation persist；其他 persist context 不充当 flush 证据。状态区分 AwaitingAppend、AwaitingFlush、Flushed，保留 flush 完成 sequence，页应用失败不推进游标；仅保留相关未决操作并限制数量，恢复时可从原始审计开头重建。该结果描述历史写入证据，不能证明当前历史未发生回滚、模型已消费输入或任务已完成，尚未触发 Presented/Processed。extension 库级 Clippy 通过，未编写或运行测试，未执行运行时实验。提交状态持久化、turn 关联、未决注入恢复决策、CLI 驱动与最终归档仍待完成。
