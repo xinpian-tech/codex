@@ -48,6 +48,7 @@ pub use input_evidence::AgentInputEvidence;
 pub use input_evidence::AgentInputEvidenceStatus;
 pub use input_submissions::AgentInputSubmission;
 pub use input_submissions::AgentInputSubmissions;
+pub use input_submissions::AgentInputTurnOutcome;
 pub use process_activity::ProcessActivity;
 pub use process_activity::ProcessSettlement;
 pub use process_activity::ProcessSettlementOutcome;

@@ -1,8 +1,5 @@
 use std::io;
 
-use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::ThreadInjectItemsParams;
 use codex_core::context::AgentInputFragment;
 use codex_core::context::ContextualUserFragment;
 use codex_infra_protocol::MessageId;
@@ -11,9 +8,6 @@ use codex_infra_runtime::LaunchIntent;
 use codex_infra_state::InboxEntry;
 use codex_protocol::ResponseItemId;
 use codex_protocol::models::ResponseItem;
-
-use crate::AgentRpcOutcome;
-use crate::ManagedHost;
 
 /// Bounded model input prepared from an already accepted terminal inbox entry.
 /// Construction neither submits a turn nor acknowledges message presentation.
@@ -77,27 +71,6 @@ impl AgentMessageInput {
 
     pub fn fragments(&self) -> &[AgentInputFragment] {
         &self.fragments
-    }
-
-    /// Injects typed context items without turning peer text into user-authored
-    /// input. The caller persists the chosen request ID before invoking this and
-    /// reconciles Uncertain outcomes before acknowledging presentation.
-    pub async fn inject(
-        &self,
-        host: &ManagedHost,
-        thread_id: String,
-        request_id: MessageId,
-    ) -> io::Result<AgentRpcOutcome> {
-        let items = self.response_items()?;
-        host.rpc
-            .request(
-                host.client.sender(),
-                ClientRequest::ThreadInjectItems {
-                    request_id: RequestId::String(request_id.to_string()),
-                    params: ThreadInjectItemsParams { thread_id, items },
-                },
-            )
-            .await
     }
 
     pub(crate) fn response_items(&self) -> io::Result<Vec<serde_json::Value>> {

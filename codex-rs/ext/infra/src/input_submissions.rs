@@ -19,6 +19,10 @@ use serde_json::Value;
 
 use crate::AgentMessageInput;
 
+mod inject;
+mod turn;
+pub use turn::AgentInputTurnOutcome;
+
 /// Durable injection intent. Its request ID is reused after interruption so the
 /// RPC ledger can distinguish an unsent request from an uncertain submission.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +38,7 @@ pub struct AgentInputSubmission {
 pub struct AgentInputSubmissions {
     launch: LaunchIntent,
     writer: Arc<Mutex<Writer>>,
+    dispatch: Arc<tokio::sync::Mutex<()>>,
 }
 
 struct Writer {
@@ -41,6 +46,7 @@ struct Writer {
     journal: Journal,
     entries: BTreeMap<MessageId, (AgentInputSubmission, blake3::Hash)>,
     turns: BTreeMap<MessageId, MessageId>,
+    bound_turns: BTreeMap<MessageId, String>,
     closed: bool,
 }
 
@@ -58,6 +64,11 @@ enum Event {
         message_id: MessageId,
         request_id: MessageId,
     },
+    TurnBound {
+        message_id: MessageId,
+        request_id: MessageId,
+        turn_id: String,
+    },
 }
 
 impl AgentInputSubmissions {
@@ -67,6 +78,7 @@ impl AgentInputSubmissions {
         let mut opened = false;
         let mut entries = BTreeMap::new();
         let mut turns = BTreeMap::new();
+        let mut bound_turns = BTreeMap::new();
         let mut journal = Journal::open(path, |record| {
             match serde_json::from_slice::<Event>(&record.payload)? {
                 Event::Opened { launch: previous } => {
@@ -92,6 +104,18 @@ impl AgentInputSubmissions {
                         return Err(io::Error::other("invalid input turn intent order"));
                     }
                 }
+                Event::TurnBound {
+                    message_id,
+                    request_id,
+                    turn_id,
+                } => {
+                    if turns.get(&message_id) != Some(&request_id)
+                        || turn_id.is_empty()
+                        || bound_turns.insert(message_id, turn_id).is_some()
+                    {
+                        return Err(io::Error::other("invalid input turn binding"));
+                    }
+                }
             }
             Ok(())
         })?;
@@ -107,8 +131,10 @@ impl AgentInputSubmissions {
                 journal,
                 entries,
                 turns,
+                bound_turns,
                 closed: false,
             })),
+            dispatch: Arc::default(),
         })
     }
 
@@ -215,17 +241,24 @@ impl AgentInputSubmissions {
         })
     }
 
-    /// Closes intent admission and returns its final archive boundary. The
-    /// driver must separately settle injections and the RPC ledger before
+    /// Waits for owned input/turn dispatch, closes intent admission, and returns its
+    /// final archive boundary. Call before closing the host RPC ledger. The
+    /// driver must separately settle inference and the RPC ledger before
     /// acknowledging presentation or completing host shutdown.
     pub async fn close(&self) -> io::Result<(PathBuf, JournalPosition)> {
         let writer = Arc::clone(&self.writer);
-        tokio::task::spawn_blocking(move || {
-            let mut writer = writer
-                .lock()
-                .map_err(|error| io::Error::other(error.to_string()))?;
-            writer.closed = true;
-            Ok((writer.path.clone(), writer.journal.position()))
+        let dispatch = Arc::clone(&self.dispatch);
+        tokio::spawn(async move {
+            let _dispatch = dispatch.lock_owned().await;
+            tokio::task::spawn_blocking(move || {
+                let mut writer = writer
+                    .lock()
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+                writer.closed = true;
+                Ok((writer.path.clone(), writer.journal.position()))
+            })
+            .await
+            .map_err(io::Error::other)?
         })
         .await
         .map_err(io::Error::other)?
