@@ -602,7 +602,9 @@ codex-agent 入口在创建线程和 Tokio runtime 前调用上游 arg0_dispatch
 
 三个实际 binary 的 Cargo 构建已成功退出（dev profile，44m 26s），生成 target/debug/codex-agent、codex-machine-runtime、codex-infra-account。这是实际编译及链接结果，不仅是 Clippy/type-check；尚未执行这些二进制。
 
-Nix 构建发现 crossterm、tokio-tungstenite、tungstenite 的旧 outputHashes 与 Cargo.lock 固定 revision 不符，已按这些 revision 的实际固定输出更新；vendor 依赖阶段已完成，独立部署包仍在构建，尚未确认 Nix 产物成功。当前 projects 下未找到实际调用部署入口的 Team State 配置，已询问用于首次实装的独立仓库及机器/provider/account 配置路径。尚未启动真实 Agent、tmux workload 或模型请求；未编写或运行测试。
+Nix 构建发现 crossterm、tokio-tungstenite、tungstenite 的旧 outputHashes 与 Cargo.lock 固定 revision 不符，已按这些 revision 的实际固定输出更新。vendor 与依赖编译已通过；release 编译 codex-agent 时，嵌入 app-server 的异步请求触发默认 layout query 递归深度上限。独立入口现采用与上游 app-server/exec 相同的 recursion_limit=256，继续构建 Nix 部署包，尚未确认 Nix 产物成功。
+
+当前 projects 下未找到实际调用部署入口的 Team State 配置，已询问用于首次实装的独立仓库及机器/provider/account 配置路径。尚未启动真实 Agent、tmux workload 或模型请求；未编写或运行测试。
 
 ### Session 工作记忆接入 Agent 主循环
 

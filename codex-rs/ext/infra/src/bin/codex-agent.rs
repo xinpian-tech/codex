@@ -1,3 +1,7 @@
+// Embedded app-server request futures exceed the default layout query depth
+// when the standalone host is compiled with release optimizations.
+#![recursion_limit = "256"]
+
 use std::io;
 use std::path::PathBuf;
 
