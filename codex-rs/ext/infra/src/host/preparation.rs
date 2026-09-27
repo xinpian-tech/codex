@@ -15,6 +15,7 @@ use codex_infra_state::Journal;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::AgentHostGeneration;
 use super::ManagedHostServices;
 use crate::AgentContext;
 use crate::ProcessAudit;
@@ -41,6 +42,7 @@ pub struct PreparedAgentHost {
     pub context: Arc<AgentContext>,
     pub task: TaskSpec,
     pub directory: PathBuf,
+    pub generation: Option<AgentHostGeneration>,
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
@@ -48,9 +50,31 @@ struct PreparationBinding {
     config: AgentPreparationConfig,
     launch: LaunchIntent,
     bootstrap: AgentMessage,
+    #[serde(default)]
+    generation: Option<AgentHostGeneration>,
 }
 
 impl PreparedAgentHost {
+    /// Loads and records immutable host configuration before opening resources.
+    /// The bootstrap still comes from the host's own recorded terminal input.
+    pub async fn open_generation(
+        launch: LaunchIntent,
+        bootstrap: AgentMessage,
+    ) -> io::Result<Self> {
+        let binding = tokio::task::spawn_blocking(move || {
+            let generation = AgentHostGeneration::read(&launch.generation)?;
+            Ok::<_, io::Error>(PreparationBinding {
+                config: generation.config.preparation.clone(),
+                launch,
+                bootstrap,
+                generation: Some(generation),
+            })
+        })
+        .await
+        .map_err(io::Error::other)??;
+        Self::open_binding(binding).await
+    }
+
     /// Consumes the bootstrap envelope already recorded by HostMailbox from
     /// tmux stdin. Its body is the assigned TaskSpec; the envelope's repository
     /// and commit describe the sender, which may work in another repository.
@@ -60,12 +84,17 @@ impl PreparedAgentHost {
         launch: LaunchIntent,
         bootstrap: AgentMessage,
     ) -> io::Result<Self> {
+        Self::open_binding(PreparationBinding {
+            config,
+            launch,
+            bootstrap,
+            generation: None,
+        })
+        .await
+    }
+
+    async fn open_binding(binding: PreparationBinding) -> io::Result<Self> {
         tokio::task::spawn_blocking(move || {
-            let binding = PreparationBinding {
-                config,
-                launch,
-                bootstrap,
-            };
             let launch = &binding.launch;
             let bootstrap = &binding.bootstrap;
             if bootstrap.kind != MessageKind::Bootstrap
@@ -175,6 +204,7 @@ impl PreparedAgentHost {
                 context,
                 task,
                 directory,
+                generation: binding.generation,
             })
         })
         .await

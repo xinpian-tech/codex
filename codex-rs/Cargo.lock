@@ -3729,6 +3729,7 @@ dependencies = [
 name = "codex-infra-extension"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "codex-app-server",
  "codex-cloud-config",
  "codex-config",

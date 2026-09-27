@@ -19,6 +19,7 @@ use crate::ToolAudit;
 
 mod account;
 mod archive;
+mod generation;
 mod preparation;
 mod provider;
 mod shutdown;
@@ -28,6 +29,8 @@ pub use archive::HostArchiveJobIds;
 pub use archive::HostArchiveJobs;
 pub use archive::HostArchivePhase;
 pub use archive::HostArchiveReceipts;
+pub use generation::AgentHostConfig;
+pub use generation::AgentHostGeneration;
 pub use preparation::AgentPreparationConfig;
 pub use preparation::PreparedAgentHost;
 pub use shutdown_journal::HostShutdownJournal;
