@@ -9,7 +9,6 @@ use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
 use codex_login::ExternalAuthRefreshContext;
 use codex_login::ExternalAuthRefreshReason;
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
@@ -21,13 +20,17 @@ use tokio::task::JoinSet;
 use crate::AccountAction;
 use crate::AccountAuthority;
 use crate::AccountCredentialSource;
+use crate::AccountExchangeIdentity;
 use crate::AccountRequest;
 use crate::AccountResponse;
 use crate::AccountResult;
+use crate::AccountServiceAuditConfig;
+use crate::wire_audit::WireAudit;
 
 /// One account's control endpoint, owned by the machine runtime. bind_ip is
 /// the reachable machine address; the operating system allocates its port.
 pub struct AccountServiceConfig {
+    pub audit: AccountServiceAuditConfig,
     pub machine_id: MachineId,
     pub owner_revision: CommitId,
     pub bind_ip: IpAddr,
@@ -86,7 +89,7 @@ impl AccountService {
                         observe(result, &state_tx, &mut failure);
                     }
                     accepted = listener.accept(), if jobs.len() < config.concurrent_requests.get() => {
-                        let (stream, _) = match accepted {
+                        let (stream, peer) = match accepted {
                             Ok(connection) => connection,
                             Err(error) => { failure = Some(error); break; }
                         };
@@ -94,7 +97,16 @@ impl AccountService {
                         let source = Arc::clone(&source);
                         let authority = serving_authority.clone();
                         state_tx.send_modify(|state| state.active_requests += 1);
-                        jobs.spawn(async move { exchange(stream, &config, authority, source.as_ref()).await });
+                        jobs.spawn(async move {
+                            let audit = WireAudit::open(config.audit.directory.clone(), AccountExchangeIdentity {
+                                connection_id: MessageId::new(), root_session_id: config.audit.root_session_id,
+                                authority: authority.clone(), provider_id: config.provider_id.clone(),
+                                account_id: config.account_id.clone(), peer,
+                            }).await?;
+                            let result = exchange(stream, &config, authority, source.as_ref(), &audit).await;
+                            audit.finish(&result).await?;
+                            result
+                        });
                     }
                 }
             }
@@ -176,20 +188,20 @@ async fn exchange<S: AccountCredentialSource>(
     config: &AccountServiceConfig,
     authority: AccountAuthority,
     source: &S,
+    audit: &WireAudit,
 ) -> io::Result<()> {
-    let request: AccountRequest = tokio::time::timeout(config.io_timeout, async {
-        let length = usize::try_from(stream.read_u32().await?).map_err(io::Error::other)?;
-        if length > config.frame_bytes.get() {
-            return Err(io::Error::other(
-                "account request exceeds configured frame budget",
-            ));
-        }
-        let mut bytes = vec![0; length];
-        stream.read_exact(&mut bytes).await?;
-        serde_json::from_slice(&bytes).map_err(io::Error::other)
-    })
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "account request read timed out"))??;
+    let deadline = tokio::time::Instant::now() + config.io_timeout;
+    let mut header = [0; 4];
+    audit.read_exact(&mut stream, &mut header, deadline).await?;
+    let length = usize::try_from(u32::from_be_bytes(header)).map_err(io::Error::other)?;
+    if length > config.frame_bytes.get() {
+        return Err(io::Error::other(
+            "account request exceeds configured frame budget",
+        ));
+    }
+    let mut bytes = vec![0; length];
+    audit.read_exact(&mut stream, &mut bytes, deadline).await?;
+    let request: AccountRequest = serde_json::from_slice(&bytes)?;
     let result = if request.authority != authority
         || request.provider_id != config.provider_id
         || request.account_id != config.account_id
@@ -245,13 +257,16 @@ async fn exchange<S: AccountCredentialSource>(
         ));
     }
     let length = u32::try_from(bytes.len()).map_err(io::Error::other)?;
-    tokio::time::timeout(config.io_timeout, async {
-        stream.write_u32(length).await?;
-        stream.write_all(&bytes).await?;
-        stream.shutdown().await
-    })
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "account response write timed out"))??;
+    let deadline = tokio::time::Instant::now() + config.io_timeout;
+    audit
+        .write_all(&mut stream, &length.to_be_bytes(), deadline)
+        .await?;
+    audit.write_all(&mut stream, &bytes, deadline).await?;
+    tokio::time::timeout_at(deadline, stream.shutdown())
+        .await
+        .map_err(|_| {
+            io::Error::new(io::ErrorKind::TimedOut, "account response write timed out")
+        })??;
     match backend_error {
         Some(error) => Err(io::Error::other(error)),
         None => Ok(()),

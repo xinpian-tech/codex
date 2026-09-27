@@ -140,6 +140,8 @@ impl MachineLaunchConfig {
             writer,
             MachineRuntimeConfig {
                 accounts: MachineAccountServicesConfig {
+                    root_session_id: config.root_session_id,
+                    audit_directory: spool.join("account-exchanges"),
                     git: config.programs.git,
                     repository: config.team_state_repository,
                     machine_id: config.machine_id.clone(),

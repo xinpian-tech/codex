@@ -13,6 +13,7 @@ use codex_infra_account::AccountDirectory;
 use codex_infra_account::AccountDirectoryUpdate;
 use codex_infra_account::AccountOwnerAssignment;
 use codex_infra_account::AccountService;
+use codex_infra_account::AccountServiceAuditConfig;
 use codex_infra_account::AccountServiceConfig;
 use codex_infra_account::CodexRefreshConfig;
 use codex_infra_account::GitAccountOwner;
@@ -20,6 +21,7 @@ use codex_infra_account::GitAccounts;
 use codex_infra_protocol::CommitId;
 use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
+use codex_infra_protocol::RootSessionId;
 use codex_login::AuthRouteConfig;
 use serde::Deserialize;
 use serde::Serialize;
@@ -47,6 +49,8 @@ struct MachineAccountEndpoint {
 }
 
 pub struct MachineAccountServicesConfig {
+    pub root_session_id: RootSessionId,
+    pub audit_directory: PathBuf,
     pub git: PathBuf,
     pub repository: PathBuf,
     pub machine_id: MachineId,
@@ -98,6 +102,10 @@ impl MachineAccountServices {
             };
             let service = AccountService::start(
                 AccountServiceConfig {
+                    audit: AccountServiceAuditConfig {
+                        directory: config.audit_directory.clone(),
+                        root_session_id: config.root_session_id,
+                    },
                     machine_id: config.machine_id.clone(),
                     owner_revision: account.owner_revision.clone(),
                     bind_ip: config.bind_address,

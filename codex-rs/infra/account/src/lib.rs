@@ -14,6 +14,7 @@ mod replicated_source;
 mod service;
 mod view;
 mod wire;
+mod wire_audit;
 
 pub use directory::AccountDirectory;
 pub use directory::AccountDirectoryUpdate;
@@ -47,3 +48,6 @@ pub use wire::AccountAuthority;
 pub use wire::AccountRequest;
 pub use wire::AccountResponse;
 pub use wire::AccountResult;
+pub use wire_audit::AccountExchangeFinished;
+pub use wire_audit::AccountExchangeIdentity;
+pub use wire_audit::AccountServiceAuditConfig;
