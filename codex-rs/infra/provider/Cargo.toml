@@ -8,12 +8,6 @@ license.workspace = true
 doctest = false
 test = false
 
-[[bin]]
-name = "codex-infra-account"
-path = "src/bin/codex-infra-account.rs"
-test = false
-bench = false
-
 [lints]
 workspace = true
 

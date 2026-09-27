@@ -3711,6 +3711,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-infra-account"
+version = "0.0.0"
+dependencies = [
+ "codex-http-client",
+ "codex-infra-protocol",
+ "codex-infra-provider",
+ "codex-login",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "codex-infra-extension"
 version = "0.0.0"
 dependencies = [

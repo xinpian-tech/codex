@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "infra/account",
     "infra/protocol",
     "infra/provider",
     "infra/state",
