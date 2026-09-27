@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 切换到 z3compile 的离线远程编译
+
+后续编译仅在 root@henan-z3compile（主机名 z3compile、x86_64-linux）执行。本机只用于源码编辑、Nix 求值、依赖下载及 rsync 传输。远端 /etc/nix/nix.conf 已启用 nix-command 与 flakes。源码 cfa3628175 通过 rsync 同步至 /root/projects/codex；依赖导出为文件型 Nix binary cache，约 824 MiB，经 rsync 传至 /root/codex-builds/nix-cache，并在远端导入。
+
+远端 tmux 会话 codex-infra-offline 已启动固定 derivation /nix/store/0zz1kcpksb0bg92rxi8iz1gych9kylp6-codex-infra-0.0.0-dev+cfa3628.drv 的构建，使用 --offline、空 substituters、--cores 64、--max-jobs 8。日志为 /root/codex-builds/cfa3628175/build-offline.log，结束后写入同目录 exit-code-offline，产物链接为 result。已观察到离线依赖源码解包持续推进；尚未取得该远端构建的成功终态。未运行测试。
+
+此前本机 b107836d9d 的 Nix 构建在切换远端前已成功退出。该事实不替代远端 x86_64 产物与真实任务运行。首次部署仍需独立 Team State 仓库及实际机器/provider/account 配置。
+
 ### 首个 Nix release 产物与最新版本构建
 
 源码 f36b67ea8e 的 codex-infra Nix 构建已成功退出，产物为 /nix/store/1rxh8prflnh7bzyzhbfanzmlffq8as7x-codex-infra-0.0.0-dev+f36b67e，已确认包含 codex-agent、codex-machine-runtime、codex-infra-account 三个可执行文件。recursion_limit=256 的修复已通过实际 release 编译及链接；尚未执行这些程序。
