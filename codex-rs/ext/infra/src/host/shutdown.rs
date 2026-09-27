@@ -32,6 +32,10 @@ impl ManagedHost {
                 Some(provider) => provider.stop().await,
                 None => Ok(()),
             };
+            let account = match self.account_replica.take() {
+                Some(replica) => replica.stop().await,
+                None => Ok(()),
+            };
             let hooks = self.hooks.shutdown().await.map_err(io::Error::other);
             // Hook workers may issue EOF or termination. Close backend request
             // admission only after those workers have finished.
@@ -54,6 +58,7 @@ impl ManagedHost {
             // no completion snapshot is returned unless all have succeeded.
             inference?;
             provider?;
+            account?;
             hooks?;
             requests?;
             producers?;

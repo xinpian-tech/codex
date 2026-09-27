@@ -9,6 +9,7 @@ use codex_core::config::Config;
 use codex_infra_account::AccountConnectionConfig;
 use codex_infra_account::AccountCredentialSource;
 use codex_infra_account::AccountReplicaConfig;
+use codex_infra_account::AccountReplicaControl;
 use codex_infra_account::CodexAccountView;
 use codex_infra_account::PublishedAccountAuth;
 use codex_infra_account::ReplicatedAccountSource;
@@ -50,6 +51,7 @@ pub struct NativeAccountBootstrap {
     home: PathBuf,
     binding: InferenceBinding,
     external: Arc<dyn ExternalAuth>,
+    replica: Option<AccountReplicaControl>,
 }
 
 impl NativeAccountBootstrap {
@@ -68,7 +70,19 @@ impl NativeAccountBootstrap {
             connection,
         )
         .await?;
-        Self::prepare(generation, home, source).await
+        let control = source.control();
+        match Self::prepare(generation, home, source).await {
+            Ok(mut account) => {
+                account.replica = Some(control);
+                Ok(account)
+            }
+            Err(error) => match control.stop().await {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(io::Error::other(format!(
+                    "account preparation: {error}; replica shutdown: {cleanup}"
+                ))),
+            },
+        }
     }
 
     pub async fn prepare<S: AccountCredentialSource + 'static>(
@@ -92,6 +106,7 @@ impl NativeAccountBootstrap {
                     _view: view,
                     external,
                 }),
+                replica: None,
             })
         })
         .await
@@ -150,47 +165,67 @@ impl ManagedHostServices {
         launch: &LaunchIntent,
         account: NativeAccountBootstrap,
     ) -> io::Result<ManagedHost> {
-        let binding = &launch.generation.inference;
-        if account.binding() != binding
-            || args.config.codex_home.as_path() != account.home()
-            || args.config.model_provider_id != binding.provider_id
-            || !args.config.model_provider.requires_openai_auth
-            || launch.launch_id != self.tools.launch_id
-            || launch.workspace.agent_id != self.audit.identity.agent_id
-            || launch.workspace.root_session_id != self.audit.identity.root_session_id
-            || launch.machine_id != self.audit.identity.machine_id
-        {
-            return Err(io::Error::other(
-                "native account differs from Agent launch binding",
-            ));
+        let replica = account.replica.clone();
+        let result = async {
+            let binding = &launch.generation.inference;
+            if account.binding() != binding
+                || args.config.codex_home.as_path() != account.home()
+                || args.config.model_provider_id != binding.provider_id
+                || !args.config.model_provider.requires_openai_auth
+                || launch.launch_id != self.tools.launch_id
+                || launch.workspace.agent_id != self.audit.identity.agent_id
+                || launch.workspace.root_session_id != self.audit.identity.root_session_id
+                || launch.machine_id != self.audit.identity.machine_id
+            {
+                return Err(io::Error::other(
+                    "native account differs from Agent launch binding",
+                ));
+            }
+            let config = Arc::make_mut(&mut args.config);
+            config.model = Some(binding.model_id.clone());
+            config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
+            config
+                .model_providers
+                .insert(binding.provider_id.clone(), config.model_provider.clone());
+            args.cli_overrides.extend([
+                (
+                    "model".to_owned(),
+                    toml::Value::String(binding.model_id.clone()),
+                ),
+                (
+                    "model_provider".to_owned(),
+                    toml::Value::String(binding.provider_id.clone()),
+                ),
+                (
+                    "cli_auth_credentials_store".to_owned(),
+                    toml::Value::String("file".to_owned()),
+                ),
+                (
+                    "model_providers".to_owned(),
+                    toml::Value::try_from(&config.model_providers).map_err(io::Error::other)?,
+                ),
+            ]);
+            args.cloud_config_bundle = account.cloud_config_bundle(&args.config).await?;
+            args.enable_codex_api_key_env = false;
+            self.external_auth = Some(account.external);
+            self.start(args, process_audit).await
         }
-        let config = Arc::make_mut(&mut args.config);
-        config.model = Some(binding.model_id.clone());
-        config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
-        config
-            .model_providers
-            .insert(binding.provider_id.clone(), config.model_provider.clone());
-        args.cli_overrides.extend([
-            (
-                "model".to_owned(),
-                toml::Value::String(binding.model_id.clone()),
-            ),
-            (
-                "model_provider".to_owned(),
-                toml::Value::String(binding.provider_id.clone()),
-            ),
-            (
-                "cli_auth_credentials_store".to_owned(),
-                toml::Value::String("file".to_owned()),
-            ),
-            (
-                "model_providers".to_owned(),
-                toml::Value::try_from(&config.model_providers).map_err(io::Error::other)?,
-            ),
-        ]);
-        args.cloud_config_bundle = account.cloud_config_bundle(&args.config).await?;
-        args.enable_codex_api_key_env = false;
-        self.external_auth = Some(account.external);
-        self.start(args, process_audit).await
+        .await;
+        match result {
+            Ok(mut host) => {
+                host.account_replica = replica;
+                Ok(host)
+            }
+            Err(error) => {
+                if let Some(replica) = replica
+                    && let Err(cleanup) = replica.stop().await
+                {
+                    return Err(io::Error::other(format!(
+                        "native host startup: {error}; replica shutdown: {cleanup}"
+                    )));
+                }
+                Err(error)
+            }
+        }
     }
 }

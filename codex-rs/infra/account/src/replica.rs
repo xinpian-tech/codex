@@ -3,6 +3,8 @@ use std::io;
 use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use codex_infra_protocol::CommitId;
@@ -14,13 +16,13 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
 use crate::AccountDirectory;
 use crate::AccountDirectoryFollower;
 use crate::AccountDirectoryPage;
 use crate::AccountDirectoryProgress;
+use crate::AccountReplicaControl;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AccountReplicaConfig {
@@ -51,8 +53,7 @@ pub enum AccountReplicaState {
 /// bounded batch. Agent semantic messages are not carried by this service.
 pub struct AccountDirectoryReplica {
     directory: AccountDirectory,
-    stop: oneshot::Sender<()>,
-    task: JoinHandle<io::Result<()>>,
+    control: AccountReplicaControl,
     state: watch::Receiver<AccountReplicaState>,
 }
 
@@ -125,12 +126,22 @@ impl AccountDirectoryReplica {
                 });
             }
             status.send_replace(AccountReplicaState::Stopped);
-            Ok(())
+            Ok::<_, io::Error>(())
+        });
+        let (finished, completion) = watch::channel(None);
+        tokio::spawn(async move {
+            let result = match task.await {
+                Ok(result) => result.map_err(|error| error.to_string()),
+                Err(error) => Err(error.to_string()),
+            };
+            finished.send_replace(Some(result));
         });
         Ok(Self {
             directory,
-            stop,
-            task,
+            control: AccountReplicaControl {
+                stop: Arc::new(Mutex::new(Some(stop))),
+                completion,
+            },
             state,
         })
     }
@@ -143,11 +154,20 @@ impl AccountDirectoryReplica {
         self.state.clone()
     }
 
+    pub fn control(&self) -> AccountReplicaControl {
+        self.control.clone()
+    }
+
     /// Stops after the active Git/restore/apply step. Dropping this owner or
     /// canceling the stop waiter also leaves the owned step running to completion.
     pub async fn stop(self) -> io::Result<()> {
-        let _ = self.stop.send(());
-        self.task.await.map_err(io::Error::other)?
+        self.control.stop().await
+    }
+}
+
+impl Drop for AccountDirectoryReplica {
+    fn drop(&mut self) {
+        let _ = self.control.request_stop();
     }
 }
 

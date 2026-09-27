@@ -12,6 +12,7 @@ use tokio::sync::watch;
 use crate::AccountCredentialSource;
 use crate::AccountDirectoryReplica;
 use crate::AccountReplicaConfig;
+use crate::AccountReplicaControl;
 use crate::AccountReplicaState;
 use crate::PublishedAccount;
 use crate::RemoteAccountSource;
@@ -105,6 +106,10 @@ impl ReplicatedAccountSource {
 
     pub fn subscribe(&self) -> watch::Receiver<AccountReplicaState> {
         self.replica.subscribe()
+    }
+
+    pub fn control(&self) -> AccountReplicaControl {
+        self.replica.control()
     }
 
     pub async fn stop(self) -> io::Result<()> {

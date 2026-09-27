@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户副本增加 AccountReplicaControl，独立持有停止请求与终态完成通知。Replica 的拥有任务和完成观察任务在调用方取消等待后继续运行；控制句柄可重复等待同一结果，只有实际 worker（含当前 blocking Git/restore/apply 步骤）退出后才报告完成。ReplicatedAccountSource 导出该句柄，prepare_remote 将其带入 NativeAccountBootstrap；准备失败、原生宿主启动失败均等待副本收尾。成功启动后由 ManagedHost 保存句柄，shutdown_and_snapshot 在 inference drain 后停止并等待账户副本，并继续尝试其他独立 drain；任一步失败都不返回完成快照。账户库/CLI、extension 库 Clippy 通过，未编写或运行测试，未执行服务或实装。该变化补齐账户副本后台任务的等待边界；凭据观察、目录副本与 cursor 的最终归档、账户网络/Git/OAuth 原始 I/O 以及独立 Agent CLI 仍待接入。
+
 原生账户 bootstrap 新增 prepare_remote，按 generation 中的 provider/account 启动 ReplicatedAccountSource。该来源组合自动目录副本和 RemoteAccountSource，等待新一轮已同步快照包含所选账户后才返回；初次同步预算、请求预算和 frame 大小来自 AccountConnectionConfig。初次发现中的暂时错误由副本继续重试，预算耗尽或服务退出时返回原因并等待当前副本步骤收尾。PublishedAccountAuth 持有该来源，因此 bootstrap/cloud loader/serving manager 使用期间目录副本持续运行；来源另提供状态订阅和显式 stop。账户库/CLI、extension 库 Clippy 通过，未改动 core/login。独立 Agent CLI 的完整参数/配置装配、finalizer 对账户后台任务的显式等待及账户 I/O/观察日志归档仍待完成；当前最后一个账户来源释放时发出副本停止信号，既有 owned task 完成进行中的步骤。未编写或运行测试，未执行 Git、账户网络请求或实装。
 
 新增 AccountDirectoryReplica 自动消费者及可序列化 AccountReplicaConfig：按明确的机器归档流、Git/仓库/remote、独立 spool、分页/批量大小和轮询间隔工作。owned actor 将 Git、恢复和游标推进放入 blocking worker；每轮发现一页或应用一批，复用已恢复的位置，未变化的快照不重复恢复。发现/追赶/已同步/重试/停止状态通过 watch 暴露，directory() 提供给 RemoteAccountSource；停止等待当前步骤，丢弃调用方不取消正在持久化的工作。机器 Ready 新增 account_directory_archive 流身份；账户归档 actor 在返回前先保存初始任务和机器流 ID，使重启继续使用相同绑定。账户库/CLI、runtime/extension 库及机器 CLI Clippy 通过；未编写或运行测试，未运行轮询、Git 或实装。当前提供自动 Git 恢复路径，仍需独立 Agent CLI 持有 replica 生命周期并等待初次同步，跨机器实时增量与账户原始 I/O 归档尚待装配。

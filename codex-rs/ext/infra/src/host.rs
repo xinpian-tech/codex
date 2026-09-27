@@ -59,6 +59,7 @@ pub struct ManagedHost {
     hooks: Arc<RecordedHookExecutor>,
     store_audit: StoreAudit,
     provider: Option<codex_infra_provider::ChatFrontend>,
+    account_replica: Option<codex_infra_account::AccountReplicaControl>,
 }
 
 /// Completion boundaries for the host's currently recorded audit streams.
@@ -184,6 +185,7 @@ impl ManagedHostServices {
             hooks,
             store_audit,
             provider: None,
+            account_replica: None,
         })
     }
 }
