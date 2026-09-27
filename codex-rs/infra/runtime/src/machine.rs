@@ -21,7 +21,10 @@ use crate::TransportSession;
 
 mod account_archive;
 mod accounts;
+mod exchange_archive;
 use account_archive::AccountArchiveActor;
+use exchange_archive::ExchangeArchiveActor;
+use exchange_archive::ExchangeArchiveConfig;
 mod generation;
 mod launch;
 pub use accounts::MachineAccountConfig;
@@ -59,6 +62,7 @@ pub struct MachineRuntime {
     account_directory: Option<AccountDirectory>,
     account_updates: Vec<AccountDirectoryUpdate>,
     account_archive: Option<AccountArchiveActor>,
+    exchange_archive: Option<ExchangeArchiveActor>,
 }
 
 /// Resources returned for final snapshots, backlog reconciliation and restart.
@@ -92,6 +96,7 @@ impl MachineRuntime {
             account_directory: None,
             account_updates: Vec::new(),
             account_archive: None,
+            exchange_archive: None,
         }
     }
 
@@ -174,6 +179,21 @@ impl MachineRuntime {
             );
         }
         self.accounts.start(&self.config.accounts).await?;
+        if self.exchange_archive.is_none() {
+            self.exchange_archive = Some(
+                ExchangeArchiveActor::start(
+                    ExchangeArchiveConfig {
+                        root_session_id: self.config.accounts.root_session_id,
+                        machine_id: self.config.accounts.machine_id.clone(),
+                        exchanges: self.config.accounts.audit_directory.clone(),
+                        directory: self.directory.join("account-exchange-archive"),
+                        interval: self.config.archive_interval,
+                    },
+                    self.archive_controller()?,
+                )
+                .await?,
+            );
+        }
         self.account_updates = self.accounts.publish(&self.account_directory()?).await?;
         if self.account_archive.is_none() {
             self.account_archive = Some(
@@ -219,6 +239,13 @@ impl MachineRuntime {
             .ok_or_else(|| io::Error::other("account archive actor has not started"))
     }
 
+    pub fn account_exchange_archive_state(&self) -> io::Result<crate::ArchiveWorkerState> {
+        self.exchange_archive
+            .as_ref()
+            .map(ExchangeArchiveActor::state)
+            .ok_or_else(|| io::Error::other("account exchange archive actor has not started"))
+    }
+
     pub fn controller(&self) -> io::Result<SessionController> {
         self.transport
             .as_ref()
@@ -247,6 +274,11 @@ impl MachineRuntime {
                 Vec::new()
             };
             failures.extend(std::mem::take(&mut self.accounts).stop().await);
+            if let Some(exchange_archive) = self.exchange_archive.take()
+                && let Err(error) = exchange_archive.stop().await
+            {
+                failures.push(format!("account exchange archive: {error}"));
+            }
             if let Some(account_archive) = self.account_archive.take()
                 && let Err(error) = account_archive.stop().await
             {
