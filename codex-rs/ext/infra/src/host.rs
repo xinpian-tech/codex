@@ -90,6 +90,16 @@ pub struct HostAuditPositions {
 }
 
 impl ManagedHost {
+    /// Reads bounded raw history evidence while inference and store writes
+    /// continue. This does not acknowledge mailbox presentation by itself.
+    pub async fn read_store_audit(
+        &self,
+        cursor: codex_infra_state::JournalPosition,
+        limit: std::num::NonZeroUsize,
+    ) -> std::io::Result<crate::StoreAuditPage> {
+        self.store_audit.read_page(cursor, limit).await
+    }
+
     /// Sample after dispatch is quiescent, process/hook output has drained and
     /// store operations have finished. Keep those producers quiescent while
     /// archiving the returned positions. This does not itself close the host.

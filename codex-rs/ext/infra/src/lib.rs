@@ -54,6 +54,8 @@ pub use store::AuditedThreadStore;
 pub use store_audit::StoreAudit;
 pub use store_audit::StoreAuditEvent;
 pub use store_audit::StoreAuditIdentity;
+pub use store_audit::StoreAuditPage;
+pub use store_audit::StoreAuditRecord;
 pub use thread::AgentThread;
 pub use thread::AgentThreadOutcome;
 pub use tool_activity::ToolActivity;

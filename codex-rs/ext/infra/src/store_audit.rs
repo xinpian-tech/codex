@@ -17,6 +17,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
+mod reader;
+pub use reader::StoreAuditPage;
+pub use reader::StoreAuditRecord;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreAuditIdentity {
     pub root_session_id: RootSessionId,
