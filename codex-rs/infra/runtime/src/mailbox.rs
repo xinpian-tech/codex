@@ -30,9 +30,12 @@ use codex_infra_tmux::write_message;
 use crate::recorded_writer::RecordedWriter;
 
 mod archive;
+mod bootstrap;
 mod publication;
 pub use archive::MailboxArchiveJobIds;
 pub use archive::MailboxArchiveJobs;
+pub use archive::MailboxArchiveReceipts;
+pub use bootstrap::BootstrapSelection;
 
 /// Durable prefixes sampled together under the host's mailbox ownership.
 /// Positions describe recorded bytes/events, not remote delivery or processing.
@@ -43,6 +46,8 @@ pub struct MailboxPositions {
     pub inbox: codex_infra_state::JournalPosition,
     pub outbox: codex_infra_state::JournalPosition,
     pub publications: codex_infra_state::JournalPosition,
+    #[serde(default)]
+    pub bootstrap: codex_infra_state::JournalPosition,
 }
 
 /// Owned by one Agent host. `stdout` is its terminal writer; `receive_stdin`
@@ -55,6 +60,8 @@ pub struct HostMailbox<W: Write> {
     inbox: DurableInbox,
     outbox: DurableOutbox,
     publications: SpoolQueue,
+    bootstrap: Journal,
+    bootstrap_binding: Option<bootstrap::BootstrapBinding>,
     assembler: MessageAssembler,
     decoder: FrameDecoder,
     input: Journal,
@@ -73,6 +80,7 @@ impl<W: Write> HostMailbox<W> {
             inbox: self.inbox.position(),
             outbox: self.outbox.position(),
             publications: self.publications.position(),
+            bootstrap: self.bootstrap.position(),
         })
     }
 
@@ -88,6 +96,18 @@ impl<W: Write> HostMailbox<W> {
         let outbox =
             DurableOutbox::open(&directory.join("outbox.journal"), root_session_id, agent_id)?;
         let publications = SpoolQueue::open(&directory.join("publications.journal"))?;
+        let mut bootstrap_binding = None;
+        let bootstrap = Journal::open(&directory.join("bootstrap.journal"), |record| {
+            let binding: bootstrap::BootstrapBinding = serde_json::from_slice(&record.payload)?;
+            if bootstrap_binding
+                .as_ref()
+                .is_some_and(|previous| previous != &binding)
+            {
+                return Err(io::Error::other("mailbox bootstrap binding changed"));
+            }
+            bootstrap_binding = Some(binding);
+            Ok(())
+        })?;
         let assembler =
             MessageAssembler::open(directory.join("incoming"), root_session_id, agent_id)?;
         let input = Journal::open(&directory.join("stdin.journal"), |_| Ok(()))?;
@@ -99,6 +119,8 @@ impl<W: Write> HostMailbox<W> {
             inbox,
             outbox,
             publications,
+            bootstrap,
+            bootstrap_binding,
             assembler,
             decoder: FrameDecoder::default(),
             input,

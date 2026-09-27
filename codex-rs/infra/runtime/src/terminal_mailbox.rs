@@ -18,6 +18,8 @@ use tokio::sync::watch;
 use crate::HostMailbox;
 use crate::LaunchIntent;
 
+mod bootstrap;
+
 /// Input progress is notification metadata; message bodies stay in HostMailbox.
 #[derive(Clone, Debug)]
 pub enum TerminalInputState {
