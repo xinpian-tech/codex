@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 独立可执行文件与 Nix 生产构建
+
+flake 新增 codex-infra 输出，明确只选择 codex-agent、codex-machine-runtime、codex-infra-account 三个可执行目标；agent/account/machine-runtime apps 和 codex-agent 输出引用该包。原 codex-rs 输出保持原有用途。沿用 doCheck=false 与 doInstallCheck=false，不选择测试目标。Team State 的 mkInfraDeployment 可以直接使用该包作为 codexPackage。
+
+codex-agent 入口在创建线程和 Tokio runtime 前调用上游 arg0_dispatch，支持已有 exec、文件操作、apply-patch 与平台辅助模式的 re-exec。Agent host 的 programs.codex 可以指向该包的 bin/codex-agent，因此独立宿主中的工具执行不再依赖尚未接入自身入口的隐藏模式。此处复用上游分派，不增加 Core 接口。
+
+已开始三个实际 binary 的 Cargo 构建和独立 Nix 包构建；当前仍在生成依赖/可执行文件，不能视为构建成功或部署完成。尚未启动真实 Agent、tmux workload 或模型请求；未编写或运行测试。
+
 ### Session 工作记忆接入 Agent 主循环
 
 infra_memory 已实际接入 CLI：publish 把作者自己的观察、结论、附带 scope 的未成功尝试、claim 或贡献摘要送入自身 tmux 输入；宿主从真实消息头补齐作者/机器/角色、task/assignment、root、repo/已 push commit、配置 commit/generation 与源消息，写入 working-memory.journal。修正追加新 entry/revision 并引用 supersedes，原记录保留。这里复用既有 Journal，退出时随 launch 文件进入 Team State 留存。

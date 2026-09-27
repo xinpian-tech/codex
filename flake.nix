@@ -39,15 +39,15 @@
       apps = forAllSystems (system: {
         agent = {
           type = "app";
-          program = "${self.packages.${system}.codex-rs}/bin/codex-agent";
+          program = "${self.packages.${system}.codex-infra}/bin/codex-agent";
         };
         account = {
           type = "app";
-          program = "${self.packages.${system}.codex-rs}/bin/codex-infra-account";
+          program = "${self.packages.${system}.codex-infra}/bin/codex-infra-account";
         };
         machine-runtime = {
           type = "app";
-          program = "${self.packages.${system}.codex-rs}/bin/codex-machine-runtime";
+          program = "${self.packages.${system}.codex-infra}/bin/codex-machine-runtime";
         };
       });
       packages = forAllSystems (system:
@@ -63,12 +63,22 @@
               rustc = pkgs.rust-bin.stable.${rustVersion}.minimal;
             };
           };
+          codex-infra = codex-rs.overrideAttrs (old: {
+            pname = "codex-infra";
+            cargoBuildFlags = [
+              "-p" "codex-infra-extension" "--bin" "codex-agent"
+              "-p" "codex-infra-runtime" "--bin" "codex-machine-runtime"
+              "-p" "codex-infra-account" "--bin" "codex-infra-account"
+            ];
+            meta = old.meta // { mainProgram = "codex-agent"; };
+          });
         in
         {
           codex-rs = codex-rs;
+          codex-infra = codex-infra;
           codex-agent = pkgs.runCommand "codex-agent-${version}" { } ''
             mkdir -p "$out/bin"
-            ln -s ${codex-rs}/bin/codex-agent "$out/bin/codex-agent"
+            ln -s ${codex-infra}/bin/codex-agent "$out/bin/codex-agent"
           '';
           default = codex-rs;
         }

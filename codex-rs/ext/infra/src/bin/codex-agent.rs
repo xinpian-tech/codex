@@ -39,6 +39,9 @@ mod spawn;
 mod tasks;
 
 fn main() -> io::Result<()> {
+    // The embedded executor re-enters this binary for filesystem, exec and
+    // apply-patch helpers, using the same dispatch as the upstream CLI.
+    let _arg0_guard = codex_arg0::arg0_dispatch();
     let mut args = std::env::args_os().skip(1);
     let first = args.next();
     #[cfg(unix)]
