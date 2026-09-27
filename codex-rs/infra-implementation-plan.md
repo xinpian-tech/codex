@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增 AgentMessageInput，从已接受的 inbox entry 构造模型输入，核对目标 root/Agent/机器/角色，Archive-only 消息不生成模型输入。完整 AgentMessage JSON 保留发送方身份、repo/commit、任务/assignment、路由、呈现时机与正文；按 UTF-8 边界分片，不截断，超过最多 8 片的预算时要求发送摘要与引用。遵循现有上下文约定，在 core/context 新增 AgentInputFragment 并实现 ContextualUserFragment、注册上下文识别；每片 payload 最多 640 字节，含标记的完整片段最多 900 字节，后续呈现须保持独立有序片段，不能拼成一个无界输入项。其余处理位于独立 extension。源码确认 turn/start 的 client_user_message_id 可关联原消息 ID，但没有据此证明自动去重，因此提交恢复仍需核对持久 turn items。core/extension 库级 Clippy 通过，未编写或运行测试，未向模型注入输入。本阶段仅准备上下文格式，thread/turn 关联日志、RPC 提交、历史核对、Presented 回执与 CLI 循环尚待实现。
+
 HostMailbox 新增有界 bootstrap 选择：按 inbox accepted sequence 分页扫描匹配 launch 的 Bootstrap，解析 TaskSpec 并核对任务/接收机器/Agent/角色，选择结果将完整 launch 与原消息 ID 写入 bootstrap.journal。恢复后从原 inbox 取回同一消息，包括已 presented/processed 的消息；选择动作不发送 Presented 回执。TerminalMailbox::wait_bootstrap 在每次扫描前推进 watch cursor，扫描期间到达的通知仍可唤醒等待，输入终止且没有匹配消息时返回结束原因。MailboxPositions、归档 jobs/receipts 和 finish_archive 包含 bootstrap 流；已有五流 jobs 保持原数组格式，通过可选字段读取旧记录，已选择 bootstrap 的新归档必须提供对应 job ID。runtime/extension 库和机器 CLI Clippy 通过，未编写或运行测试，未执行终端接收或归档。独立 CLI 仍需调用此入口并与启动、thread/turn 呈现、控制事件和 finalizer 接合；启动选择落盘不代表 Task 已进入模型上下文。
 
 runtime 新增 Unix TerminalMailbox，持有 AgentTerminal raw 模式、现有 HostMailbox 和独立 stdin 线程。线程 poll stdin 与本地停止描述符，读取块交给既有 mailbox 先记录再解码、去重及输出回执；watch 仅通知输入进度/结束状态，不携带 Agent 消息正文。with_mailbox 在 blocking worker 串行执行查询、发送和呈现记录，已提交操作不随等待方取消而中断。input-lifecycle.journal 保存启动绑定、EOF/显式停止/输入失败与完成位置；stop 唤醒并 join reader，交回 mailbox 和终端恢复入口供 finalizer 发送/flush 最后消息。共享终端 guard 覆盖 reader 和已提交 mailbox 操作的生命周期。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未进入 raw 模式或启动终端线程。CLI 仍需接入此所有者、记录启动失败与 stderr、选择 bootstrap、驱动 thread/turn、处理信号和最终归档；stdin 停止不代表所有消息已呈现或远端归档完成。

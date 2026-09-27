@@ -5,6 +5,7 @@ use codex_protocol::models::ResponseItem;
 
 use super::AdditionalContextUserFragment;
 use super::AgentExecutionFragment;
+use super::AgentInputFragment;
 use super::AgentMessageBoardNotification;
 use super::ContextualUserFragment;
 use super::GuardianRetainedInstructions;
@@ -22,6 +23,7 @@ use super::world_state::EnvironmentsState;
 
 const CONTEXTUAL_USER_FRAGMENT_MATCHERS: &[fn(&str) -> bool] = &[
     AgentExecutionFragment::matches_text,
+    AgentInputFragment::matches_text,
     UserInstructions::matches_text,
     EnvironmentsState::matches_text,
     AdditionalContextUserFragment::matches_text,
