@@ -8,9 +8,9 @@ use codex_infra_provider::AccountCatalog;
 use super::GitAccounts;
 use crate::PublishedAccount;
 
-struct FetchedRef<'a> {
-    git: &'a GitAccounts,
-    name: String,
+pub(super) struct FetchedRef<'a> {
+    pub(super) git: &'a GitAccounts,
+    pub(super) name: String,
 }
 
 impl Drop for FetchedRef<'_> {

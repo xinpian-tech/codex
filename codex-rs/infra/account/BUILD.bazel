@@ -9,6 +9,7 @@ rust_library(
         "src/owner.rs",
         "src/publish.rs",
         "src/publish/audit.rs",
+        "src/publish/integration.rs",
         "src/publish/owner.rs",
         "src/publish/read.rs",
         "src/publish/recovery.rs",

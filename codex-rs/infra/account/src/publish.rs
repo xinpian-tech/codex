@@ -14,6 +14,7 @@ use codex_infra_provider::AccountDefinition;
 use serde_json::json;
 
 mod audit;
+mod integration;
 mod owner;
 mod read;
 mod recovery;
@@ -319,9 +320,7 @@ impl GitAccounts {
         eprintln!("Account publication operation: {operation}");
         let result = (|| {
             let commit = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
-            let revision = commit.parse().map_err(io::Error::other)?;
-            self.push(&commit, &mut audit)?;
-            Ok(revision)
+            self.integrate_and_push(&commit, &mut audit)
         })();
         audit.finish(&result)?;
         result

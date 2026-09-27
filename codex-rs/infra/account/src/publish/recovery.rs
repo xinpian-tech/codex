@@ -25,26 +25,34 @@ impl GitAccounts {
         let result = (|| {
             let current = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
             if let Some(target) = state.target {
-                let revision: CommitId = target.parse().map_err(io::Error::other)?;
+                let _: CommitId = target.parse().map_err(io::Error::other)?;
+                let mut local = target.clone();
                 if current != target {
-                    let before = state.before.ok_or_else(|| {
-                        io::Error::other("publication ref changed before push recovery")
-                    })?;
-                    if current != before {
-                        return Err(io::Error::other("publication requires ref integration"));
+                    if state.before.as_ref() == Some(&current) {
+                        self.run(&["update-ref", &self.config_ref, &target, &current], &[])?;
+                        audit.record(json!({"event": "ref_updated", "config_commit": target}))?;
+                    } else {
+                        let base = self.run(&["merge-base", &target, &current], &[])?;
+                        if base == target {
+                            audit.record(json!({"event": "publication_carried_forward", "target": target, "current": current}))?;
+                            local = current;
+                        } else {
+                            local = if base == current {
+                                target
+                            } else {
+                                self.merge_account_trees(&base, &current, &target)?
+                            };
+                            audit.record(json!({"event": "ref_update_requested", "before": current, "config_commit": local}))?;
+                            self.run(&["update-ref", &self.config_ref, &local, &current], &[])?;
+                            audit
+                                .record(json!({"event": "ref_updated", "config_commit": local}))?;
+                        }
                     }
-                    self.run(&["update-ref", &self.config_ref, &target, &before], &[])?;
-                    audit.record(json!({"event": "ref_updated", "config_commit": target}))?;
                 }
-                self.push(&target, &mut audit)?;
-                return Ok(revision);
+                return self.integrate_and_push(&local, &mut audit);
             }
             match state.details["kind"].as_str() {
-                Some("sync") => {
-                    let revision = current.parse().map_err(io::Error::other)?;
-                    self.push(&current, &mut audit)?;
-                    Ok(revision)
-                }
+                Some("sync") => self.integrate_and_push(&current, &mut audit),
                 Some("publish") => {
                     let expected: Option<PublicationExpectation> =
                         serde_json::from_value(state.details["expected"].clone())?;

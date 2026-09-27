@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户 sync/recover 新增分叉整合。先尝试精确 push；失败后 fetch 远端到独立临时 ref，比较共同基础，按祖先关系快进或使用独立 Git index/read-tree 三方整合。accounts/catalog.json 出现双方修改时按 provider/account 条目做三方合并，保留不同账户及同值修改；同一条目两边不同、或其他文件出现未解冲突时返回明确冲突。合并提交保留双方父提交，ref 更新意图/结果与后续 push 继续进入原 operation journal。recover 也处理同一本地 ref 被其他发布推进：目标已包含则沿用当前提交，否则先整合待发布目标与当前 ref，再处理远端；所有 ref 更新仍 compare-and-swap，新的竞争留给后续恢复。初次普通 publish 的失败仍由已保存 operation 的恢复路径推进，未引入无限重试。账户库/CLI Clippy 通过；未编写或运行测试，未执行 Git 整合、push 或实装。归属交接、原始 I/O/会话归档与 MachineRuntime 装配继续待完成。
+
 刷新发布补齐本地 config ref 落后远端的推进路径：读取过的 published base 与本地 ref 比较 merge-base，落后时先持久化 base_advance_requested，再 compare-and-swap 快进本地 ref，记录 base_advanced 后继续原账户 revision 核对和两阶段提交；本地已包含 published base 时沿用现有提交，分叉仍交给整合。PublicationAudit 重放新增推进阶段，中断后重新观察 ref。recover 对尚无目标 commit、且带 expected revision 的刷新发布，允许原基础版本的后续提交作为新基础，追加 base_reselected 后重新校对账户条件；普通导入行为不变。已有目标 commit 与远端分叉后的整合仍待实现。账户库/CLI Clippy 通过，未编写或运行测试，未执行实际 ref 更新、远端操作或实装。
 
 新增具体 AccountCredentialSource 实现 GitAccountOwner，组合已发布账户读取、单 revision OAuth 和 Git 刷新结果发布。Team State 的 accounts/owners/<provider/account 身份 hash>.json 保存 AccountOwnerAssignment，owner revision 取该文件最后修改 commit，独立于普通 config tip 推进；读取账户时在同一 config commit 核对机器和归属 revision。refresh 以本地 per-account/per-credential 流程 Journal 串行，提前持久化发布 operation ID，重复请求先读取远端新版本；需要刷新时复用 refresh_codex_account，发布前再次核对归属/版本，通过 resume_refresh_publication 开始或恢复原操作，最终重新读取远端已发布凭据并核对 ChatGPT 账户。外层拥有任务覆盖刷新与发布，调用取消不终止工作；Git 错误与 publication journal 不存在分别处理，避免错误重建已有操作。后端可直接传给 AccountService，但仍未完成归属交接（必须先 drain 前 owner）、远端并发整合、本地落后 ref 同步、原始 I/O/流程归档及 MachineRuntime 装配。账户库/CLI Clippy 通过；未编写或运行测试，未访问账户远端、调用 OAuth 或实装。
