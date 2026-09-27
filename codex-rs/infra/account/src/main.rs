@@ -8,11 +8,37 @@ use codex_infra_provider::AccountCatalog;
 use codex_login::AuthCredentialsStoreMode;
 use codex_login::ServerOptions;
 
-const USAGE: &str = "usage: codex-infra-account login <account-home>\n       codex-infra-account import <catalog.json> <provider> <account> <credential-commit> <bearer|header:NAME|codex-login> < credential-on-stdin";
+mod publish;
+
+const USAGE: &str = "usage: codex-infra-account login <account-home>\n       codex-infra-account import <catalog.json> <provider> <account> <credential-commit> <bearer|header:NAME|codex-login> < credential-on-stdin\n       codex-infra-account publish <git> <repository> <remote> <config-ref> <provider> <account> <bearer|header:NAME|codex-login> < credential-on-stdin\n       codex-infra-account sync <git> <repository> <remote> <config-ref>";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let text = |index: usize| {
+        args[index]
+            .to_str()
+            .ok_or_else(|| io::Error::other("account arguments must be UTF-8"))
+    };
+    if (args.len() == 8 && args[0] == "publish") || (args.len() == 5 && args[0] == "sync") {
+        let publisher = publish::GitAccounts {
+            git: args[1].clone().into(),
+            repository: args[2].clone().into(),
+            remote: text(/*index*/ 3)?.to_owned(),
+            config_ref: text(/*index*/ 4)?.to_owned(),
+        };
+        let commit = if args[0] == "publish" {
+            publisher.publish(
+                text(/*index*/ 5)?.to_owned(),
+                text(/*index*/ 6)?.to_owned(),
+                read_authentication(text(/*index*/ 7)?)?,
+            )?
+        } else {
+            publisher.sync()?
+        };
+        println!("{commit}");
+        return Ok(());
+    }
     if args.len() == 2 && args[0] == "login" {
         let home = std::path::absolute(Path::new(&args[1]))?;
         std::fs::create_dir_all(&home)?;
@@ -37,15 +63,20 @@ async fn main() -> io::Result<()> {
     if args.len() != 6 || args[0] != "import" {
         return Err(io::Error::other(USAGE));
     }
-    let text = |index: usize| {
-        args[index]
-            .to_str()
-            .ok_or_else(|| io::Error::other("account arguments must be UTF-8"))
-    };
-    let provider = text(2)?.to_owned();
-    let account = text(3)?.to_owned();
-    let revision: CommitId = text(4)?.parse().map_err(io::Error::other)?;
-    let mode = text(5)?;
+    let provider = text(/*index*/ 2)?.to_owned();
+    let account = text(/*index*/ 3)?.to_owned();
+    let revision: CommitId = text(/*index*/ 4)?.parse().map_err(io::Error::other)?;
+    let authentication = read_authentication(text(/*index*/ 5)?)?;
+    AccountCatalog::import(
+        Path::new(&args[1]),
+        provider,
+        account,
+        revision,
+        authentication,
+    )
+}
+
+fn read_authentication(mode: &str) -> io::Result<AccountAuthentication> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
     let authentication = match mode {
@@ -64,11 +95,5 @@ async fn main() -> io::Result<()> {
         },
         _ => return Err(io::Error::other(USAGE)),
     };
-    AccountCatalog::import(
-        Path::new(&args[1]),
-        provider,
-        account,
-        revision,
-        authentication,
-    )
+    Ok(authentication)
 }

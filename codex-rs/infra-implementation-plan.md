@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户 CLI 新增 `publish <git> <repository> <remote> <config-ref> <provider> <account> <authentication-mode>` 与 `sync <git> <repository> <remote> <config-ref>`。publish 读取 config ref 的既有 catalog（不存在则从空目录开始），独立 Git index 只加入本次凭据快照与更新后的 catalog；先 commit 凭据，再将实际凭据 commit 写入 AccountDefinition，生成其子提交，按原 ref 值 compare-and-swap 更新本地 config ref。保留其他账户和所选账户 headers，不改 checkout/index。随后 push 精确 commit 并以 ls-remote 核对目标 ref；push 失败时提交仍由本地 ref 保留，sync 重试该 ref 而不重复导入。Git 可执行路径由调用方传入，适配 Nix generation；凭据继续从 stdin 接收。此处目标 ref 需已有基础提交，远端并发更新后的 fetch/整合、发布过程 journal、登录到发布的一步装配及刷新归属协调仍待完成。账户 CLI Clippy 通过；未编写或运行测试，未执行实际凭据 Git 发布或实装实验。
+
 账户 CLI 移至独立 codex-infra-account 包，provider 包继续只承担配置/协议/审计能力。新增 `codex-infra-account login <account-home>`，复用 codex-login 的 run_device_code_login、原 client ID 与文件账户存储，将 Device Code 登录结果写入显式指定的账户 home；不同账户使用各自目录，原 CLI/登录库未修改。HTTP 路由复用现有 HttpClientFactory 的 ReqwestDefault。codex-login 导入模式先按上游 AuthDotJson 解析，再保存完整原 JSON 对象。登录后凭据快照提交及 catalog 导入尚为分开的操作，自动 Git 发布与刷新协调仍待实现。新 CLI 的 Clippy 通过，Cargo.lock 与 Bazel 依赖元数据同步；未编写或运行测试，未执行登录、账户导入或实装实验。
 
 新增 codex-infra-account import CLI 与 AccountCatalog::import。入口为 `codex-infra-account import <catalog.json> <provider> <account> <credential-commit> <bearer|header:NAME|codex-login>`，凭据从 stdin 读取；bearer/header 去掉输入末尾换行，Codex 登录保留 auth.json 的 JSON 内容。credential-commit 由调用方提供，表示此前已提交的凭据来源快照，本阶段不推断新 Git commit。更新在独立文件锁下重读目录，保留已有账户 headers 和其他账户，经临时文件 sync/rename（Unix 再同步父目录）发布；CLI 不打印 token。Cargo/Bazel 二进制入口及 flake account app 已添加。provider 库与账户 CLI Clippy 通过，Nix 仅做语法解析；未编写或运行测试，未执行账户导入、登录或实装。凭据快照提交、更新后目录的 commit/push、Device Code 登录、原生账户视图与刷新协调仍待实现。

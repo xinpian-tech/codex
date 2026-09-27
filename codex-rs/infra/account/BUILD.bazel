@@ -3,7 +3,10 @@ load("@rules_rust//rust:defs.bzl", "rust_binary")
 
 rust_binary(
     name = "codex-infra-account",
-    srcs = ["src/main.rs"],
+    srcs = [
+        "src/main.rs",
+        "src/publish.rs",
+    ],
     crate_name = "codex_infra_account",
     crate_root = "src/main.rs",
     edition = "2024",
