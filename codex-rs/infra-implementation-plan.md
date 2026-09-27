@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+原生账户 bootstrap 新增 prepare_remote，按 generation 中的 provider/account 启动 ReplicatedAccountSource。该来源组合自动目录副本和 RemoteAccountSource，等待新一轮已同步快照包含所选账户后才返回；初次同步预算、请求预算和 frame 大小来自 AccountConnectionConfig。初次发现中的暂时错误由副本继续重试，预算耗尽或服务退出时返回原因并等待当前副本步骤收尾。PublishedAccountAuth 持有该来源，因此 bootstrap/cloud loader/serving manager 使用期间目录副本持续运行；来源另提供状态订阅和显式 stop。账户库/CLI、extension 库 Clippy 通过，未改动 core/login。独立 Agent CLI 的完整参数/配置装配、finalizer 对账户后台任务的显式等待及账户 I/O/观察日志归档仍待完成；当前最后一个账户来源释放时发出副本停止信号，既有 owned task 完成进行中的步骤。未编写或运行测试，未执行 Git、账户网络请求或实装。
+
 新增 AccountDirectoryReplica 自动消费者及可序列化 AccountReplicaConfig：按明确的机器归档流、Git/仓库/remote、独立 spool、分页/批量大小和轮询间隔工作。owned actor 将 Git、恢复和游标推进放入 blocking worker；每轮发现一页或应用一批，复用已恢复的位置，未变化的快照不重复恢复。发现/追赶/已同步/重试/停止状态通过 watch 暴露，directory() 提供给 RemoteAccountSource；停止等待当前步骤，丢弃调用方不取消正在持久化的工作。机器 Ready 新增 account_directory_archive 流身份；账户归档 actor 在返回前先保存初始任务和机器流 ID，使重启继续使用相同绑定。账户库/CLI、runtime/extension 库及机器 CLI Clippy 通过；未编写或运行测试，未运行轮询、Git 或实装。当前提供自动 Git 恢复路径，仍需独立 Agent CLI 持有 replica 生命周期并等待初次同步，跨机器实时增量与账户原始 I/O 归档尚待装配。
 
 账户目录新增归档发现与副本消费者。SessionShard.fetch_archive_head 获取已发布分片到读取缓存并返回固定 commit；AccountDirectoryPage 在该 commit 上分页筛选账户目录机器流，只返回归档末端等于 producer-confirmed 边界的完整快照。PublishedAccountDirectory.restore 复用现有内容寻址、分片连续性和 Journal frame 校验，恢复成功后提供 source/position。AccountDirectoryFollower 绑定源流、规范化路径和目标副本，按配置批量追赶已确认前缀；每条目录更新持久化后再保存游标，取消等待后 blocking worker 继续完成，重启可重放最后一条已应用头事件。该 follower 是目标副本的唯一更新者，Agent 客户端通过既有按账户 watch 订阅读取。账户库/CLI、runtime/extension 库及机器 CLI Clippy 通过；未编写或运行测试，未执行 Git 发现、恢复或实装。自动发现轮询、实时跨机器增量、独立 Agent CLI 调度该消费者和账户原始 I/O 归档仍待实现；遇到正在分片写入的目录快照留待后续发现轮次。

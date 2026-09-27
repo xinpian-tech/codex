@@ -19,6 +19,7 @@ rust_library(
         "src/refresh.rs",
         "src/remote.rs",
         "src/replica.rs",
+        "src/replicated_source.rs",
         "src/service.rs",
         "src/view.rs",
         "src/wire.rs",

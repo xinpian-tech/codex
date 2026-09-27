@@ -6,9 +6,12 @@ use std::sync::Arc;
 use codex_app_server::in_process::InProcessStartArgs;
 use codex_config::CloudConfigBundleLoader;
 use codex_core::config::Config;
+use codex_infra_account::AccountConnectionConfig;
 use codex_infra_account::AccountCredentialSource;
+use codex_infra_account::AccountReplicaConfig;
 use codex_infra_account::CodexAccountView;
 use codex_infra_account::PublishedAccountAuth;
+use codex_infra_account::ReplicatedAccountSource;
 use codex_infra_protocol::ConfigGeneration;
 use codex_infra_protocol::InferenceBinding;
 use codex_infra_runtime::LaunchIntent;
@@ -50,6 +53,24 @@ pub struct NativeAccountBootstrap {
 }
 
 impl NativeAccountBootstrap {
+    /// Prepares the generation's selected account after its published directory
+    /// has synchronized. The shared ExternalAuth owns ongoing replica updates.
+    pub async fn prepare_remote(
+        generation: ConfigGeneration,
+        home: PathBuf,
+        replica: AccountReplicaConfig,
+        connection: AccountConnectionConfig,
+    ) -> io::Result<Self> {
+        let source = ReplicatedAccountSource::start(
+            generation.inference.provider_id.clone(),
+            generation.inference.account_id.clone(),
+            replica,
+            connection,
+        )
+        .await?;
+        Self::prepare(generation, home, source).await
+    }
+
     pub async fn prepare<S: AccountCredentialSource + 'static>(
         generation: ConfigGeneration,
         home: PathBuf,
