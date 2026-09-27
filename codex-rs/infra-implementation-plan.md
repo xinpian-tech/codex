@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 会话读取与贡献整合业务接线
+
+新增实际模型工具 infra_session，复用 SessionShard 的归档 fetch、stream catalog 和 journal restore。list 返回固定 archive revision 上的分页流元数据；read 按所选 stream/required position 恢复已归档前缀，使用 JournalReader 选取有界记录片段，保留原 root/machine/Agent/launch、archive commit、事件 sequence 与片段位置。工具的 read 返回值只有控制状态和 message ID，正文排入 WorkingContext，经当前读取 Agent 的 tmux stdout → gateway → 自身 stdin 交付；知识读取角色配置自己角色的 WorkingContext 输入/输出。读取材料和查询结果保留在 launch 目录，进入已有退出归档。未归档完整的前缀在 list 标明可用性；跨 Agent 在线回答仍由负责该记录的 Agent 使用定向消息交付。
+
+新增 infra_contribute 和 infra_integrate，并由主循环直接调用。作者从真实 worktree HEAD 形成已有 ContributionProposal，记录 task/assignment、base/head、dependencies、目标分支和整合负责人，经角色路由以 Contribution 消息交付。整合方从当前收到的 Contribution 输入读取 Ready 对象，在指定负责人的目标仓库 worktree 执行 fetch/cherry-pick；有冲突时由普通 Git/文件工具处理，再用 complete 模式接续。轮次结束后执行既有 checkpoint，push 明确目标分支，调用既有 Contribution::integrate 保存 integration_commit，然后经 tmux 发送关联原 task/assignment 的 Integrated 通知。知识任务同样使用该贡献流程，执行指令保留团队确认先于 main 发布的要求；团队确认的业务接线仍未完成。
+
+这里实现的是 CLI 中的真实调用链，没有新建通用审计框架。库/Agent binary 静态检查通过，未编写或运行测试，未执行真实会话读取、Git 整合或 tmux 运行。任务依赖状态推进、知识候选确认/正式发布、真实 Team State 部署以及完整实验仍需继续实施。
+
 ### 角色协作、构建任务与知识 worker 接线
 
 CLI 主循环读取当前 RoleDefinition，只把 accepts_from_roles 与 accepted_input_kinds 匹配的后续 tmux 消息提交给模型；无关输入继续留存，不触发推理。infra_send 从目录解析接收 Agent 的机器/角色，按 routes_to_roles 和 produced_output_kinds 选择方向与消息类型；支持 Task/Progress/WorkingContext/Contribution/Escalation/Result，并使用当前输入的 task/assignment/reply_to 关联，也可明确指定目标 task/assignment。infra_spawn 使用相同角色定义选择 worker；完成/升级声明对应 Result/Escalation 输出。

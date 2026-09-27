@@ -80,6 +80,10 @@ async fn tool(
     state: &mut LoopState,
 ) -> io::Result<String> {
     match name {
+        "infra_contribute" | "infra_integrate" => {
+            super::contributions::handle(host, config, bootstrap, name, arguments, state).await
+        }
+        "infra_session" => super::sessions::query(host, bootstrap, arguments, state).await,
         "infra_build" => super::build::build(host, config, arguments).await,
         "infra_directory" => super::directory::query(config, &state.role, arguments),
         "infra_spawn" => super::spawn::spawn(host, config, bootstrap, arguments, state).await,

@@ -8,6 +8,9 @@ mod assets;
 #[path = "agent/build.rs"]
 mod build;
 #[cfg(unix)]
+#[path = "agent/contributions.rs"]
+mod contributions;
+#[cfg(unix)]
 #[path = "agent/directory.rs"]
 mod directory;
 #[cfg(unix)]
@@ -19,6 +22,9 @@ mod finish;
 #[cfg(unix)]
 #[path = "agent/run.rs"]
 mod run;
+#[cfg(unix)]
+#[path = "agent/sessions.rs"]
+mod sessions;
 #[cfg(unix)]
 #[path = "agent/spawn.rs"]
 mod spawn;

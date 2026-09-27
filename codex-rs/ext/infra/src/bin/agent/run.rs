@@ -39,6 +39,10 @@ pub struct LoopState {
     pub pending: Vec<AgentMessage>,
     pub accepted: BTreeSet<MessageId>,
     pub deliveries: Vec<AgentInputDelivery>,
+    pub integrations: Vec<(
+        codex_infra_protocol::Contribution,
+        codex_infra_protocol::MessageAddress,
+    )>,
 }
 
 pub async fn run(binding: PathBuf) -> io::Result<()> {
@@ -150,6 +154,7 @@ async fn drive(
         pending: Vec::new(),
         accepted: BTreeSet::new(),
         deliveries: Vec::new(),
+        integrations: Vec::new(),
     };
     let cursor = host.host.events.open_cursor().await?;
     let batch = host.generation.config.input_batch;
@@ -179,6 +184,8 @@ async fn drive(
             }
         }
         if !state.active {
+            super::contributions::publish_integrations(host, terminal, bootstrap, &mut state)
+                .await?;
             for message in std::mem::take(&mut state.pending) {
                 super::finish::publish(host, terminal, message).await?;
             }
