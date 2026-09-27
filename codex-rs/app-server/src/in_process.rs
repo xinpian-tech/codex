@@ -474,12 +474,24 @@ async fn start_uninitialized_with_services(
         args.thread_config_loader,
     )
     .with_embedded_network_policy(args.embedded_network_policy);
-    let auth_manager = bootstrap::configure(
-        &config_manager,
-        &mut args.config,
-        args.enable_codex_api_key_env,
-    )
-    .await?;
+    let auth_manager = match host_services.external_auth() {
+        Some(external_auth) => {
+            bootstrap::configure_with_external_auth(
+                &config_manager,
+                &mut args.config,
+                external_auth,
+            )
+            .await?
+        }
+        None => {
+            bootstrap::configure(
+                &config_manager,
+                &mut args.config,
+                args.enable_codex_api_key_env,
+            )
+            .await?
+        }
+    };
     let channel_capacity = args.channel_capacity.max(1);
     let installation_id = resolve_installation_id(&args.config.codex_home).await?;
     let (client_tx, mut client_rx) = mpsc::channel::<InProcessClientMessage>(channel_capacity);

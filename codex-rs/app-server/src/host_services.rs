@@ -11,6 +11,13 @@ use codex_thread_store::ThreadStore;
 /// are shared by newly started, resumed, and forked threads for this process.
 /// Implementations should do fallible preparation before starting the host.
 pub trait HostServices: Send + Sync {
+    /// Supplies one account resolver for both bootstrap and serving auth.
+    /// The host owns credential refresh and publication; every embedded manager
+    /// installs this provider before being exposed to request consumers.
+    fn external_auth(&self) -> Option<Arc<dyn codex_login::ExternalAuth>> {
+        None
+    }
+
     /// Selects persistence without changing app-server's separate queue store.
     fn thread_store(&self, default: Arc<dyn ThreadStore>) -> Arc<dyn ThreadStore> {
         default

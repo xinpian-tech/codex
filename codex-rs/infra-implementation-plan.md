@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+原生账户宿主接入前核对发现，嵌入式 bootstrap 会分别创建用于云配置与 serving 的 AuthManager；只写独立 auth.json 仍不能实现共享刷新归属。HostServices 新增默认返回 None 的 external_auth 接入点，嵌入式启动取得一次 Arc<dyn ExternalAuth>，通过独立 configure_with_external_auth 分支在 bootstrap/policy manager 交给消费者前安装同一个解析器，serving 复用 policy manager；此分支固定不启用 CODEX_API_KEY 环境覆盖。未提供服务时保留原 configure 路径、参数及默认行为。上游改动限于 app-server 三个文件，未修改 core、登录库或已有测试。app-server 库级 Clippy 通过。infra 具体 ExternalAuth、ManagedHost 装配、调用方初始 cloud loader 的账户绑定、刷新版本发布和原生请求归属仍待完成；未编写或运行测试，未启动宿主或实装。
+
 Provider 抽出 ResolvedAccount::read_generation，原生 Responses 与 Chat 前端共用 provider/account/model/credential_revision 解析；Chat 继续在其装配层选择协议并生成 HTTP headers。codex-infra-account 增加独立库 API CodexAccountView::prepare，接受调用方分配的 Agent home，读取 CodexLogin snapshot，通过现有 save_auth 文件后端物化 auth.json，同步文件后记录 prepared。账户视图 Journal 记录 generation 与固定 inference binding，返回 handle 持有 writer 锁；已准备视图重开保留 auth 文件，并核对其内容仍对应所选 revision。该 API 必须在 AuthManager 构造前调用，尚未接入宿主、刷新执行者或原生请求审计；Agent home 的分配仍由启动装配负责。账户库/CLI Clippy 通过，Bazel 元数据刷新完成；未编写或运行测试，未实际物化账户、登录或实装。
 
 账户 CLI 新增 `recover <git> <repository> <remote> <config-ref> <operation-id>`，publish/sync 在 opened 持久化后输出 operation ID。恢复持有原 Journal writer 锁，重放身份、base、ref 更新意图、push 目标及完成记录，核对 repository/remote/config ref；已完成操作返回原确认 commit。已记录目标 commit 时继续原 compare-and-swap/ref 更新和精确 push；尚无目标时按原基础 commit 与原凭据重新准备，未发生任何基础版本选择的操作才读取当前 ref。恢复使用新的独立 index 文件，沿用原 operation 凭据路径；config ref 已被其他操作推进时返回需要整合，后续自动整合仍待实现。恢复开始、后续阶段及结果继续追加原日志。CLI Clippy 通过，未编写或运行测试，未执行实际恢复或实装。Git 子进程 owner/原始 I/O、自动发现与团队归档、远端并发整合仍待完成。

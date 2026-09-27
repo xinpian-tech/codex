@@ -102,6 +102,35 @@ pub(super) async fn configure(
     config: &mut Arc<Config>,
     enable_codex_api_key_env: bool,
 ) -> IoResult<Arc<AuthManager>> {
+    configure_inner(
+        config_manager,
+        config,
+        enable_codex_api_key_env,
+        /*external_auth*/ None,
+    )
+    .await
+}
+
+pub(super) async fn configure_with_external_auth(
+    config_manager: &ConfigManager,
+    config: &mut Arc<Config>,
+    external_auth: Arc<dyn codex_login::ExternalAuth>,
+) -> IoResult<Arc<AuthManager>> {
+    configure_inner(
+        config_manager,
+        config,
+        /*enable_codex_api_key_env*/ false,
+        Some(external_auth),
+    )
+    .await
+}
+
+async fn configure_inner(
+    config_manager: &ConfigManager,
+    config: &mut Arc<Config>,
+    enable_codex_api_key_env: bool,
+    external_auth: Option<Arc<dyn codex_login::ExternalAuth>>,
+) -> IoResult<Arc<AuthManager>> {
     let bootstrap_config = config_manager
         .load_startup_config(Some(config.cwd.to_path_buf()))
         .await?;
@@ -124,6 +153,12 @@ pub(super) async fn configure(
     )
     .await
     .map_err(IoError::other)?;
+    if let Some(external_auth) = &external_auth {
+        bootstrap_auth_manager
+            .set_external_auth(Arc::clone(external_auth))
+            .await
+            .map_err(IoError::other)?;
+    }
     config_manager.replace_cloud_config_bundle_loader(
         bootstrap_auth_manager,
         bootstrap_config.chatgpt_base_url.clone(),
@@ -150,6 +185,12 @@ pub(super) async fn configure(
     )
     .await
     .map_err(IoError::other)?;
+    if let Some(external_auth) = external_auth {
+        policy_auth_manager
+            .set_external_auth(external_auth)
+            .await
+            .map_err(IoError::other)?;
+    }
     let auth_manager = if enable_codex_api_key_env {
         AuthManager::shared_from_auth_config(auth_config, /*enable_codex_api_key_env*/ true)
             .await
