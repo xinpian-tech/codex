@@ -29,6 +29,7 @@ pub use host::HostShutdownPlan;
 pub use host::HostShutdownStatus;
 pub use host::ManagedHost;
 pub use host::ManagedHostServices;
+pub use host::NativeAccountBootstrap;
 pub use process_activity::ProcessActivity;
 pub use process_activity::ProcessSettlement;
 pub use process_activity::ProcessSettlementOutcome;

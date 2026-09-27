@@ -22,6 +22,7 @@ mod archive;
 mod provider;
 mod shutdown;
 mod shutdown_journal;
+pub use account::NativeAccountBootstrap;
 pub use archive::HostArchiveJobIds;
 pub use archive::HostArchiveJobs;
 pub use archive::HostArchivePhase;

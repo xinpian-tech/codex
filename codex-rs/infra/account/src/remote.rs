@@ -14,6 +14,7 @@ use tokio::sync::watch;
 use crate::AccountAction;
 use crate::AccountAuthority;
 use crate::AccountCredentialSource;
+use crate::AccountDirectory;
 use crate::AccountRequest;
 use crate::AccountResponse;
 use crate::AccountResult;
@@ -27,6 +28,7 @@ pub struct RemoteAccountSource {
     provider_id: String,
     account_id: String,
     authority: watch::Receiver<Option<AccountAuthority>>,
+    _directory: AccountDirectory,
     frame_bytes: NonZeroUsize,
     timeout: Duration,
 }
@@ -35,17 +37,19 @@ impl RemoteAccountSource {
     pub fn new(
         provider_id: String,
         account_id: String,
-        authority: watch::Receiver<Option<AccountAuthority>>,
+        directory: AccountDirectory,
         frame_bytes: NonZeroUsize,
         timeout: Duration,
     ) -> io::Result<Self> {
         if timeout.is_zero() {
             return Err(io::Error::other("account request timeout must be positive"));
         }
+        let authority = directory.subscribe(&provider_id, &account_id)?;
         Ok(Self {
             provider_id,
             account_id,
             authority,
+            _directory: directory,
             frame_bytes,
             timeout,
         })

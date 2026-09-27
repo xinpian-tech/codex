@@ -1,12 +1,19 @@
 use std::io;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use codex_app_server::in_process::InProcessStartArgs;
+use codex_config::CloudConfigBundleLoader;
+use codex_core::config::Config;
 use codex_infra_account::AccountCredentialSource;
 use codex_infra_account::CodexAccountView;
 use codex_infra_account::PublishedAccountAuth;
+use codex_infra_protocol::ConfigGeneration;
+use codex_infra_protocol::InferenceBinding;
 use codex_infra_runtime::LaunchIntent;
 use codex_login::AuthCredentialsStoreMode;
+use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::ExternalAuth;
 use codex_login::ExternalAuthFuture;
@@ -33,22 +40,98 @@ impl<S: AccountCredentialSource> ExternalAuth for NativeHostAccount<S> {
     }
 }
 
+/// One Agent's native account binding, retained by both startup cloud loaders
+/// and serving AuthManagers. Prepare it before loading cloud configuration.
+#[derive(Clone)]
+pub struct NativeAccountBootstrap {
+    home: PathBuf,
+    binding: InferenceBinding,
+    external: Arc<dyn ExternalAuth>,
+}
+
+impl NativeAccountBootstrap {
+    pub async fn prepare<S: AccountCredentialSource + 'static>(
+        generation: ConfigGeneration,
+        home: PathBuf,
+        source: S,
+    ) -> io::Result<Self> {
+        tokio::task::spawn_blocking(move || {
+            let view = CodexAccountView::prepare(&generation, &home)?;
+            let home = view.home().to_path_buf();
+            let binding = view.binding().clone();
+            let external = Arc::new(PublishedAccountAuth::open(
+                binding.clone(),
+                source,
+                &home.join("infra-account-observations.journal"),
+            )?);
+            Ok(Self {
+                home,
+                binding,
+                external: Arc::new(NativeHostAccount {
+                    _view: view,
+                    external,
+                }),
+            })
+        })
+        .await
+        .map_err(io::Error::other)?
+    }
+
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
+    pub fn binding(&self) -> &InferenceBinding {
+        &self.binding
+    }
+
+    /// Uses the locally resolved config's endpoint/routing and this account's
+    /// published credential source. Pass the returned loader into the config
+    /// builder when resolving cloud layers for this Agent.
+    pub async fn cloud_config_bundle(
+        &self,
+        config: &Config,
+    ) -> io::Result<CloudConfigBundleLoader> {
+        if config.codex_home.as_path() != self.home {
+            return Err(io::Error::other(
+                "cloud config home differs from account bootstrap",
+            ));
+        }
+        let mut auth_config = config.auth_config();
+        auth_config.auth_credentials_store_mode = AuthCredentialsStoreMode::File;
+        let manager = AuthManager::shared_from_auth_config(
+            auth_config,
+            /*enable_codex_api_key_env*/ false,
+        )
+        .await
+        .map_err(io::Error::other)?;
+        manager
+            .set_external_auth(Arc::clone(&self.external))
+            .await
+            .map_err(io::Error::other)?;
+        Ok(codex_cloud_config::cloud_config_bundle_loader(
+            manager,
+            config.chatgpt_base_url.clone(),
+            self.home.clone(),
+            config.http_client_factory(),
+        ))
+    }
+}
+
 impl ManagedHostServices {
     /// Starts the generation's native Codex provider with a prepared per-Agent
-    /// home and published credential source. Config must have been loaded for
-    /// that home and provider; caller-created cloud loaders use the same source.
-    pub async fn start_with_native_account<S: AccountCredentialSource + 'static>(
+    /// home and published credential source. Initial cloud config loading uses
+    /// the supplied bootstrap; startup reloads and serving retain that binding.
+    pub async fn start_with_native_account(
         mut self,
         mut args: InProcessStartArgs,
         process_audit: ProcessAudit,
         launch: &LaunchIntent,
-        view: CodexAccountView,
-        external: Arc<PublishedAccountAuth<S>>,
+        account: NativeAccountBootstrap,
     ) -> io::Result<ManagedHost> {
         let binding = &launch.generation.inference;
-        if view.binding() != binding
-            || external.binding() != binding
-            || args.config.codex_home.as_path() != view.home()
+        if account.binding() != binding
+            || args.config.codex_home.as_path() != account.home()
             || args.config.model_provider_id != binding.provider_id
             || !args.config.model_provider.requires_openai_auth
             || launch.launch_id != self.tools.launch_id
@@ -84,11 +167,9 @@ impl ManagedHostServices {
                 toml::Value::try_from(&config.model_providers).map_err(io::Error::other)?,
             ),
         ]);
+        args.cloud_config_bundle = account.cloud_config_bundle(&args.config).await?;
         args.enable_codex_api_key_env = false;
-        self.external_auth = Some(Arc::new(NativeHostAccount {
-            _view: view,
-            external,
-        }));
+        self.external_auth = Some(account.external);
         self.start(args, process_audit).await
     }
 }

@@ -3730,6 +3730,8 @@ name = "codex-infra-extension"
 version = "0.0.0"
 dependencies = [
  "codex-app-server",
+ "codex-cloud-config",
+ "codex-config",
  "codex-core",
  "codex-exec-server",
  "codex-exec-server-protocol",
