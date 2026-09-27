@@ -4,6 +4,7 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
 rust_library(
     name = "account",
     srcs = [
+        "src/external.rs",
         "src/lib.rs",
         "src/view.rs",
     ],

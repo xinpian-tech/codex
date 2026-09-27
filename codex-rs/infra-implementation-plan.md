@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户库新增 PublishedAccount、AccountCredentialSource 与 PublishedAccountAuth。来源接口约定 current/refresh 只返回已确认发布的凭据与 config commit，refresh 接收前一 credential revision 并由来源承担跨 Agent 刷新归属、持久化和 push。适配器实现现有 ExternalAuth，通过 from_external_chatgpt_tokens 向嵌入式 AuthManager 提供不含 refresh token 的认证；核对 provider/account 与先前请求的 ChatGPT 账户，缓存相同版本，来源已有更新 revision 时直接采用。采用前在阻塞 worker 中持久化 revision_adopted（含配置/凭据版本及原 auth），单许可串行本实例解析与刷新，worker 保留许可至写入结束，取消调用不使下一次观察越过正在落盘的更新。此处是账户来源的适配层，具体跨机器来源/刷新执行者、原生请求级归属和 ManagedHost 装配仍待实现，尚不能称为刷新协调完成。账户库/CLI Clippy 通过；未编写或运行测试，未实际解析 token、调用刷新服务或实装。
+
 原生账户宿主接入前核对发现，嵌入式 bootstrap 会分别创建用于云配置与 serving 的 AuthManager；只写独立 auth.json 仍不能实现共享刷新归属。HostServices 新增默认返回 None 的 external_auth 接入点，嵌入式启动取得一次 Arc<dyn ExternalAuth>，通过独立 configure_with_external_auth 分支在 bootstrap/policy manager 交给消费者前安装同一个解析器，serving 复用 policy manager；此分支固定不启用 CODEX_API_KEY 环境覆盖。未提供服务时保留原 configure 路径、参数及默认行为。上游改动限于 app-server 三个文件，未修改 core、登录库或已有测试。app-server 库级 Clippy 通过。infra 具体 ExternalAuth、ManagedHost 装配、调用方初始 cloud loader 的账户绑定、刷新版本发布和原生请求归属仍待完成；未编写或运行测试，未启动宿主或实装。
 
 Provider 抽出 ResolvedAccount::read_generation，原生 Responses 与 Chat 前端共用 provider/account/model/credential_revision 解析；Chat 继续在其装配层选择协议并生成 HTTP headers。codex-infra-account 增加独立库 API CodexAccountView::prepare，接受调用方分配的 Agent home，读取 CodexLogin snapshot，通过现有 save_auth 文件后端物化 auth.json，同步文件后记录 prepared。账户视图 Journal 记录 generation 与固定 inference binding，返回 handle 持有 writer 锁；已准备视图重开保留 auth 文件，并核对其内容仍对应所选 revision。该 API 必须在 AuthManager 构造前调用，尚未接入宿主、刷新执行者或原生请求审计；Agent home 的分配仍由启动装配负责。账户库/CLI Clippy 通过，Bazel 元数据刷新完成；未编写或运行测试，未实际物化账户、登录或实装。
