@@ -88,8 +88,20 @@ impl AgentMessageInput {
         thread_id: String,
         request_id: MessageId,
     ) -> io::Result<AgentRpcOutcome> {
-        let items = self
-            .fragments
+        let items = self.response_items()?;
+        host.rpc
+            .request(
+                host.client.sender(),
+                ClientRequest::ThreadInjectItems {
+                    request_id: RequestId::String(request_id.to_string()),
+                    params: ThreadInjectItemsParams { thread_id, items },
+                },
+            )
+            .await
+    }
+
+    pub(crate) fn response_items(&self) -> io::Result<Vec<serde_json::Value>> {
+        self.fragments
             .iter()
             .enumerate()
             .map(|(index, fragment)| {
@@ -102,15 +114,6 @@ impl AgentMessageInput {
                 }
                 serde_json::to_value(item).map_err(io::Error::other)
             })
-            .collect::<io::Result<Vec<_>>>()?;
-        host.rpc
-            .request(
-                host.client.sender(),
-                ClientRequest::ThreadInjectItems {
-                    request_id: RequestId::String(request_id.to_string()),
-                    params: ThreadInjectItemsParams { thread_id, items },
-                },
-            )
-            .await
+            .collect()
     }
 }
