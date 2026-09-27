@@ -27,6 +27,7 @@ impl ManagedHost {
             ));
         }
         tokio::spawn(async move {
+            let rpc = self.rpc.close().await;
             let inference = self.client.shutdown_drained().await;
             let provider = match self.provider.take() {
                 Some(provider) => provider.stop().await,
@@ -56,6 +57,7 @@ impl ManagedHost {
             };
             // Attempt all independent drains even after an earlier failure;
             // no completion snapshot is returned unless all have succeeded.
+            rpc?;
             inference?;
             provider?;
             account?;

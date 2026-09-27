@@ -69,6 +69,7 @@ pub struct ManagedHostServices {
 /// start/stdin requests; the embedded client's shutdown alone does not do this.
 pub struct ManagedHost {
     pub client: InProcessClientHandle,
+    pub rpc: crate::AgentRpc,
     exec_backend: Arc<dyn ExecBackend>,
     tools: Arc<ToolAudit>,
     processes: ProcessAudit,
@@ -202,9 +203,18 @@ impl ManagedHostServices {
         self.hooks = Some(Arc::clone(&hooks));
         let store_audit = self.audit.clone();
         let launch_binding = self.launch_binding.clone();
+        let rpc_path = self.audit.path.with_file_name("rpc.journal");
+        let identity = self.audit.identity.clone();
+        let launch_id = self.tools.launch_id;
+        let rpc = tokio::task::spawn_blocking(move || {
+            crate::AgentRpc::open(&rpc_path, identity, launch_id)
+        })
+        .await
+        .map_err(std::io::Error::other)??;
         let client = start_with_host_services(args, Arc::new(self)).await?;
         Ok(ManagedHost {
             client,
+            rpc,
             exec_backend,
             tools,
             processes: process_audit,

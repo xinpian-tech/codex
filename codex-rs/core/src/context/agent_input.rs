@@ -47,6 +47,10 @@ impl AgentInputFragment {
 }
 
 impl ContextualUserFragment for AgentInputFragment {
+    fn requires_separate_message(&self) -> bool {
+        true
+    }
+
     fn role(&self) -> &'static str {
         "user"
     }

@@ -1,10 +1,19 @@
 use std::io;
 
+use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ThreadInjectItemsParams;
 use codex_core::context::AgentInputFragment;
+use codex_core::context::ContextualUserFragment;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::Presentation;
 use codex_infra_runtime::LaunchIntent;
 use codex_infra_state::InboxEntry;
+use codex_protocol::ResponseItemId;
+use codex_protocol::models::ResponseItem;
+
+use crate::AgentRpcOutcome;
+use crate::ManagedHost;
 
 /// Bounded model input prepared from an already accepted terminal inbox entry.
 /// Construction neither submits a turn nor acknowledges message presentation.
@@ -60,7 +69,7 @@ impl AgentMessageInput {
         })
     }
 
-    /// Use as client_user_message_id, then reconcile against durable turn items
+    /// Logical identity for turn association and durable history reconciliation
     /// before sending the mailbox's Presented receipt or retrying submission.
     pub fn message_id(&self) -> MessageId {
         self.message_id
@@ -68,5 +77,40 @@ impl AgentMessageInput {
 
     pub fn fragments(&self) -> &[AgentInputFragment] {
         &self.fragments
+    }
+
+    /// Injects typed context items without turning peer text into user-authored
+    /// input. The caller persists the chosen request ID before invoking this and
+    /// reconciles Uncertain outcomes before acknowledging presentation.
+    pub async fn inject(
+        &self,
+        host: &ManagedHost,
+        thread_id: String,
+        request_id: MessageId,
+    ) -> io::Result<AgentRpcOutcome> {
+        let items = self
+            .fragments
+            .iter()
+            .enumerate()
+            .map(|(index, fragment)| {
+                let mut item = ContextualUserFragment::into(fragment.clone());
+                if let ResponseItem::Message { id, .. } = &mut item {
+                    *id = Some(ResponseItemId::with_suffix(
+                        "infra",
+                        format!("{}_{index}", self.message_id),
+                    ));
+                }
+                serde_json::to_value(item).map_err(io::Error::other)
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        host.rpc
+            .request(
+                host.client.sender(),
+                ClientRequest::ThreadInjectItems {
+                    request_id: RequestId::String(request_id.to_string()),
+                    params: ThreadInjectItemsParams { thread_id, items },
+                },
+            )
+            .await
     }
 }
