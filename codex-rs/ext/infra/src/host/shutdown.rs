@@ -17,7 +17,7 @@ impl ManagedHost {
     /// finalizer still persists/submits these jobs, waits for archive receipts,
     /// performs final publication, and records the remaining producer tails.
     pub async fn shutdown_and_snapshot(
-        self,
+        mut self,
         receipts: PathBuf,
         ids: HostArchiveJobIds,
     ) -> io::Result<HostArchiveJobs> {
@@ -28,6 +28,10 @@ impl ManagedHost {
         }
         tokio::spawn(async move {
             let inference = self.client.shutdown_drained().await;
+            let provider = match self.provider.take() {
+                Some(provider) => provider.stop().await,
+                None => Ok(()),
+            };
             let hooks = self.hooks.shutdown().await.map_err(io::Error::other);
             // Hook workers may issue EOF or termination. Close backend request
             // admission only after those workers have finished.
@@ -49,6 +53,7 @@ impl ManagedHost {
             // Attempt all independent drains even after an earlier failure;
             // no completion snapshot is returned unless all have succeeded.
             inference?;
+            provider?;
             hooks?;
             requests?;
             producers?;

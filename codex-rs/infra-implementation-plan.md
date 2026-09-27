@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+ManagedHostServices 新增 start_with_chat_provider，在 infra 扩展包中装配 ChatFrontend 与现有嵌入式 Codex 宿主。启动前核对 generation inference、root/machine/agent/launch 与宿主审计绑定；前端动态 base_url、model 和 provider 同时写入初始 Config 与线程重载 CLI overrides，账户 headers 留在前端配置。宿主持有前端，关闭时先 drain 推理服务，再停止前端，并继续尝试其余独立 drain；配置或宿主启动失败也关闭已启动前端。原生 Responses 仍沿用现有 start。此阶段只提供组合入口，Team State 账户解析、实际 Agent CLI 调用、动态配置装配记录与完整 finalizer 仍待完成。Cargo.lock 已更新，Bazel 依赖刷新完成且 lockfile 无变化；扩展库 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
+
 Provider SSE 增加 ProviderUsageObserver，在收到含 usage 的 chunk 时、等待 [DONE] 或客户端交付之前持久化用量观察。ProviderUsage 保留 provider response ID、实际返回 model、输入/输出/总 token、可选 cache/reasoning token 及原 usage 对象；AttemptAudit 绑定原有 opened 账户/credential_revision，以 usage_observed/revision 追加生命周期记录，相同报告跳过，变化报告属于同一响应的替代版本。新增 ProviderAttemptUsage::read，逐条重放生命周期并返回与原身份合并的最新 revision，核对 attempt/response ID 与版本顺序，汇总端可按 attempt 替换而非累加报告。用量随现有 lifecycle 快照/最终归档保存；跨 Agent 额度准入、团队汇总索引与按配置计费仍待实现。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未调用模型或启动实装。
 
 Provider 生产者新增 ProviderAttemptProgress：初始化和每次 Journal append 确认后，在线程池、同一 writer 锁下原子替换 progress.json，保存 attempt 身份与五条日志确认位置；attempt 目录规范化为绝对路径。ProviderArchiveJobs 支持五项 Snapshot 与六项最终任务（序列化仍为 jobs 数组），自动归档 worker 对尚在运行的 attempt 读取已发布位置，按流身份/目标位置生成去重 key，先持久化队列再提交；同一 attempt 有待确认批次时合并后续采样，旧批次完成后再准备新快照或最终批次。Snapshot 不封口，最终完成仍需六项最终任务回执。增加 position 文件 fsync 的实际开销尚未实装观察；完整 finalizer、usage 汇总和 Agent 启动装配仍待完成。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未启动服务或调用模型。

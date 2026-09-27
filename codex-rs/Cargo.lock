@@ -3721,6 +3721,7 @@ dependencies = [
  "codex-extension-api",
  "codex-hooks",
  "codex-infra-protocol",
+ "codex-infra-provider",
  "codex-infra-runtime",
  "codex-infra-state",
  "codex-protocol",
@@ -3730,6 +3731,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "toml 0.9.11+spec-1.1.0",
 ]
 
 [[package]]

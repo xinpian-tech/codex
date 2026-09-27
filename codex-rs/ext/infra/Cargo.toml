@@ -19,6 +19,7 @@ codex-exec-server-protocol = { workspace = true }
 codex-extension-api = { workspace = true }
 codex-hooks = { workspace = true }
 codex-infra-protocol = { workspace = true }
+codex-infra-provider = { workspace = true }
 codex-infra-runtime = { workspace = true }
 codex-infra-state = { workspace = true }
 codex-protocol = { workspace = true }
@@ -28,3 +29,4 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
+toml = { workspace = true }

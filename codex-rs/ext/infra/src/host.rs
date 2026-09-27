@@ -18,6 +18,7 @@ use crate::StoreAudit;
 use crate::ToolAudit;
 
 mod archive;
+mod provider;
 mod shutdown;
 mod shutdown_journal;
 pub use archive::HostArchiveJobIds;
@@ -54,6 +55,7 @@ pub struct ManagedHost {
     processes: ProcessAudit,
     hooks: Arc<RecordedHookExecutor>,
     store_audit: StoreAudit,
+    provider: Option<codex_infra_provider::ChatFrontend>,
 }
 
 /// Completion boundaries for the host's currently recorded audit streams.
@@ -177,6 +179,7 @@ impl ManagedHostServices {
             processes: process_audit,
             hooks,
             store_audit,
+            provider: None,
         })
     }
 }
