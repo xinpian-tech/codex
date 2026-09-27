@@ -17,8 +17,10 @@ use tokio::sync::watch;
 
 use crate::StoreAuditIdentity;
 
+mod cursor;
 mod reader;
 mod reply;
+pub use cursor::AgentEventCursor;
 pub use reader::AgentServerEventPage;
 pub use reader::AgentServerEventRecord;
 pub use reply::AgentServerReplyOutcome;

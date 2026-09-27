@@ -1,5 +1,6 @@
 use std::io;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 use codex_infra_state::JournalPosition;
 use codex_infra_state::JournalReader;
@@ -15,6 +16,7 @@ pub struct AgentServerEventRecord {
 /// A page in this app-server instance's durable event prefix. Persist processing
 /// progress only after handling the page; the run_start identifies its owner.
 pub struct AgentServerEventPage {
+    pub source: PathBuf,
     pub run_start: JournalPosition,
     pub start: JournalPosition,
     pub next: JournalPosition,
@@ -69,6 +71,7 @@ impl AgentServerEvents {
                 return Err(io::Error::other("server event durable boundary changed"));
             }
             Ok(AgentServerEventPage {
+                source: path,
                 run_start,
                 start: cursor,
                 next,

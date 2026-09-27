@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+AgentServerEvents::open_cursor 新增当前运行实例的持久消费游标，使用 server-events-cursor-<run-start-sequence>.journal 保留各次运行历史。AgentEventCursor 绑定实际事件源路径与 run_start，从已确认位置分页读取；acknowledge 仅在调用方完成整页处理后推进，核对来源、运行实例和页边界，按连续范围落盘，重复确认同一页复用结果。写入由拥有任务的 blocking worker 完成，close 关闭推进并返回最终归档位置。extension 库级 Clippy 通过，未编写或运行测试，未消费真实事件。消费业务副作用的处理/重放规则、游标日志归档及 CLI 主循环仍待接通，游标推进本身不代表服务端请求效果已经应用。
+
 AgentServerEvents 新增服务端请求答复入口，接收原事件 JournalPosition 与成功/错误响应，通过既有容量的命令队列交给事件所有者处理。只匹配当前运行实例实际捕获的 Request，先落盘 ReplyPrepared，再调用既有 app-server responder，再落盘 ReplySubmitted；Enqueued 只代表本地队列接受，NotEnqueued 保留具体错误并允许重试。相同已入队答复使用摘要复用结果，内容变化不重复发送；调用方停止等待不撤销已接收命令。事件通道关闭时关闭新答复准入并处理已接收命令，然后写 Closed，全部记录沿既有 server-events 归档保留。extension 库级 Clippy 通过，未编写或运行测试，未答复真实请求。具体 ServerRequest 的角色路由/业务处理、消费游标持久化及 CLI 主循环仍待实现。
 
 AgentServerEvents 记录本次 app-server 的 run_start（本次 Opened 在完整日志中的位置），新增仅面向当前运行实例的分页读取。消费者从 run_start 开始，返回每条类型化事件的真实 journal position、页边界与固定 durable_end；旧进程事件仍完整保留在同一归档源，但旧消费游标不能用于当前实例的服务端请求处理。读取由 blocking worker 完成，不占用后台接收器。extension 库级 Clippy 通过，未编写或运行测试，未启动真实消费循环。处理完成游标持久化、服务端请求答复及 CLI 调度仍待实现。
