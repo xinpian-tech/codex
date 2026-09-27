@@ -2,10 +2,21 @@
 use codex_extension_api::ModelRequestContributor;
 use codex_extension_api::ModelRequestInput;
 use codex_extension_api::ModelRequestKind;
+use codex_extension_api::ModelRequestObservation;
 use codex_extension_api::ModelResponseInterceptor;
 use codex_extension_api::ModelResponseStream;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+pub(crate) async fn observe(
+    contributors: &[Arc<dyn ModelRequestContributor>],
+    input: ModelRequestObservation<'_>,
+) -> std::io::Result<()> {
+    for contributor in contributors {
+        contributor.observe(input).await?;
+    }
+    Ok(())
+}
 
 pub(crate) fn prepare(
     contributors: &[Arc<dyn ModelRequestContributor>],

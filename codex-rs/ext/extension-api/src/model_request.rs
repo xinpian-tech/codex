@@ -4,6 +4,19 @@ pub use codex_api::ResponseEvent;
 use futures::stream::BoxStream;
 use std::collections::HashMap;
 
+/// Final transport input after wire preparation and size bounding. WebSocket
+/// continuation can contain only a delta; this is not the entire conversation.
+/// Observation precedes transport submission and does not prove provider receipt.
+#[derive(Clone, Copy)]
+pub struct ModelRequestObservation<'a> {
+    pub kind: ModelRequestKind,
+    pub thread_id: &'a str,
+    pub turn_id: Option<&'a str>,
+    pub model: &'a str,
+    pub input: &'a [codex_protocol::models::ResponseItem],
+    pub previous_response_id: Option<&'a str>,
+}
+
 /// Model response events owned by an interceptor or its downstream consumer.
 pub type ModelResponseStream = BoxStream<'static, Result<ResponseEvent, ModelResponseError>>;
 
@@ -28,10 +41,21 @@ pub struct ModelRequestInput<'a> {
     pub model: &'a str,
 }
 
-/// Creates request-scoped interceptors without delaying inference.
-/// Return None for requests this host does not manage.
+/// Creates request-scoped interceptors and observes prepared transport inputs.
+/// Return None from request for streams this host does not intercept; observe
+/// defaults to no work for contributors that do not need request evidence.
 pub trait ModelRequestContributor: Send + Sync + std::fmt::Debug {
     fn request(&self, input: ModelRequestInput<'_>) -> Option<Box<dyn ModelResponseInterceptor>>;
+
+    /// Completes host-owned observation before sending this transport attempt.
+    /// Implementations must leave input unchanged and move blocking I/O off the
+    /// executor. Returning an error prevents this attempt from being submitted.
+    fn observe<'a>(
+        &'a self,
+        _input: ModelRequestObservation<'a>,
+    ) -> crate::ExtensionFuture<'a, std::io::Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Owns request state until consumed by the response stream or dropped on failure.

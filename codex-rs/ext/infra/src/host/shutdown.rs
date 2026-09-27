@@ -29,6 +29,7 @@ impl ManagedHost {
         tokio::spawn(async move {
             let rpc = self.rpc.close().await;
             let inference = self.client.shutdown_drained().await;
+            let model_inputs = self.model_inputs.close().await;
             let provider = match self.provider.take() {
                 Some(provider) => provider.stop().await,
                 None => Ok(()),
@@ -59,6 +60,7 @@ impl ManagedHost {
             // no completion snapshot is returned unless all have succeeded.
             rpc?;
             inference?;
+            model_inputs?;
             provider?;
             account?;
             hooks?;

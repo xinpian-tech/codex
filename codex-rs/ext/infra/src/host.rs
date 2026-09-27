@@ -66,6 +66,7 @@ pub struct ManagedHostServices {
     external_auth: Option<Arc<dyn codex_login::ExternalAuth>>,
     launch_binding: Option<Arc<codex_infra_state::Journal>>,
     home: Option<std::path::PathBuf>,
+    model_inputs: Option<Arc<crate::ModelInputAudit>>,
 }
 
 /// The initialized app-server and its recorded execution lifecycle boundary.
@@ -74,6 +75,7 @@ pub struct ManagedHostServices {
 pub struct ManagedHost {
     pub client: InProcessClientHandle,
     pub rpc: crate::AgentRpc,
+    pub model_inputs: Arc<crate::ModelInputAudit>,
     exec_backend: Arc<dyn ExecBackend>,
     tools: Arc<ToolAudit>,
     processes: ProcessAudit,
@@ -157,6 +159,7 @@ impl ManagedHostServices {
             external_auth: None,
             launch_binding: None,
             home: None,
+            model_inputs: None,
         }
     }
 
@@ -218,17 +221,26 @@ impl ManagedHostServices {
         let store_audit = self.audit.clone();
         let launch_binding = self.launch_binding.clone();
         let rpc_path = self.audit.path.with_file_name("rpc.journal");
+        let model_input_path = self.audit.path.with_file_name("model-inputs.journal");
         let identity = self.audit.identity.clone();
         let launch_id = self.tools.launch_id;
-        let rpc = tokio::task::spawn_blocking(move || {
-            crate::AgentRpc::open(&rpc_path, identity, launch_id)
+        let (rpc, model_inputs) = tokio::task::spawn_blocking(move || {
+            let rpc = crate::AgentRpc::open(&rpc_path, identity.clone(), launch_id)?;
+            let model_inputs = Arc::new(crate::ModelInputAudit::open(
+                &model_input_path,
+                identity,
+                launch_id,
+            )?);
+            Ok::<_, std::io::Error>((rpc, model_inputs))
         })
         .await
         .map_err(std::io::Error::other)??;
+        self.model_inputs = Some(Arc::clone(&model_inputs));
         let client = start_with_host_services(args, Arc::new(self)).await?;
         Ok(ManagedHost {
             client,
             rpc,
+            model_inputs,
             exec_backend,
             tools,
             processes: process_audit,
@@ -262,6 +274,9 @@ impl HostServices for ManagedHostServices {
         let mut builder = default.to_builder();
         builder.prompt_contributor(self.context.clone());
         builder.tool_lifecycle_contributor(self.tools.clone());
+        if let Some(model_inputs) = &self.model_inputs {
+            builder.model_request_contributor(model_inputs.clone());
+        }
         if let Some(hooks) = &self.hooks {
             builder.hook_command_executor(hooks.clone());
             builder.managed_hook_mcp_executor(hooks.clone());

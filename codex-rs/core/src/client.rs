@@ -1754,6 +1754,19 @@ impl ModelClientSession {
                 }
                 request.input = input;
             }
+            crate::model_request::observe(
+                &self.client.request_contributors,
+                codex_extension_api::ModelRequestObservation {
+                    kind: codex_extension_api::ModelRequestKind::Generation,
+                    thread_id: &self.client.state.thread_id.to_string(),
+                    turn_id: responses_metadata.turn_id.as_deref(),
+                    model: &model_info.slug,
+                    input: &request.input,
+                    previous_response_id: None,
+                },
+            )
+            .await
+            .map_err(CodexErr::Io)?;
             inference_trace_attempt.record_started(&request);
             let client = ApiResponsesClient::new(
                 transport,
@@ -2046,6 +2059,24 @@ impl ModelClientSession {
                 let ResponsesWsRequest::ResponseCreate(payload) = &mut ws_request;
                 payload.input = input;
             }
+            let ResponsesWsRequest::ResponseCreate(payload) = &ws_request;
+            crate::model_request::observe(
+                &self.client.request_contributors,
+                codex_extension_api::ModelRequestObservation {
+                    kind: if warmup {
+                        codex_extension_api::ModelRequestKind::Warmup
+                    } else {
+                        codex_extension_api::ModelRequestKind::Generation
+                    },
+                    thread_id: &self.client.state.thread_id.to_string(),
+                    turn_id: responses_metadata.turn_id.as_deref(),
+                    model: &model_info.slug,
+                    input: payload.input,
+                    previous_response_id: payload.previous_response_id.as_deref(),
+                },
+            )
+            .await
+            .map_err(CodexErr::Io)?;
             if !previous_response_id_from_untraced_warmup {
                 inference_trace_attempt.record_started(&ws_request);
             }
