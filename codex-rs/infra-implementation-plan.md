@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户库新增 AccountAuthority/AccountRequest/AccountResponse 控制协议和具体 RemoteAccountSource。Authority 包含 machine hostid、归属 commit 与动态 SocketAddr；客户端从 watch 目录视图逐请求取得当前 authority，以明文 TCP 发送带 request ID 的长度前缀 JSON，支持 current 与按 previous credential revision 刷新，响应核对 request/authority/provider/account。请求与响应帧预算、整次交换 timeout 由配置给出，每次交换独立连接，取消关闭连接且不重发半帧。此通道仅承载机器账户控制数据，不承载 Agent 任务消息；Agent 通讯仍使用 tmux I/O。RemoteAccountSource 可直接供 PublishedAccountAuth 使用；服务端、目录更新生产者、刷新去重/持久化及原始传输归档尚待实现，不能视为跨机器账户服务已完成。账户库/CLI Clippy 通过，Cargo.lock/Bazel 元数据刷新；未编写或运行测试，未建立账户连接或实装。
+
 ManagedHostServices 新增 start_with_native_account，组合已准备的 CodexAccountView 与 PublishedAccountAuth，并经 HostServices.external_auth 交给嵌入式 bootstrap。入口核对 generation inference、实际配置 home/provider、原生认证模式以及 root/machine/agent/launch；初始配置与线程重载 overrides 同时固定 model/provider/文件账户存储及所选 provider 定义。认证 wrapper 持有账户视图，bootstrap/serving manager 使用期间保留其 writer 所有权，启动等待者取消不会独自释放仍在使用的视图。调用方最初提供的 cloud loader 仍须绑定同一来源，此阶段未完成其 CLI 装配。扩展库 Clippy 通过，Cargo.lock 更新并刷新 Bazel 元数据；未编写或运行测试，未启动宿主或实装。具体跨机器 AccountCredentialSource、刷新归属/发布、原生请求审计及 Agent CLI 仍待完成。
 
 账户库新增 PublishedAccount、AccountCredentialSource 与 PublishedAccountAuth。来源接口约定 current/refresh 只返回已确认发布的凭据与 config commit，refresh 接收前一 credential revision 并由来源承担跨 Agent 刷新归属、持久化和 push。适配器实现现有 ExternalAuth，通过 from_external_chatgpt_tokens 向嵌入式 AuthManager 提供不含 refresh token 的认证；核对 provider/account 与先前请求的 ChatGPT 账户，缓存相同版本，来源已有更新 revision 时直接采用。采用前在阻塞 worker 中持久化 revision_adopted（含配置/凭据版本及原 auth），单许可串行本实例解析与刷新，worker 保留许可至写入结束，取消调用不使下一次观察越过正在落盘的更新。此处是账户来源的适配层，具体跨机器来源/刷新执行者、原生请求级归属和 ManagedHost 装配仍待实现，尚不能称为刷新协调完成。账户库/CLI Clippy 通过；未编写或运行测试，未实际解析 token、调用刷新服务或实装。

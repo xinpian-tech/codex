@@ -6,7 +6,9 @@ rust_library(
     srcs = [
         "src/external.rs",
         "src/lib.rs",
+        "src/remote.rs",
         "src/view.rs",
+        "src/wire.rs",
     ],
     crate_name = "codex_infra_account",
     edition = "2024",

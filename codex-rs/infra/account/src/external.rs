@@ -16,7 +16,7 @@ use serde_json::Value;
 use serde_json::json;
 
 /// A credential whose snapshot and catalog binding have both been published.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PublishedAccount {
     pub provider_id: String,
     pub account_id: String,

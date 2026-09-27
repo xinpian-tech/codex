@@ -3719,6 +3719,7 @@ dependencies = [
  "codex-infra-provider",
  "codex-infra-state",
  "codex-login",
+ "serde",
  "serde_json",
  "tokio",
 ]
