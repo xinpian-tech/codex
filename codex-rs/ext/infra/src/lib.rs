@@ -53,6 +53,10 @@ pub use input_evidence::AgentInputEvidence;
 pub use input_evidence::AgentInputEvidenceStatus;
 pub use input_presentation::AgentInputPresentation;
 pub use input_presentation::AgentInputPresentationScan;
+#[cfg(unix)]
+pub use input_submissions::AgentInputDelivery;
+#[cfg(unix)]
+pub use input_submissions::AgentInputDeliveryProgress;
 pub use input_submissions::AgentInputSubmission;
 pub use input_submissions::AgentInputSubmissions;
 pub use input_submissions::AgentInputTurnOutcome;

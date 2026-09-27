@@ -70,12 +70,22 @@ pub enum ModelInputAuditEvent {
 #[derive(Clone)]
 pub struct ModelInputAudit {
     writer: Arc<Mutex<Writer>>,
+    changes: tokio::sync::watch::Receiver<JournalPosition>,
 }
 
 struct Writer {
     path: PathBuf,
     journal: Journal,
     closed: bool,
+    changed: tokio::sync::watch::Sender<JournalPosition>,
+}
+
+impl Writer {
+    fn append(&mut self, event: &ModelInputAuditEvent) -> io::Result<()> {
+        self.journal.append(&serde_json::to_vec(event)?)?;
+        self.changed.send_replace(self.journal.position());
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for ModelInputAudit {
@@ -87,6 +97,12 @@ impl std::fmt::Debug for ModelInputAudit {
 }
 
 impl ModelInputAudit {
+    /// Subscribe before scanning, then wait for changes after catching up.
+    /// Notifications follow durable writes; consumers read evidence by cursor.
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<JournalPosition> {
+        self.changes.clone()
+    }
+
     /// Samples the locally durable prefix. ProducerFinished archive jobs require
     /// close first; a live snapshot is only a prefix, not producer completion.
     pub fn snapshot(&self) -> io::Result<(PathBuf, JournalPosition)> {
@@ -118,11 +134,14 @@ impl ModelInputAudit {
             identity,
             launch_id,
         })?)?;
+        let (changed, changes) = tokio::sync::watch::channel(journal.position());
         Ok(Self {
+            changes,
             writer: Arc::new(Mutex::new(Writer {
                 path: path.canonicalize()?,
                 journal,
                 closed: false,
+                changed,
             })),
         })
     }
@@ -171,8 +190,7 @@ impl ModelRequestContributor for ModelInputAudit {
                 if writer.closed {
                     return Err(io::Error::other("model input audit is closed"));
                 }
-                writer.journal.append(&serde_json::to_vec(&event)?)?;
-                Ok(())
+                writer.append(&event)
             })
             .await
             .map_err(io::Error::other)??;

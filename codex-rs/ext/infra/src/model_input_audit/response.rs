@@ -80,8 +80,7 @@ impl ModelResponseInterceptor for ResponseAudit {
                         if writer.closed {
                             return Err(io::Error::other("model response audit is closed"));
                         }
-                        writer.journal.append(&serde_json::to_vec(&event)?)?;
-                        Ok::<_, io::Error>(())
+                        writer.append(&event)
                     })
                     .await
                     .map_err(io::Error::other)

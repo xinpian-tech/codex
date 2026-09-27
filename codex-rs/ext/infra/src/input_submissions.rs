@@ -20,9 +20,15 @@ use serde_json::Value;
 use crate::AgentInputPresentation;
 use crate::AgentMessageInput;
 
+#[cfg(unix)]
+mod delivery;
 mod inject;
 mod presentation;
 mod turn;
+#[cfg(unix)]
+pub use delivery::AgentInputDelivery;
+#[cfg(unix)]
+pub use delivery::AgentInputDeliveryProgress;
 pub use turn::AgentInputTurnOutcome;
 
 /// Durable injection intent. Its request ID is reused after interruption so the

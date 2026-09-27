@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+Unix 宿主新增 AgentInputDelivery：track_delivery 校验原 inbox 内容/提交绑定并恢复已记录呈现证据，advance 每次最多扫描一个模型审计页，保留游标与续传核对状态，区分 Scanning/Waiting/Confirmed。找到证据后先写 input-submissions，再通过 TerminalMailbox 更新 inbox 并从 tmux stdout 刷出 Presented；取消或写出失败后重试复用原证据和 receipt sequence，同一实例已确认后不重复输出。重启已有证据时无需重扫，未完成证据则从审计重建。ModelInputAudit 新增持久位置 watch，通知发生在日志 fsync 之后，外层循环可在扫描追平后等待新记录。extension 库级 Clippy 通过，未编写或运行测试，未实际发送回执。CLI 事件循环仍需调用此驱动并协调输入/turn、关闭与恢复；Processed 和整体任务完成不由 Presented 推导。
+
 新增 AgentInputPresentationScan，按模型审计页连续扫描指定消息/thread，核对稳定 item ID 和完整片段内容，仅归一化 provider 可省略的 content kind。已完成 response 的片段位图可沿 previous_response_id 继承；warmup 只贡献续传证据，须非 warmup 请求包含完整片段并收到 Completed 且有实际 turn ID，才产生 AgentInputPresentation，保留 attempt/response 和准备/完成 sequence。Created、流结束及流错误不充当完成；相关 attempt/续传状态受调用方给定容量限制，页应用失败不推进状态。AgentInputSubmissions::record_presentation 将证据与实际 thread/turn 落盘后返回 mailbox 所需 PresentedInput，恢复核对原消息绑定，不把 turn/start 的响应 ID 强行当作消费 turn。extension 库级 Clippy 通过，未编写或运行测试，未扫描真实会话或发送回执。CLI 仍需串联扫描、证据落盘和 mailbox 确认，并处理未决请求、Processed、恢复及最终收尾。
 
 ModelInputAudit 新增持久前缀 snapshot 与按记录数分页 read_page，返回 start/next/durable_end 和完整类型化事件，读取在 blocking worker 中完成，不跨越采样时已落盘的边界。宿主归档加入 model-inputs stream，新生成任务要求对应 job ID，提交、远端回执等待及 HostShutdownJournal 的计划/归档绑定核对均覆盖它；新增字段默认可选以读取旧记录，扩大后的 Archived 内存载荷改用 Box，序列化格式不变。extension 库级 Clippy 通过，未编写或运行测试，未执行日志扫描或真实归档。请求片段与响应/续传的实际匹配、呈现回执、CLI 调度和整体最终封存仍待完成。
