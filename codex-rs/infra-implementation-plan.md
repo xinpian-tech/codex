@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+StartedAgentHost 新增 close_event_consumer：确认游标绑定本宿主的事件源与 run_start 后关闭推进，使用实际 cursor journal 最终位置生成 ProducerFinished 归档任务。stream/receipt 名带运行起点，区分同一 launch 多次 app-server 实例的消费进度；归属来自宿主 launch，不由消费者自行拼接。关闭与采样在拥有任务的 blocking worker 中完成。extension 库级 Clippy 通过，未编写或运行测试，未执行真实封存。外层仍需先停止并等待消费者、持久化原归档任务、提交并等待对应远端回执；历史中断实例的游标归档恢复及 CLI 完整收尾尚待接通。
+
 AgentServerEvents 新增 consume 驱动：订阅持久进度后按页读取，逐个等待传入的业务处理器完成或完成持久交接，整页成功后才确认消费游标；处理错误保留未确认页，处理器须按原事件位置实现可重放副作用。协作停止信号在当前页处理/确认完成后生效，追平时等待 watch 更新，处理并确认 Closed 后返回 SourceClosed；不会凭通知通道消失推断正常完成。此驱动不替调用方决定审批、用户输入、动态工具或账户刷新策略。extension 库级 Clippy 通过，未编写或运行测试，未消费真实事件。具体处理器、游标归档与 CLI 对输入调度/停止/最终收尾的装配仍待完成。
 
 AgentServerEvents::open_cursor 新增当前运行实例的持久消费游标，使用 server-events-cursor-<run-start-sequence>.journal 保留各次运行历史。AgentEventCursor 绑定实际事件源路径与 run_start，从已确认位置分页读取；acknowledge 仅在调用方完成整页处理后推进，核对来源、运行实例和页边界，按连续范围落盘，重复确认同一页复用结果。写入由拥有任务的 blocking worker 完成，close 关闭推进并返回最终归档位置。extension 库级 Clippy 通过，未编写或运行测试，未消费真实事件。消费业务副作用的处理/重放规则、游标日志归档及 CLI 主循环仍待接通，游标推进本身不代表服务端请求效果已经应用。

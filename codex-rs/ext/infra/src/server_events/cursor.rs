@@ -12,6 +12,8 @@ use serde::Serialize;
 use super::AgentServerEventPage;
 use super::AgentServerEvents;
 
+mod archive;
+
 /// Processing progress for one event source and one app-server instance.
 /// Acknowledging a page records that its consumer finished handling it; it does
 /// not itself handle server requests or prove their effects were applied.
