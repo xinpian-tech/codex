@@ -25,6 +25,7 @@ rust_library(
         "src/view.rs",
         "src/wire.rs",
         "src/wire_audit.rs",
+        "src/wire_audit/recovery.rs",
     ],
     crate_name = "codex_infra_account",
     edition = "2024",

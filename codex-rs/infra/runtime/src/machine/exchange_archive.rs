@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use codex_infra_account::AccountExchangeFinished;
+use codex_infra_account::recover_account_exchange;
 use codex_infra_protocol::MachineId;
 use codex_infra_protocol::RootSessionId;
 use codex_infra_state::ArchiveProducer;
@@ -75,16 +75,16 @@ impl Worker {
             self.entries = fs::read_dir(&self.config.exchanges)?;
             return Ok(());
         };
-        let entry = entry?;
+        self.prepare(entry?)
+    }
+
+    fn prepare(&mut self, entry: fs::DirEntry) -> io::Result<()> {
         if !entry.file_type()?.is_dir() {
             return Ok(());
         }
-        let bytes = match fs::read(entry.path().join("finished.json")) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
+        let Some(finished) = recover_account_exchange(&entry.path())? else {
+            return Ok(());
         };
-        let finished: AccountExchangeFinished = serde_json::from_slice(&bytes)?;
         let identity = finished.identity;
         let key = identity.connection_id.to_string();
         if identity.root_session_id != self.config.root_session_id
@@ -134,6 +134,16 @@ impl Worker {
             .ok_or_else(|| io::Error::other("account archive lane is empty"))?;
         let item = self.queue.read(key)?;
         Ok(Some((item.key, serde_json::from_slice(&item.payload)?)))
+    }
+
+    fn final_scan(&mut self) -> io::Result<()> {
+        let mut failure = None;
+        for entry in fs::read_dir(&self.config.exchanges)? {
+            if let Err(error) = entry.and_then(|entry| self.prepare(entry)) {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 }
 
@@ -207,8 +217,38 @@ impl ExchangeArchiveActor {
                     )),
                 });
             }
+            // Account services have drained before an explicit stop. Discover
+            // their final markers and transfer each remaining job once.
+            let (returned, scanned) = on_worker(worker, Worker::final_scan).await?;
+            worker = returned;
+            let mut failure = scanned.err();
+            let mut after = None::<String>;
+            loop {
+                let (returned, next) = on_worker(worker, move |worker| {
+                    let lane = worker
+                        .queue
+                        .lanes()
+                        .find(|lane| after.as_deref().is_none_or(|after| *lane > after))
+                        .map(str::to_owned);
+                    let Some(lane) = lane else {
+                        return Ok::<_, io::Error>(None);
+                    };
+                    let item = worker.queue.read(&lane)?;
+                    Ok(Some((
+                        lane,
+                        serde_json::from_slice::<ArchiveJob>(&item.payload)?,
+                    )))
+                })
+                .await?;
+                worker = returned;
+                let Some((lane, job)) = next? else { break };
+                after = Some(lane);
+                if let Err(error) = archive.enqueue(job).await {
+                    failure.get_or_insert(error);
+                }
+            }
             status.send_replace(ArchiveWorkerState::Stopped);
-            Ok(())
+            failure.map_or(Ok(()), Err)
         });
         Ok(Self { stop, task, state })
     }
@@ -221,8 +261,8 @@ impl ExchangeArchiveActor {
         }
     }
 
-    /// Waits for the active step; unfinished discoveries and queued jobs remain
-    /// in the spool for restart. This does not declare the backlog drained.
+    /// After services drain, scans their final markers and durably admits every
+    /// pending job to the machine writer. Remote receipts may still be pending.
     pub(super) async fn stop(self) -> io::Result<()> {
         let _ = self.stop.send(());
         self.task.await.map_err(io::Error::other)?

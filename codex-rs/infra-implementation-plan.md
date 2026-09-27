@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户连接归档补齐关闭扫描和 owner-exit 恢复。WireAudit 的 run.lock 与 Journal 同处共享 Writer，所有后台记录任务都持有该锁；recover_account_exchange 对仍存活的写入者返回待完成，退出后按已有 opened/字节/终态记录重建身份，追加 owner_exit_recovered 并原子发布完成位置，保留原业务结果。归档发现调用该恢复入口，因此未写完 finished.json 的旧连接也可进入队列。ExchangeArchiveActor 停止时在账户服务 drain 后重新扫描全目录，再逐 lane 将所有待处理任务持久交给机器归档器；发现或入队错误仍尝试其余可处理项，最终返回失败供恢复。账户库/CLI、runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未执行恢复、Git 或实装。任务交接仍不等于全部远端回执已完成；客户端、OAuth/Git 原始 I/O、其他账户日志归档、独立 Agent CLI 与整体 finalizer 仍待实现。
+
 MachineRuntime 新增 ExchangeArchiveActor，消费 account-exchanges 中的 finished.json。每轮发现一个连接并推进一个持久队列任务；完成身份需对应当前 root/machine/connection 目录，连接 ID 同时作为稳定 job ID，机器流归属实际账户服务 instance，target 使用写入方保存的位置并标记 ProducerFinished。任务进入 SpoolQueue 后才提交机器 ArchiveController，取得该精确 job 的持久远端回执后才标记队列完成；某个目录发现失败不阻断已准备任务推进。启动/停止和最近状态接入机器资源生命周期，先等账户服务结束再停止连接归档 actor。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未执行归档或实装。当前停止等待活跃步骤，尚未执行全目录最终扫描/全部入队；未扫描日志和未完成任务留盘恢复。异常连接恢复、最终收尾扫描、客户端与 OAuth/Git 原始 I/O 仍待完成。
 
 账户服务端增加连接级原始 I/O 审计。AccountServiceAuditConfig 绑定 root 与 spool，MachineRuntime 装配为 account-exchanges；每次接受连接分配 connection ID，opened 保存 provider/account、实际 authority/实例、hostid 和 peer。读取按块先持久保存原始 header/body 再解析；写入前保存拟发送字节，逐次 socket write 返回后保存实际写入长度。解析错误、EOF、网络超时和后端结果都进入 Finished 事件，随后 fsync/rename 发布 finished.json，包含写入方确认的 JournalPosition 和连接身份。网络 deadline 仅包围网络操作，日志落盘不会被该超时取消；服务停止继续等待连接审计收尾。账户库/CLI、runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未启动监听、连接或实装。完成记录尚待机器归档调度消费，异常退出恢复、客户端原始 I/O 及 OAuth/Git 原始 I/O 仍需完成；不将本地 finished marker 当作远端归档回执。

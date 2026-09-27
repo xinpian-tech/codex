@@ -1,6 +1,5 @@
 use std::fs;
 use std::io;
-use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,6 +17,9 @@ use tokio::net::TcpStream;
 use tokio::time::Instant;
 
 use crate::AccountAuthority;
+
+mod recovery;
+pub use recovery::recover_account_exchange;
 
 #[derive(Clone)]
 pub struct AccountServiceAuditConfig {
@@ -64,7 +66,12 @@ enum Event<'a> {
 pub(crate) struct WireAudit {
     directory: PathBuf,
     identity: AccountExchangeIdentity,
-    journal: Arc<Mutex<Journal>>,
+    journal: Arc<Mutex<Writer>>,
+}
+
+struct Writer {
+    journal: Journal,
+    _run_lock: fs::File,
 }
 
 impl WireAudit {
@@ -76,6 +83,12 @@ impl WireAudit {
             let directory = directory.join(identity.connection_id.to_string());
             fs::create_dir_all(&directory)?;
             let directory = directory.canonicalize()?;
+            let run_lock = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(directory.join("run.lock"))?;
+            run_lock.lock()?;
             let mut journal = Journal::open(&directory.join("io.journal"), |_| {
                 Err(io::Error::other(
                     "account connection id already has an audit",
@@ -94,7 +107,10 @@ impl WireAudit {
             Ok(Self {
                 directory,
                 identity,
-                journal: Arc::new(Mutex::new(journal)),
+                journal: Arc::new(Mutex::new(Writer {
+                    journal,
+                    _run_lock: run_lock,
+                })),
             })
         })
         .await
@@ -108,6 +124,7 @@ impl WireAudit {
             journal
                 .lock()
                 .map_err(|error| io::Error::other(error.to_string()))?
+                .journal
                 .append(&bytes)?;
             Ok(())
         })
@@ -182,19 +199,13 @@ impl WireAudit {
                 .journal
                 .lock()
                 .map_err(|error| io::Error::other(error.to_string()))?
+                .journal
                 .position();
             let finished = AccountExchangeFinished {
                 identity: self.identity,
                 position,
             };
-            let pending = self.directory.join("finished.pending");
-            let mut file = fs::File::create(&pending)?;
-            file.write_all(&serde_json::to_vec(&finished)?)?;
-            file.sync_all()?;
-            fs::rename(pending, self.directory.join("finished.json"))?;
-            #[cfg(unix)]
-            fs::File::open(&self.directory)?.sync_all()?;
-            Ok(())
+            recovery::publish_finished(&self.directory, &finished)
         })
         .await
         .map_err(io::Error::other)?

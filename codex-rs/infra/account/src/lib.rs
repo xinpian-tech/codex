@@ -51,3 +51,4 @@ pub use wire::AccountResult;
 pub use wire_audit::AccountExchangeFinished;
 pub use wire_audit::AccountExchangeIdentity;
 pub use wire_audit::AccountServiceAuditConfig;
+pub use wire_audit::recover_account_exchange;
