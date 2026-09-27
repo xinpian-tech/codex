@@ -60,6 +60,7 @@ pub struct ManagedHost {
     store_audit: StoreAudit,
     provider: Option<codex_infra_provider::ChatFrontend>,
     account_replica: Option<codex_infra_account::AccountReplicaControl>,
+    account_observation: Option<codex_infra_account::AccountObservation>,
 }
 
 /// Completion boundaries for the host's currently recorded audit streams.
@@ -186,6 +187,7 @@ impl ManagedHostServices {
             store_audit,
             provider: None,
             account_replica: None,
+            account_observation: None,
         })
     }
 }

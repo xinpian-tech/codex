@@ -67,6 +67,7 @@ impl ManagedHost {
                 &self.processes,
                 &self.tools,
                 &self.store_audit,
+                self.account_observation.as_ref(),
                 &receipts,
                 ids,
                 HostArchivePhase::Snapshot,

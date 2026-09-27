@@ -8,6 +8,7 @@ use codex_config::CloudConfigBundleLoader;
 use codex_core::config::Config;
 use codex_infra_account::AccountConnectionConfig;
 use codex_infra_account::AccountCredentialSource;
+use codex_infra_account::AccountObservation;
 use codex_infra_account::AccountReplicaConfig;
 use codex_infra_account::AccountReplicaControl;
 use codex_infra_account::CodexAccountView;
@@ -52,6 +53,7 @@ pub struct NativeAccountBootstrap {
     binding: InferenceBinding,
     external: Arc<dyn ExternalAuth>,
     replica: Option<AccountReplicaControl>,
+    observation: AccountObservation,
 }
 
 impl NativeAccountBootstrap {
@@ -102,6 +104,7 @@ impl NativeAccountBootstrap {
             Ok(Self {
                 home,
                 binding,
+                observation: external.observation(),
                 external: Arc::new(NativeHostAccount {
                     _view: view,
                     external,
@@ -166,6 +169,7 @@ impl ManagedHostServices {
         account: NativeAccountBootstrap,
     ) -> io::Result<ManagedHost> {
         let replica = account.replica.clone();
+        let observation = account.observation.clone();
         let result = async {
             let binding = &launch.generation.inference;
             if account.binding() != binding
@@ -214,6 +218,7 @@ impl ManagedHostServices {
         match result {
             Ok(mut host) => {
                 host.account_replica = replica;
+                host.account_observation = Some(observation);
                 Ok(host)
             }
             Err(error) => {

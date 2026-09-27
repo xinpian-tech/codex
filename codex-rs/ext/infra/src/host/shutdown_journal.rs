@@ -51,7 +51,7 @@ struct Writer {
 }
 
 /// Persists host shutdown intent and the exact post-drain archive jobs before
-/// admission to the machine actor. Archived means only these three audit
+/// admission to the machine actor. Archived means only the configured audit
 /// snapshots are remote, not final-message delivery or Agent completion.
 #[derive(Clone)]
 pub struct HostShutdownJournal {
@@ -242,6 +242,11 @@ impl State {
                 if !self.opened || self.jobs.is_some() {
                     return Err(io::Error::other("shutdown snapshot phase changed"));
                 }
+                if jobs.account.is_some() != self.plan.jobs.account.is_some() {
+                    return Err(io::Error::other(
+                        "shutdown account archive differs from plan",
+                    ));
+                }
                 for (job, name, id) in [
                     (&jobs.processes, "processes", self.plan.jobs.processes),
                     (&jobs.tools, "tools", self.plan.jobs.tools),
@@ -250,7 +255,14 @@ impl State {
                         "thread-store",
                         self.plan.jobs.thread_store,
                     ),
-                ] {
+                ]
+                .into_iter()
+                .chain(
+                    jobs.account
+                        .iter()
+                        .zip(self.plan.jobs.account)
+                        .map(|(job, id)| (job, "account-observations", id)),
+                ) {
                     if job.job_id != id
                         || job.stream.name != name
                         || job.stream.root_session_id != self.plan.identity.root_session_id
@@ -280,11 +292,16 @@ impl State {
                 );
                 if self.jobs.is_none()
                     || self
+                        .jobs
+                        .as_ref()
+                        .is_some_and(|jobs| jobs.account.is_some() != receipts.account.is_some())
+                    || self
                         .receipts
                         .as_ref()
                         .is_some_and(|previous| previous != &receipts)
                     || [&receipts.processes, &receipts.tools, &receipts.thread_store]
-                        .iter()
+                        .into_iter()
+                        .chain(receipts.account.iter())
                         .any(|receipt| receipt.session_ref != expected_ref)
                 {
                     return Err(io::Error::other(

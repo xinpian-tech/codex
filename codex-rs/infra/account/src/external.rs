@@ -1,12 +1,14 @@
 use std::future::Future;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_infra_protocol::CommitId;
 use codex_infra_protocol::InferenceBinding;
 use codex_infra_state::Journal;
+use codex_infra_state::JournalPosition;
 use codex_login::AuthDotJson;
 use codex_login::CodexAuth;
 use codex_login::ExternalAuth;
@@ -41,8 +43,33 @@ pub trait AccountCredentialSource: Send + Sync {
 }
 
 struct ObservedAccount {
+    path: PathBuf,
     journal: Journal,
     current: Option<(PublishedAccount, CodexAuth)>,
+}
+
+/// Read-side handle for archiving the actual credential revisions adopted by
+/// this Agent. The caller quiesces auth users before requesting a settled prefix.
+#[derive(Clone)]
+pub struct AccountObservation {
+    gate: Arc<tokio::sync::Semaphore>,
+    observed: Arc<Mutex<ObservedAccount>>,
+}
+
+impl AccountObservation {
+    pub fn settled_snapshot(&self) -> io::Result<(PathBuf, JournalPosition)> {
+        let _permit = Arc::clone(&self.gate).try_acquire_owned().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "account authentication is still active",
+            )
+        })?;
+        let observed = self
+            .observed
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        Ok((observed.path.clone(), observed.journal.position()))
+    }
 }
 
 /// Converts published login snapshots to external access-token auth. Refresh
@@ -56,6 +83,13 @@ pub struct PublishedAccountAuth<S> {
 }
 
 impl<S: AccountCredentialSource> PublishedAccountAuth<S> {
+    pub fn observation(&self) -> AccountObservation {
+        AccountObservation {
+            gate: Arc::clone(&self.gate),
+            observed: Arc::clone(&self.observed),
+        }
+    }
+
     pub fn binding(&self) -> &InferenceBinding {
         &self.binding
     }
@@ -63,6 +97,7 @@ impl<S: AccountCredentialSource> PublishedAccountAuth<S> {
     /// Opens the Agent-local observation journal before any manager uses auth.
     /// The caller creates its parent directory and runs this on a blocking worker.
     pub fn open(binding: InferenceBinding, source: S, journal: &Path) -> io::Result<Self> {
+        let path = journal.to_path_buf();
         let expected = serde_json::to_value(&binding)?;
         let mut opened = false;
         let mut journal = Journal::open(journal, |record| {
@@ -85,6 +120,7 @@ impl<S: AccountCredentialSource> PublishedAccountAuth<S> {
             source,
             gate: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
             observed: Arc::new(Mutex::new(ObservedAccount {
+                path: path.canonicalize()?,
                 journal,
                 current: None,
             })),

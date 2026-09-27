@@ -18,6 +18,8 @@ pub struct HostArchiveJobIds {
     pub processes: MessageId,
     pub tools: MessageId,
     pub thread_store: MessageId,
+    #[serde(default)]
+    pub account: Option<MessageId>,
 }
 
 pub enum HostArchivePhase {
@@ -32,6 +34,8 @@ pub struct HostArchiveJobs {
     pub processes: ArchiveJob,
     pub tools: ArchiveJob,
     pub thread_store: ArchiveJob,
+    #[serde(default)]
+    pub account: Option<ArchiveJob>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +43,8 @@ pub struct HostArchiveReceipts {
     pub processes: ArchiveReceipt,
     pub tools: ArchiveReceipt,
     pub thread_store: ArchiveReceipt,
+    #[serde(default)]
+    pub account: Option<ArchiveReceipt>,
 }
 
 impl HostArchiveJobs {
@@ -57,15 +63,26 @@ impl HostArchiveJobs {
         let Some(thread_store) = controller.completion(self.thread_store.job_id).await? else {
             return Ok(None);
         };
+        let account = match &self.account {
+            Some(job) => match controller.completion(job.job_id).await? {
+                Some(receipt) => Some(receipt),
+                None => return Ok(None),
+            },
+            None => None,
+        };
         Ok(Some(HostArchiveReceipts {
             processes,
             tools,
             thread_store,
+            account,
         }))
     }
 
     pub async fn submit(&self, controller: &ArchiveController) -> io::Result<()> {
-        for job in [&self.processes, &self.tools, &self.thread_store] {
+        for job in [&self.processes, &self.tools, &self.thread_store]
+            .into_iter()
+            .chain(self.account.iter())
+        {
             controller.enqueue(job.clone()).await?;
         }
         Ok(())
@@ -87,6 +104,7 @@ impl ManagedHost {
             &self.processes,
             &self.tools,
             &self.store_audit,
+            self.account_observation.as_ref(),
             receipts,
             ids,
             phase,
@@ -98,6 +116,7 @@ pub(super) fn prepare_jobs(
     processes: &crate::ProcessAudit,
     tools: &crate::ToolAudit,
     store: &crate::StoreAudit,
+    account: Option<&codex_infra_account::AccountObservation>,
     receipts: &Path,
     ids: HostArchiveJobIds,
     phase: HostArchivePhase,
@@ -132,7 +151,20 @@ pub(super) fn prepare_jobs(
             HostArchivePhase::ProducerFinished => ArchiveTarget::ProducerFinished(position),
         },
     };
+    let account = match (account, ids.account) {
+        (Some(observation), Some(job_id)) => {
+            let (source, position) = observation.settled_snapshot()?;
+            Some(build("account-observations", source, job_id, position))
+        }
+        (None, None) => None,
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(io::Error::other(
+                "account archive job id differs from host account",
+            ));
+        }
+    };
     Ok(HostArchiveJobs {
+        account,
         processes: build(
             "processes",
             processes.path.clone(),

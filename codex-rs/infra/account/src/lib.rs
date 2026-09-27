@@ -20,6 +20,7 @@ pub use directory::AccountDirectoryUpdate;
 pub use discovery::AccountDirectoryPage;
 pub use discovery::PublishedAccountDirectory;
 pub use external::AccountCredentialSource;
+pub use external::AccountObservation;
 pub use external::PublishedAccount;
 pub use external::PublishedAccountAuth;
 pub use follower::AccountDirectoryFollower;

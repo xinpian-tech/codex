@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+凭据观察日志进入宿主归档。PublishedAccountAuth 导出 AccountObservation 只读句柄，保留实际 Journal 路径，并在认证 gate 空闲且 append 锁内读取 producer-confirmed position；尚有 resolve/refresh/adopt 时不返回 settled snapshot。NativeAccountBootstrap 将该句柄传给 ManagedHost；HostArchiveJobIds/Jobs/Receipts 增加可选 account 项，原生账户须有对应 job ID，生成 account-observations Agent 流并纳入提交、精确回执查询和 HostShutdownJournal 的计划/身份核对。旧记录缺少该项时按无账户任务读取。账户库/CLI、extension 库 Clippy 通过；未编写或运行测试，未执行归档或实装。该日志记录真实采用过的 credential/config revision 与登录快照，仍需逐模型请求的认证版本/usage observer；账户视图、目录副本/cursor 和原始网络/Git/OAuth I/O 的归档、独立 Agent CLI 及完整 producer finalizer 尚待完成。
+
 账户副本增加 AccountReplicaControl，独立持有停止请求与终态完成通知。Replica 的拥有任务和完成观察任务在调用方取消等待后继续运行；控制句柄可重复等待同一结果，只有实际 worker（含当前 blocking Git/restore/apply 步骤）退出后才报告完成。ReplicatedAccountSource 导出该句柄，prepare_remote 将其带入 NativeAccountBootstrap；准备失败、原生宿主启动失败均等待副本收尾。成功启动后由 ManagedHost 保存句柄，shutdown_and_snapshot 在 inference drain 后停止并等待账户副本，并继续尝试其他独立 drain；任一步失败都不返回完成快照。账户库/CLI、extension 库 Clippy 通过，未编写或运行测试，未执行服务或实装。该变化补齐账户副本后台任务的等待边界；凭据观察、目录副本与 cursor 的最终归档、账户网络/Git/OAuth 原始 I/O 以及独立 Agent CLI 仍待接入。
 
 原生账户 bootstrap 新增 prepare_remote，按 generation 中的 provider/account 启动 ReplicatedAccountSource。该来源组合自动目录副本和 RemoteAccountSource，等待新一轮已同步快照包含所选账户后才返回；初次同步预算、请求预算和 frame 大小来自 AccountConnectionConfig。初次发现中的暂时错误由副本继续重试，预算耗尽或服务退出时返回原因并等待当前副本步骤收尾。PublishedAccountAuth 持有该来源，因此 bootstrap/cloud loader/serving manager 使用期间目录副本持续运行；来源另提供状态订阅和显式 stop。账户库/CLI、extension 库 Clippy 通过，未改动 core/login。独立 Agent CLI 的完整参数/配置装配、finalizer 对账户后台任务的显式等待及账户 I/O/观察日志归档仍待完成；当前最后一个账户来源释放时发出副本停止信号，既有 owned task 完成进行中的步骤。未编写或运行测试，未执行 Git、账户网络请求或实装。
