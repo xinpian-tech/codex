@@ -58,6 +58,14 @@ pub struct NativeAccountBootstrap {
 }
 
 impl NativeAccountBootstrap {
+    /// Finishes account control I/O when startup ends before host handoff.
+    pub async fn stop(self) -> io::Result<()> {
+        match &self.replica {
+            Some(control) => control.stop().await,
+            None => Ok(()),
+        }
+    }
+
     /// Prepares the generation's selected account after its published directory
     /// has synchronized. The shared ExternalAuth owns ongoing replica updates.
     pub async fn prepare_remote(
