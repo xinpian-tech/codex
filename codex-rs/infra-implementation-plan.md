@@ -594,6 +594,14 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### z3compile 离线构建完成
+
+远端固定源码 cfa3628175 的 x86_64-linux 构建已结束，exit-code-offline 为 0。调整映射数量上限后，codex-core、codex-app-server 和最终 codex-agent 均完成编译；最终 Agent 编译进程曾达到 146,132 个映射。Cargo release 阶段用时 9 分 33 秒，Nix installPhase 与 fixupPhase 均已完成。
+
+产物为 /nix/store/9iml7fbsqjq5gibhiz58v5wqkxbjslr9-codex-infra-0.0.0-dev+cfa3628，远端 /root/codex-builds/cfa3628175/result 指向该路径，包含 codex-agent、codex-machine-runtime、codex-infra-account。源码及离线依赖均通过 rsync 传输，本轮编译只在远端执行，未运行测试。后续提交仅更新交接文档，不改变本次编译的实现源码。
+
+独立 CLI 和机器 runtime 的 Nix 产物已生成；真实 leader → worker → 提交回传 → 整合归档流程尚未进行部署实验。下一步需要实际独立 Team State 仓库及机器、DeepSeek、Codex 账户配置，使用已有部署入口接通业务流程。
+
 ### 远端 LLVM 分配失败与映射上限调整
 
 z3compile 的首次主包编译在 codex-core 与 codex-app-server 优化阶段报告 rustc-LLVM ERROR: out of memory。降低 --cores 64 到 16 后仍出现同样错误；机器当时有约 471 GiB 可用内存，未发现 cgroup memory.failcnt 记录。第二次构建采样显示编译进程的映射数量达到 61,502，接近 vm.max_map_count=65,530，而该进程常驻内存约 4 GiB，提示映射数量限制可能是分配失败原因。
