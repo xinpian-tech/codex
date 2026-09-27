@@ -5,6 +5,7 @@ mod audit;
 mod config;
 mod custom;
 mod frontend;
+mod import;
 mod request;
 mod sse;
 mod stream;

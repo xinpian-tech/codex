@@ -36,6 +36,10 @@
     {
       lib.mkInfraGeneration = import ./nix/infra-generation.nix;
       apps = forAllSystems (system: {
+        account = {
+          type = "app";
+          program = "${self.packages.${system}.codex-rs}/bin/codex-infra-account";
+        };
         machine-runtime = {
           type = "app";
           program = "${self.packages.${system}.codex-rs}/bin/codex-machine-runtime";

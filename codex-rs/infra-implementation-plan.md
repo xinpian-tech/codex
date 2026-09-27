@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增 codex-infra-account import CLI 与 AccountCatalog::import。入口为 `codex-infra-account import <catalog.json> <provider> <account> <credential-commit> <bearer|header:NAME|codex-login>`，凭据从 stdin 读取；bearer/header 去掉输入末尾换行，Codex 登录保留 auth.json 的 JSON 内容。credential-commit 由调用方提供，表示此前已提交的凭据来源快照，本阶段不推断新 Git commit。更新在独立文件锁下重读目录，保留已有账户 headers 和其他账户，经临时文件 sync/rename（Unix 再同步父目录）发布；CLI 不打印 token。Cargo/Bazel 二进制入口及 flake account app 已添加。provider 库与账户 CLI Clippy 通过，Nix 仅做语法解析；未编写或运行测试，未执行账户导入、登录或实装。凭据快照提交、更新后目录的 commit/push、Device Code 登录、原生账户视图与刷新协调仍待实现。
+
 Provider 包新增 Team State generation 配置读取与公开 serde 类型。providers/catalog.json 按 provider ID 保存协议、完整请求 URL、headers、适用模型及每 Agent 传输参数；accounts/catalog.json 按 provider/account ID 保存 credential_revision、认证内容和账户 headers。ChatFrontendConfig::read_generation 从 ConfigGeneration 指定目录读取两份文件，按已选 binding 核对模型与 credential revision，合并 provider/account headers，再应用 bearer 或自定义 header token。CodexLogin 保留原 auth.json 对象供后续原生账户路径使用，此处尚不执行登录、导入或刷新。ManagedHostServices::start_with_chat_generation 在线程池读取目录并调用已有宿主/前端装配入口；endpoint/model/token 均来自 generation，未硬编码供应商型号。provider 与扩展库 Clippy 通过；未编写或运行测试，未启动服务或实装。Team State 目录实际生成、账户 CLI、原生登录视图、刷新协调和 Agent CLI 仍待接入。
 
 ManagedHostServices 新增 start_with_chat_provider，在 infra 扩展包中装配 ChatFrontend 与现有嵌入式 Codex 宿主。启动前核对 generation inference、root/machine/agent/launch 与宿主审计绑定；前端动态 base_url、model 和 provider 同时写入初始 Config 与线程重载 CLI overrides，账户 headers 留在前端配置。宿主持有前端，关闭时先 drain 推理服务，再停止前端，并继续尝试其余独立 drain；配置或宿主启动失败也关闭已启动前端。原生 Responses 仍沿用现有 start。此阶段只提供组合入口，Team State 账户解析、实际 Agent CLI 调用、动态配置装配记录与完整 finalizer 仍待完成。Cargo.lock 已更新，Bazel 依赖刷新完成且 lockfile 无变化；扩展库 Clippy 通过，未编写或运行测试，未启动服务或调用模型。
