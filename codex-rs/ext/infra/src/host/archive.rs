@@ -20,8 +20,11 @@ pub struct HostArchiveJobIds {
     pub thread_store: MessageId,
     #[serde(default)]
     pub account: Option<MessageId>,
+    #[serde(default)]
+    pub rpc: Option<MessageId>,
 }
 
+#[derive(Clone, Copy)]
 pub enum HostArchivePhase {
     Snapshot,
     ProducerFinished,
@@ -36,6 +39,8 @@ pub struct HostArchiveJobs {
     pub thread_store: ArchiveJob,
     #[serde(default)]
     pub account: Option<ArchiveJob>,
+    #[serde(default)]
+    pub rpc: Option<ArchiveJob>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +50,8 @@ pub struct HostArchiveReceipts {
     pub thread_store: ArchiveReceipt,
     #[serde(default)]
     pub account: Option<ArchiveReceipt>,
+    #[serde(default)]
+    pub rpc: Option<ArchiveReceipt>,
 }
 
 impl HostArchiveJobs {
@@ -70,11 +77,19 @@ impl HostArchiveJobs {
             },
             None => None,
         };
+        let rpc = match &self.rpc {
+            Some(job) => match controller.completion(job.job_id).await? {
+                Some(receipt) => Some(receipt),
+                None => return Ok(None),
+            },
+            None => None,
+        };
         Ok(Some(HostArchiveReceipts {
             processes,
             tools,
             thread_store,
             account,
+            rpc,
         }))
     }
 
@@ -82,9 +97,38 @@ impl HostArchiveJobs {
         for job in [&self.processes, &self.tools, &self.thread_store]
             .into_iter()
             .chain(self.account.iter())
+            .chain(self.rpc.iter())
         {
             controller.enqueue(job.clone()).await?;
         }
+        Ok(())
+    }
+
+    pub(super) fn attach_rpc(
+        &mut self,
+        rpc: &crate::AgentRpc,
+        receipts: &Path,
+        job_id: Option<MessageId>,
+        phase: HostArchivePhase,
+    ) -> io::Result<()> {
+        let job_id =
+            job_id.ok_or_else(|| io::Error::other("host RPC archive job ID is required"))?;
+        let (source, position) = rpc.snapshot()?;
+        let mut stream = self.processes.stream.clone();
+        stream.name = "rpc".to_owned();
+        let ArchiveProducer::Agent { launch_id, .. } = stream.producer else {
+            return Err(io::Error::other("host archive producer is not an Agent"));
+        };
+        self.rpc = Some(ArchiveJob {
+            job_id,
+            stream,
+            source,
+            receipt_journal: receipts.join(format!("{launch_id}-rpc.journal")),
+            target: match phase {
+                HostArchivePhase::Snapshot => ArchiveTarget::Snapshot(position),
+                HostArchivePhase::ProducerFinished => ArchiveTarget::ProducerFinished(position),
+            },
+        });
         Ok(())
     }
 }
@@ -100,7 +144,8 @@ impl ManagedHost {
         ids: HostArchiveJobIds,
         phase: HostArchivePhase,
     ) -> io::Result<HostArchiveJobs> {
-        prepare_jobs(
+        let rpc_id = ids.rpc;
+        let mut jobs = prepare_jobs(
             &self.processes,
             &self.tools,
             &self.store_audit,
@@ -108,7 +153,9 @@ impl ManagedHost {
             receipts,
             ids,
             phase,
-        )
+        )?;
+        jobs.attach_rpc(&self.rpc, receipts, rpc_id, phase)?;
+        Ok(jobs)
     }
 }
 
@@ -165,6 +212,7 @@ pub(super) fn prepare_jobs(
     };
     Ok(HostArchiveJobs {
         account,
+        rpc: None,
         processes: build(
             "processes",
             processes.path.clone(),

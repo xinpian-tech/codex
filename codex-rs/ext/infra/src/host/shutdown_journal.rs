@@ -242,9 +242,11 @@ impl State {
                 if !self.opened || self.jobs.is_some() {
                     return Err(io::Error::other("shutdown snapshot phase changed"));
                 }
-                if jobs.account.is_some() != self.plan.jobs.account.is_some() {
+                if jobs.account.is_some() != self.plan.jobs.account.is_some()
+                    || jobs.rpc.is_some() != self.plan.jobs.rpc.is_some()
+                {
                     return Err(io::Error::other(
-                        "shutdown account archive differs from plan",
+                        "shutdown optional archives differ from plan",
                     ));
                 }
                 for (job, name, id) in [
@@ -262,6 +264,12 @@ impl State {
                         .iter()
                         .zip(self.plan.jobs.account)
                         .map(|(job, id)| (job, "account-observations", id)),
+                )
+                .chain(
+                    jobs.rpc
+                        .iter()
+                        .zip(self.plan.jobs.rpc)
+                        .map(|(job, id)| (job, "rpc", id)),
                 ) {
                     if job.job_id != id
                         || job.stream.name != name
@@ -291,10 +299,10 @@ impl State {
                     self.plan.identity.root_session_id, self.plan.identity.machine_id
                 );
                 if self.jobs.is_none()
-                    || self
-                        .jobs
-                        .as_ref()
-                        .is_some_and(|jobs| jobs.account.is_some() != receipts.account.is_some())
+                    || self.jobs.as_ref().is_some_and(|jobs| {
+                        jobs.account.is_some() != receipts.account.is_some()
+                            || jobs.rpc.is_some() != receipts.rpc.is_some()
+                    })
                     || self
                         .receipts
                         .as_ref()
@@ -302,6 +310,7 @@ impl State {
                     || [&receipts.processes, &receipts.tools, &receipts.thread_store]
                         .into_iter()
                         .chain(receipts.account.iter())
+                        .chain(receipts.rpc.iter())
                         .any(|receipt| receipt.session_ref != expected_ref)
                 {
                     return Err(io::Error::other(

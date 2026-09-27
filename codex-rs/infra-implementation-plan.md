@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+宿主归档补入 rpc.journal：新生成的 HostArchiveJobs 要求提供 RPC job ID，采样实际打开的 RPC 日志及其持久前缀，使用独立 rpc stream/receipt journal；shutdown 在关闭 RPC 准入并完成其他生产者 drain 后生成该快照。提交、完成等待及 HostShutdownJournal 的 job/receipt 绑定检查均涵盖 RPC，序列化字段采用可选默认值以读取旧归档记录。extension 库级 Clippy 通过，未编写或运行测试，未执行真实归档。仅 RPC 日志归档接通，thread/input-submissions/terminal/preparation 等运行日志及最终封存仍待补齐。源码核对还确认现有 ModelRequestContributor 不暴露最终输入片段，因此不能直接用其现有回调证明消息已进入模型请求，消费证据接口与 Presented 路径仍待实现。
+
 输入所有者新增实际 inject/start_turn 调度：拥有任务串行执行意图落盘与 AgentRpc 请求，调用方取消不撤销已准入操作；注入入口从 AgentMessageInput 移至 AgentInputSubmissions，保证先保存稳定请求绑定再发送类型化片段。start_turn 使用已准备的独立请求 ID，区分协议拒绝、结果不确定及成功响应；成功后将 message/request/turn ID 追加 TurnBound 并落盘，恢复时核对关联顺序与一致性。close 等待输入/turn 调度完成后关闭意图准入，需先于宿主 RPC 关闭调用。该关联只记录 turn/start 的历史响应，活动 turn 可能在注入队列消费前结束，因此不直接发送 Presented，也不代表模型已处理消息。extension 库级 Clippy 通过，未编写或运行测试，未发送真实 RPC。CLI 循环、实际消费 turn 核对、未决请求恢复、回执及全部日志归档收尾仍待完成。
 
 AgentInputSubmissions 新增 prepare_turn：核对已持久化的完整提交绑定，再为消息追加独立 TurnPrepared request ID，返回既有类型化 turn/start 请求，input 为空、turn_trigger 为 infra:<message-id>，重复准备及重启均复用原 ID。源码确认 app-server/core 支持从既有上下文启动空输入 turn，不必引入 user.text 或伪造工具输出；仍由调用方先协调注入和线程活动状态，再通过 AgentRpc 提交。此步骤仅准备请求，没有把 turn/start 的返回当作输入已被消费，也尚未完成不确定请求的 turn 查找或 turn ID 持久关联。extension 库级 Clippy 通过，未编写或运行测试，未启动真实 turn。CLI 调度、活动 turn 竞态处理、Presented/Processed、恢复与归档收尾仍待完成。

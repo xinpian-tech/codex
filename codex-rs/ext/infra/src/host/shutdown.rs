@@ -65,7 +65,8 @@ impl ManagedHost {
             requests?;
             producers?;
             workspace?;
-            prepare_jobs(
+            let rpc_id = ids.rpc;
+            let mut jobs = prepare_jobs(
                 &self.processes,
                 &self.tools,
                 &self.store_audit,
@@ -73,7 +74,9 @@ impl ManagedHost {
                 &receipts,
                 ids,
                 HostArchivePhase::Snapshot,
-            )
+            )?;
+            jobs.attach_rpc(&self.rpc, &receipts, rpc_id, HostArchivePhase::Snapshot)?;
+            Ok(jobs)
         })
         .await
         .map_err(io::Error::other)?
