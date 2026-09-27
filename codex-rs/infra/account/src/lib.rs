@@ -1,6 +1,7 @@
 //! Account views and lifecycle integration around Codex's existing login library.
 
 mod external;
+mod owner;
 mod publish;
 mod refresh;
 mod remote;
@@ -11,6 +12,8 @@ mod wire;
 pub use external::AccountCredentialSource;
 pub use external::PublishedAccount;
 pub use external::PublishedAccountAuth;
+pub use owner::AccountOwnerAssignment;
+pub use owner::GitAccountOwner;
 pub use publish::GitAccounts;
 pub use refresh::CodexRefreshConfig;
 pub use refresh::refresh_codex_account;

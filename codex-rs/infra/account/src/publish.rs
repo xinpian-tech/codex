@@ -14,6 +14,7 @@ use codex_infra_provider::AccountDefinition;
 use serde_json::json;
 
 mod audit;
+mod owner;
 mod read;
 mod recovery;
 use audit::PublicationAudit;
@@ -95,6 +96,33 @@ impl GitAccounts {
                 }),
             },
         )
+    }
+
+    /// Starts a persisted owner's publication operation or resumes its existing
+    /// journal. Only absence of that journal selects a new publication; a Git
+    /// executable or repository error is returned without reinitializing it.
+    pub fn resume_refresh_publication(
+        &self,
+        operation: MessageId,
+        previous: &crate::PublishedAccount,
+        auth: codex_login::AuthDotJson,
+    ) -> io::Result<CommitId> {
+        let path = self.run(
+            &[
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                &format!("infra-account-publications/{operation}.journal"),
+            ],
+            &[],
+        )?;
+        match fs::metadata(path) {
+            Ok(_) => self.recover(operation),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.publish_refreshed(operation, previous, auth)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn publish_account(
