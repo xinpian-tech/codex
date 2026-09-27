@@ -594,6 +594,12 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 首个 Nix release 产物与最新版本构建
+
+源码 f36b67ea8e 的 codex-infra Nix 构建已成功退出，产物为 /nix/store/1rxh8prflnh7bzyzhbfanzmlffq8as7x-codex-infra-0.0.0-dev+f36b67e，已确认包含 codex-agent、codex-machine-runtime、codex-infra-account 三个可执行文件。recursion_limit=256 的修复已通过实际 release 编译及链接；尚未执行这些程序。
+
+包含账户发现接线的源码 b107836d9d 已完成三个 binary 的 Cargo 构建（10m 06s），其固定 Nix derivation /nix/store/m39nr740djzr6hnqsra3vv6fxjb9xcqr-codex-infra-0.0.0-dev+b107836.drv 正在构建。此前成功的 release 包不包含该账户接线，实装使用版本以最新构建结果为准。真实部署仍待独立 Team State 仓库与配置路径；未编写或运行测试、未进行运行实验。
+
 ### 原生账户发现接入部署与 Agent 启动
 
 机器启动后将现有 AccountArchiveActor 的实际 ArchiveStream 写入 spool/account-directory-stream.json；部署 publish 将它与 launch endpoint 一起提交到该机器的 Team State 分支。refresh 在同一次 Git fetch 后生成 hostid → ArchiveStream 映射，默认位置为 machinesFile + ".accounts.json"，也可通过机器配置 accountDirectoriesFile 指定。
