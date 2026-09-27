@@ -10,6 +10,7 @@ rust_library(
         "src/publish/audit.rs",
         "src/publish/read.rs",
         "src/publish/recovery.rs",
+        "src/refresh.rs",
         "src/remote.rs",
         "src/service.rs",
         "src/view.rs",

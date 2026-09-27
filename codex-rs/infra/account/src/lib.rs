@@ -2,6 +2,7 @@
 
 mod external;
 mod publish;
+mod refresh;
 mod remote;
 mod service;
 mod view;
@@ -11,6 +12,8 @@ pub use external::AccountCredentialSource;
 pub use external::PublishedAccount;
 pub use external::PublishedAccountAuth;
 pub use publish::GitAccounts;
+pub use refresh::CodexRefreshConfig;
+pub use refresh::refresh_codex_account;
 pub use remote::RemoteAccountSource;
 pub use service::AccountService;
 pub use service::AccountServiceConfig;

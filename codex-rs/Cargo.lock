@@ -3714,6 +3714,7 @@ dependencies = [
 name = "codex-infra-account"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "codex-http-client",
  "codex-infra-protocol",
  "codex-infra-provider",
