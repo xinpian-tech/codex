@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+StartedAgentHost 新增 close_input_drivers，独立拥有关闭任务，先等待 input/turn 调度再关闭 thread 绑定；即使其中一个关闭返回错误也尝试另一个。两者成功后，以实际日志路径及关闭后的最终位置构造 thread-binding/input-submissions 的 ProducerFinished 归档任务，保留 launch/机器/root/Agent 归属与各自 receipt journal。新增 AgentDriverArchiveJobs 的提交及两份远端完成回执查询，调用方需在提交前持久化原任务并在恢复时重放。此入口要求先停止外层 dispatch，且在宿主 RPC 关闭前调用；不会停止推理或代替 Agent 最终完成。extension 库级 Clippy 通过，未编写或运行测试，未执行真实关闭或归档。驱动归档的最终状态日志与 CLI 接线、terminal/preparation/home 等归档、实际输入消费证据及完整收尾仍待实现。
+
 宿主归档补入 rpc.journal：新生成的 HostArchiveJobs 要求提供 RPC job ID，采样实际打开的 RPC 日志及其持久前缀，使用独立 rpc stream/receipt journal；shutdown 在关闭 RPC 准入并完成其他生产者 drain 后生成该快照。提交、完成等待及 HostShutdownJournal 的 job/receipt 绑定检查均涵盖 RPC，序列化字段采用可选默认值以读取旧归档记录。extension 库级 Clippy 通过，未编写或运行测试，未执行真实归档。仅 RPC 日志归档接通，thread/input-submissions/terminal/preparation 等运行日志及最终封存仍待补齐。源码核对还确认现有 ModelRequestContributor 不暴露最终输入片段，因此不能直接用其现有回调证明消息已进入模型请求，消费证据接口与 Presented 路径仍待实现。
 
 输入所有者新增实际 inject/start_turn 调度：拥有任务串行执行意图落盘与 AgentRpc 请求，调用方取消不撤销已准入操作；注入入口从 AgentMessageInput 移至 AgentInputSubmissions，保证先保存稳定请求绑定再发送类型化片段。start_turn 使用已准备的独立请求 ID，区分协议拒绝、结果不确定及成功响应；成功后将 message/request/turn ID 追加 TurnBound 并落盘，恢复时核对关联顺序与一致性。close 等待输入/turn 调度完成后关闭意图准入，需先于宿主 RPC 关闭调用。该关联只记录 turn/start 的历史响应，活动 turn 可能在注入队列消费前结束，因此不直接发送 Presented，也不代表模型已处理消息。extension 库级 Clippy 通过，未编写或运行测试，未发送真实 RPC。CLI 循环、实际消费 turn 核对、未决请求恢复、回执及全部日志归档收尾仍待完成。
