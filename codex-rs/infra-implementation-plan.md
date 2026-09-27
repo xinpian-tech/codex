@@ -600,7 +600,7 @@ flake 新增 codex-infra 输出，明确只选择 codex-agent、codex-machine-ru
 
 codex-agent 入口在创建线程和 Tokio runtime 前调用上游 arg0_dispatch，支持已有 exec、文件操作、apply-patch 与平台辅助模式的 re-exec。Agent host 的 programs.codex 可以指向该包的 bin/codex-agent，因此独立宿主中的工具执行不再依赖尚未接入自身入口的隐藏模式。此处复用上游分派，不增加 Core 接口。
 
-已开始三个实际 binary 的 Cargo 构建和独立 Nix 包构建；当前仍在生成依赖/可执行文件，不能视为构建成功或部署完成。尚未启动真实 Agent、tmux workload 或模型请求；未编写或运行测试。
+已开始三个实际 binary 的 Cargo 构建和独立 Nix 包构建。Nix 构建发现 crossterm、tokio-tungstenite、tungstenite 的旧 outputHashes 与 Cargo.lock 固定 revision 不符，已按这些 revision 的实际固定输出更新；vendor 依赖阶段已完成，继续构建部署包本体。当前不能视为构建成功或部署完成。尚未启动真实 Agent、tmux workload 或模型请求；未编写或运行测试。
 
 ### Session 工作记忆接入 Agent 主循环
 
