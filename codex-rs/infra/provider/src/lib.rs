@@ -29,6 +29,7 @@ pub use config::ProviderCatalog;
 pub use config::ProviderClientLimits;
 pub use config::ProviderDefinition;
 pub use config::ProviderProtocol;
+pub use config::ResolvedAccount;
 pub use custom::CustomTools;
 pub use frontend::ChatFrontend;
 pub use frontend::ChatFrontendConfig;

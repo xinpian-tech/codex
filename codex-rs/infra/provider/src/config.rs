@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use codex_infra_protocol::CommitId;
 use codex_infra_protocol::ConfigGeneration;
+use codex_infra_protocol::InferenceBinding;
 use reqwest::Url;
 use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
@@ -73,34 +74,31 @@ pub enum AccountAuthentication {
     CodexLogin { auth: serde_json::Value },
 }
 
-impl ChatFrontendConfig {
-    /// Reads the immutable account/provider catalogs selected by this generation.
-    /// Call from a blocking worker when assembling an async Agent host.
-    pub fn read_generation(
-        generation: &ConfigGeneration,
-        audit: ProviderAuditConfig,
-    ) -> io::Result<Self> {
-        let providers: ProviderCatalog = serde_json::from_slice(&fs::read(
+/// The explicit account selection shared by native Responses and Chat adapters.
+pub struct ResolvedAccount {
+    pub binding: InferenceBinding,
+    pub provider: ProviderDefinition,
+    pub account: AccountDefinition,
+}
+
+impl ResolvedAccount {
+    pub fn read_generation(generation: &ConfigGeneration) -> io::Result<Self> {
+        let mut providers: ProviderCatalog = serde_json::from_slice(&fs::read(
             generation.config_store_path.join("providers/catalog.json"),
         )?)?;
-        let accounts: AccountCatalog = serde_json::from_slice(&fs::read(
+        let mut accounts: AccountCatalog = serde_json::from_slice(&fs::read(
             generation.config_store_path.join("accounts/catalog.json"),
         )?)?;
         let binding = &generation.inference;
         let provider = providers
             .0
-            .get(&binding.provider_id)
+            .remove(&binding.provider_id)
             .ok_or_else(|| io::Error::other("generation provider is absent from catalog"))?;
         let account = accounts
             .0
-            .get(&binding.provider_id)
-            .and_then(|accounts| accounts.get(&binding.account_id))
+            .get_mut(&binding.provider_id)
+            .and_then(|accounts| accounts.remove(&binding.account_id))
             .ok_or_else(|| io::Error::other("generation account is absent from catalog"))?;
-        if provider.protocol != ProviderProtocol::ChatCompletions {
-            return Err(io::Error::other(
-                "generation provider does not use Chat Completions",
-            ));
-        }
         if !provider.models.contains(&binding.model_id) {
             return Err(io::Error::other(
                 "generation model is absent from provider models",
@@ -109,6 +107,31 @@ impl ChatFrontendConfig {
         if account.credential_revision != binding.credential_revision {
             return Err(io::Error::other(
                 "generation credential revision differs from account snapshot",
+            ));
+        }
+        Ok(Self {
+            binding: binding.clone(),
+            provider,
+            account,
+        })
+    }
+}
+
+impl ChatFrontendConfig {
+    /// Reads the immutable account/provider catalogs selected by this generation.
+    /// Call from a blocking worker when assembling an async Agent host.
+    pub fn read_generation(
+        generation: &ConfigGeneration,
+        audit: ProviderAuditConfig,
+    ) -> io::Result<Self> {
+        let ResolvedAccount {
+            binding,
+            provider,
+            account,
+        } = ResolvedAccount::read_generation(generation)?;
+        if provider.protocol != ProviderProtocol::ChatCompletions {
+            return Err(io::Error::other(
+                "generation provider does not use Chat Completions",
             ));
         }
         let endpoint = Url::parse(&provider.endpoint).map_err(io::Error::other)?;
@@ -139,7 +162,7 @@ impl ChatFrontendConfig {
             }
         }
         Ok(Self {
-            binding: binding.clone(),
+            binding,
             audit,
             endpoint,
             headers,

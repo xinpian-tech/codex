@@ -176,6 +176,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 codex-infra-protocol = { path = "infra/protocol" }
 codex-infra-provider = { path = "infra/provider" }
+codex-infra-account = { path = "infra/account" }
 codex-infra-state = { path = "infra/state" }
 codex-infra-nix = { path = "infra/nix" }
 codex-infra-tmux = { path = "infra/tmux" }

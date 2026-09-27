@@ -1,5 +1,17 @@
 load("@crates//:defs.bzl", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+rust_library(
+    name = "account",
+    srcs = [
+        "src/lib.rs",
+        "src/view.rs",
+    ],
+    crate_name = "codex_infra_account",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(),
+)
 
 rust_binary(
     name = "codex-infra-account",
