@@ -78,6 +78,7 @@ pub use server_events::AgentServerEvent;
 pub use server_events::AgentServerEventPage;
 pub use server_events::AgentServerEventRecord;
 pub use server_events::AgentServerEvents;
+pub use server_events::AgentServerReplyOutcome;
 pub use store::AuditedThreadStore;
 pub use store_audit::StoreAudit;
 pub use store_audit::StoreAuditEvent;

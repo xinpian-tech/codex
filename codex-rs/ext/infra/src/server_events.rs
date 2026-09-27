@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
+use codex_app_server::in_process::InProcessClientSender;
 use codex_app_server::in_process::InProcessServerEvent;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
@@ -16,8 +18,10 @@ use tokio::sync::watch;
 use crate::StoreAuditIdentity;
 
 mod reader;
+mod reply;
 pub use reader::AgentServerEventPage;
 pub use reader::AgentServerEventRecord;
+pub use reply::AgentServerReplyOutcome;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -34,6 +38,14 @@ pub enum AgentServerEvent {
     },
     Lagged {
         skipped: usize,
+    },
+    ReplyPrepared {
+        request_position: JournalPosition,
+        response: Result<serde_json::Value, codex_app_server_protocol::JSONRPCErrorError>,
+    },
+    ReplySubmitted {
+        request_position: JournalPosition,
+        outcome: AgentServerReplyOutcome,
     },
     Closed,
 }
@@ -53,6 +65,7 @@ pub struct AgentServerEvents {
     run_start: JournalPosition,
     progress: watch::Receiver<Result<JournalPosition, String>>,
     task: tokio::task::JoinHandle<io::Result<JournalPosition>>,
+    replies: mpsc::Sender<reply::ReplyCommand>,
 }
 
 impl PreparedServerEvents {
@@ -87,16 +100,33 @@ impl PreparedServerEvents {
     pub(crate) fn start(
         self,
         mut receiver: mpsc::Receiver<InProcessServerEvent>,
+        sender: InProcessClientSender,
     ) -> AgentServerEvents {
+        let (replies, mut commands) = mpsc::channel::<reply::ReplyCommand>(receiver.max_capacity());
         let (progress, updates) = watch::channel(Ok(self.journal.position()));
         let path = self.path;
         let run_start = self.run_start;
         let task = tokio::spawn(async move {
             let result: io::Result<JournalPosition> = async {
                 let mut journal = self.journal;
+                let mut requests = BTreeMap::<u64, reply::LiveRequest>::new();
                 loop {
-                    let event = match receiver.recv().await {
+                    let incoming = tokio::select! {
+                        command = commands.recv(), if !commands.is_closed() || !commands.is_empty() => {
+                            if let Some(command) = command {
+                                journal = reply::handle(journal, &mut requests, &sender, command).await?;
+                                let _ = progress.send_replace(Ok(journal.position()));
+                            }
+                            continue;
+                        }
+                        event = receiver.recv() => event,
+                    };
+                    let position = journal.position();
+                    let event = match incoming {
                         Some(InProcessServerEvent::ServerRequest(request)) => {
+                            requests.insert(position.next_sequence, reply::LiveRequest {
+                                position, id: request.id().clone(), enqueued: None,
+                            });
                             AgentServerEvent::Request { request }
                         }
                         Some(InProcessServerEvent::ServerNotification(notification)) => {
@@ -108,6 +138,12 @@ impl PreparedServerEvents {
                         None => AgentServerEvent::Closed,
                     };
                     let closed = matches!(event, AgentServerEvent::Closed);
+                    if closed {
+                        commands.close();
+                        while let Some(command) = commands.recv().await {
+                            journal = reply::handle(journal, &mut requests, &sender, command).await?;
+                        }
+                    }
                     journal = tokio::task::spawn_blocking(move || {
                         journal.append(&serde_json::to_vec(&event)?)?;
                         Ok::<_, io::Error>(journal)
@@ -131,6 +167,7 @@ impl PreparedServerEvents {
             run_start,
             progress: updates,
             task,
+            replies,
         }
     }
 }

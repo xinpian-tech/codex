@@ -260,7 +260,7 @@ impl ManagedHostServices {
         .map_err(std::io::Error::other)??;
         self.model_inputs = Some(Arc::clone(&model_inputs));
         let mut client = start_with_host_services(args, Arc::new(self)).await?;
-        let events = events.start(client.take_event_receiver());
+        let events = events.start(client.take_event_receiver(), client.sender());
         Ok(ManagedHost {
             client,
             events,

@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+AgentServerEvents 新增服务端请求答复入口，接收原事件 JournalPosition 与成功/错误响应，通过既有容量的命令队列交给事件所有者处理。只匹配当前运行实例实际捕获的 Request，先落盘 ReplyPrepared，再调用既有 app-server responder，再落盘 ReplySubmitted；Enqueued 只代表本地队列接受，NotEnqueued 保留具体错误并允许重试。相同已入队答复使用摘要复用结果，内容变化不重复发送；调用方停止等待不撤销已接收命令。事件通道关闭时关闭新答复准入并处理已接收命令，然后写 Closed，全部记录沿既有 server-events 归档保留。extension 库级 Clippy 通过，未编写或运行测试，未答复真实请求。具体 ServerRequest 的角色路由/业务处理、消费游标持久化及 CLI 主循环仍待实现。
+
 AgentServerEvents 记录本次 app-server 的 run_start（本次 Opened 在完整日志中的位置），新增仅面向当前运行实例的分页读取。消费者从 run_start 开始，返回每条类型化事件的真实 journal position、页边界与固定 durable_end；旧进程事件仍完整保留在同一归档源，但旧消费游标不能用于当前实例的服务端请求处理。读取由 blocking worker 完成，不占用后台接收器。extension 库级 Clippy 通过，未编写或运行测试，未启动真实消费循环。处理完成游标持久化、服务端请求答复及 CLI 调度仍待实现。
 
 app-server 增加 take_event_receiver 所有权转交接口；infra 在启动前准备 server-events.journal，启动后由独立后台任务持续接收并通过 blocking worker 落盘完整类型化 ServerRequest/ServerNotification、Lagged 和 Closed。消费者通过实际日志路径及持久位置 watch 跟进，RPC 等待不占用事件接收器；关闭时先完成 app-server drained shutdown，再等待事件接收通道排空和 Closed 落盘。server-events 已纳入宿主归档提交、远端回执等待和 shutdown 计划绑定核对，兼容读取缺少该字段的旧记录。库级 Clippy 通过，未编写或运行测试，未启动真实事件流。上游 Lagged 明确记录为丢失提示，不声称已还原所有通知；服务端请求的实际处理/答复、消费游标恢复和 CLI 事件循环仍待接通。
