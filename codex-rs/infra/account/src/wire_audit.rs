@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use codex_infra_protocol::AgentId;
+use codex_infra_protocol::MachineId;
 use codex_infra_protocol::MessageId;
 use codex_infra_protocol::RootSessionId;
 use codex_infra_state::Journal;
@@ -28,7 +30,30 @@ pub struct AccountServiceAuditConfig {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct AccountClientAuditConfig {
+    pub directory: PathBuf,
+    pub root_session_id: RootSessionId,
+    pub machine_id: MachineId,
+    pub agent_id: AgentId,
+    pub launch_id: MessageId,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AccountExchangeObserver {
+    #[default]
+    Service,
+    Agent {
+        machine_id: MachineId,
+        agent_id: AgentId,
+        launch_id: MessageId,
+    },
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AccountExchangeIdentity {
+    #[serde(default)]
+    pub observer: AccountExchangeObserver,
     pub connection_id: MessageId,
     pub root_session_id: RootSessionId,
     pub authority: AccountAuthority,
@@ -189,7 +214,7 @@ impl WireAudit {
         Ok(())
     }
 
-    pub(crate) async fn finish(self, result: &io::Result<()>) -> io::Result<()> {
+    pub(crate) async fn finish<T: Sync>(self, result: &io::Result<T>) -> io::Result<()> {
         self.record(Event::Finished {
             error: result.as_ref().err().map(ToString::to_string),
         })

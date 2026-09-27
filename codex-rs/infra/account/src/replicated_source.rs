@@ -9,11 +9,12 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::watch;
 
+use crate::AccountClientAuditConfig;
 use crate::AccountCredentialSource;
 use crate::AccountDirectoryReplica;
 use crate::AccountReplicaConfig;
-use crate::AccountReplicaControl;
 use crate::AccountReplicaState;
+use crate::AccountRuntimeControl;
 use crate::PublishedAccount;
 use crate::RemoteAccountSource;
 
@@ -40,6 +41,7 @@ impl ReplicatedAccountSource {
         account_id: String,
         replica_config: AccountReplicaConfig,
         connection: AccountConnectionConfig,
+        audit: AccountClientAuditConfig,
     ) -> io::Result<Self> {
         let replica = AccountDirectoryReplica::start(replica_config).await?;
         let directory = replica.directory();
@@ -100,6 +102,7 @@ impl ReplicatedAccountSource {
             directory,
             connection.frame_bytes,
             Duration::from_millis(connection.request_timeout_ms.get()),
+            audit,
         )?;
         Ok(Self { remote, replica })
     }
@@ -108,12 +111,15 @@ impl ReplicatedAccountSource {
         self.replica.subscribe()
     }
 
-    pub fn control(&self) -> AccountReplicaControl {
-        self.replica.control()
+    pub fn control(&self) -> AccountRuntimeControl {
+        AccountRuntimeControl {
+            replica: self.replica.control(),
+            client: self.remote.control(),
+        }
     }
 
     pub async fn stop(self) -> io::Result<()> {
-        self.replica.stop().await
+        self.control().stop().await
     }
 }
 

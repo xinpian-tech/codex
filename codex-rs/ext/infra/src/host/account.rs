@@ -6,11 +6,12 @@ use std::sync::Arc;
 use codex_app_server::in_process::InProcessStartArgs;
 use codex_config::CloudConfigBundleLoader;
 use codex_core::config::Config;
+use codex_infra_account::AccountClientAuditConfig;
 use codex_infra_account::AccountConnectionConfig;
 use codex_infra_account::AccountCredentialSource;
 use codex_infra_account::AccountObservation;
 use codex_infra_account::AccountReplicaConfig;
-use codex_infra_account::AccountReplicaControl;
+use codex_infra_account::AccountRuntimeControl;
 use codex_infra_account::CodexAccountView;
 use codex_infra_account::PublishedAccountAuth;
 use codex_infra_account::ReplicatedAccountSource;
@@ -52,7 +53,7 @@ pub struct NativeAccountBootstrap {
     home: PathBuf,
     binding: InferenceBinding,
     external: Arc<dyn ExternalAuth>,
-    replica: Option<AccountReplicaControl>,
+    replica: Option<AccountRuntimeControl>,
     observation: AccountObservation,
 }
 
@@ -60,16 +61,25 @@ impl NativeAccountBootstrap {
     /// Prepares the generation's selected account after its published directory
     /// has synchronized. The shared ExternalAuth owns ongoing replica updates.
     pub async fn prepare_remote(
-        generation: ConfigGeneration,
+        launch: &LaunchIntent,
         home: PathBuf,
         replica: AccountReplicaConfig,
         connection: AccountConnectionConfig,
+        audit_directory: PathBuf,
     ) -> io::Result<Self> {
+        let generation = launch.generation.clone();
         let source = ReplicatedAccountSource::start(
             generation.inference.provider_id.clone(),
             generation.inference.account_id.clone(),
             replica,
             connection,
+            AccountClientAuditConfig {
+                directory: audit_directory,
+                root_session_id: launch.workspace.root_session_id,
+                machine_id: launch.machine_id.clone(),
+                agent_id: launch.workspace.agent_id,
+                launch_id: launch.launch_id,
+            },
         )
         .await?;
         let control = source.control();

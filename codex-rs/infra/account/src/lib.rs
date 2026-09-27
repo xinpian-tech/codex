@@ -1,5 +1,6 @@
 //! Account views and lifecycle integration around Codex's existing login library.
 
+mod client_control;
 mod directory;
 mod discovery;
 mod external;
@@ -16,6 +17,8 @@ mod view;
 mod wire;
 mod wire_audit;
 
+pub use client_control::AccountClientControl;
+pub use client_control::AccountRuntimeControl;
 pub use directory::AccountDirectory;
 pub use directory::AccountDirectoryUpdate;
 pub use discovery::AccountDirectoryPage;
@@ -48,7 +51,9 @@ pub use wire::AccountAuthority;
 pub use wire::AccountRequest;
 pub use wire::AccountResponse;
 pub use wire::AccountResult;
+pub use wire_audit::AccountClientAuditConfig;
 pub use wire_audit::AccountExchangeFinished;
 pub use wire_audit::AccountExchangeIdentity;
+pub use wire_audit::AccountExchangeObserver;
 pub use wire_audit::AccountServiceAuditConfig;
 pub use wire_audit::recover_account_exchange;

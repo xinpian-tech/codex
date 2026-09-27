@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+账户客户端复用 WireAudit 记录请求/响应原始 framing 字节、实际写入长度、连接/解析/后端失败与完成位置。AccountClientAuditConfig 来自 LaunchIntent 的 root、实际机器、Agent 和 launch，prepare_remote 同时接收机器共享 account-exchanges spool 路径；客户端 connection ID 使用请求 ID，便于与服务端原始请求关联。AccountExchangeIdentity 增加 observer，旧记录默认 Service；归档器分别生成 Agent 或机器服务实例的流身份。RemoteAccountSource 使用拥有任务完成已开始的交换及审计，调用方取消仅放弃结果等待；AccountClientControl 跟踪这些任务，AccountRuntimeControl 在关闭客户端准入并等待全部完成后停止目录副本，已接入原生宿主收尾。账户库/CLI、runtime/extension 库和机器 CLI Clippy 通过，未编写或运行测试，未执行网络或实装。独立 Agent CLI 仍需传入实际启动参数和共享 spool；OAuth/Git 原始 I/O、目录副本/view/cursor 归档、逐模型请求 observer 及整体 finalizer 尚待实现。
+
 账户连接归档补齐关闭扫描和 owner-exit 恢复。WireAudit 的 run.lock 与 Journal 同处共享 Writer，所有后台记录任务都持有该锁；recover_account_exchange 对仍存活的写入者返回待完成，退出后按已有 opened/字节/终态记录重建身份，追加 owner_exit_recovered 并原子发布完成位置，保留原业务结果。归档发现调用该恢复入口，因此未写完 finished.json 的旧连接也可进入队列。ExchangeArchiveActor 停止时在账户服务 drain 后重新扫描全目录，再逐 lane 将所有待处理任务持久交给机器归档器；发现或入队错误仍尝试其余可处理项，最终返回失败供恢复。账户库/CLI、runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未执行恢复、Git 或实装。任务交接仍不等于全部远端回执已完成；客户端、OAuth/Git 原始 I/O、其他账户日志归档、独立 Agent CLI 与整体 finalizer 仍待实现。
 
 MachineRuntime 新增 ExchangeArchiveActor，消费 account-exchanges 中的 finished.json。每轮发现一个连接并推进一个持久队列任务；完成身份需对应当前 root/machine/connection 目录，连接 ID 同时作为稳定 job ID，机器流归属实际账户服务 instance，target 使用写入方保存的位置并标记 ProducerFinished。任务进入 SpoolQueue 后才提交机器 ArchiveController，取得该精确 job 的持久远端回执后才标记队列完成；某个目录发现失败不阻断已准备任务推进。启动/停止和最近状态接入机器资源生命周期，先等账户服务结束再停止连接归档 actor。runtime 库/机器 CLI Clippy 通过，未编写或运行测试，未执行归档或实装。当前停止等待活跃步骤，尚未执行全目录最终扫描/全部入队；未扫描日志和未完成任务留盘恢复。异常连接恢复、最终收尾扫描、客户端与 OAuth/Git 原始 I/O 仍待完成。

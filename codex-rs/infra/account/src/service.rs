@@ -21,6 +21,7 @@ use crate::AccountAction;
 use crate::AccountAuthority;
 use crate::AccountCredentialSource;
 use crate::AccountExchangeIdentity;
+use crate::AccountExchangeObserver;
 use crate::AccountRequest;
 use crate::AccountResponse;
 use crate::AccountResult;
@@ -99,6 +100,7 @@ impl AccountService {
                         state_tx.send_modify(|state| state.active_requests += 1);
                         jobs.spawn(async move {
                             let audit = WireAudit::open(config.audit.directory.clone(), AccountExchangeIdentity {
+                                observer: AccountExchangeObserver::Service,
                                 connection_id: MessageId::new(), root_session_id: config.audit.root_session_id,
                                 authority: authority.clone(), provider_id: config.provider_id.clone(),
                                 account_id: config.account_id.clone(), peer,

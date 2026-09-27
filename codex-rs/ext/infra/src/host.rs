@@ -59,7 +59,7 @@ pub struct ManagedHost {
     hooks: Arc<RecordedHookExecutor>,
     store_audit: StoreAudit,
     provider: Option<codex_infra_provider::ChatFrontend>,
-    account_replica: Option<codex_infra_account::AccountReplicaControl>,
+    account_replica: Option<codex_infra_account::AccountRuntimeControl>,
     account_observation: Option<codex_infra_account::AccountObservation>,
 }
 

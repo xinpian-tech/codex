@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use codex_infra_account::AccountExchangeObserver;
 use codex_infra_account::recover_account_exchange;
 use codex_infra_protocol::MachineId;
 use codex_infra_protocol::RootSessionId;
@@ -87,8 +88,27 @@ impl Worker {
         };
         let identity = finished.identity;
         let key = identity.connection_id.to_string();
+        let (machine_id, producer) = match identity.observer {
+            AccountExchangeObserver::Service => (
+                identity.authority.machine_id,
+                ArchiveProducer::Machine {
+                    machine_run_id: identity.authority.instance_id,
+                },
+            ),
+            AccountExchangeObserver::Agent {
+                machine_id,
+                agent_id,
+                launch_id,
+            } => (
+                machine_id,
+                ArchiveProducer::Agent {
+                    agent_id,
+                    launch_id,
+                },
+            ),
+        };
         if identity.root_session_id != self.config.root_session_id
-            || identity.authority.machine_id != self.config.machine_id
+            || machine_id != self.config.machine_id
             || entry.file_name() != std::ffi::OsStr::new(&key)
         {
             return Err(io::Error::other(
@@ -99,10 +119,8 @@ impl Worker {
             job_id: identity.connection_id,
             stream: ArchiveStream {
                 root_session_id: identity.root_session_id,
-                machine_id: identity.authority.machine_id,
-                producer: ArchiveProducer::Machine {
-                    machine_run_id: identity.authority.instance_id,
-                },
+                machine_id,
+                producer,
                 name: format!("account-{key}-io"),
             },
             source: entry.path().join("io.journal").canonicalize()?,
