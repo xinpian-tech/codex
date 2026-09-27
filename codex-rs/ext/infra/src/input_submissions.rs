@@ -17,9 +17,11 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::AgentInputPresentation;
 use crate::AgentMessageInput;
 
 mod inject;
+mod presentation;
 mod turn;
 pub use turn::AgentInputTurnOutcome;
 
@@ -47,6 +49,7 @@ struct Writer {
     entries: BTreeMap<MessageId, (AgentInputSubmission, blake3::Hash)>,
     turns: BTreeMap<MessageId, MessageId>,
     bound_turns: BTreeMap<MessageId, String>,
+    presentations: BTreeMap<MessageId, AgentInputPresentation>,
     closed: bool,
 }
 
@@ -69,6 +72,9 @@ enum Event {
         request_id: MessageId,
         turn_id: String,
     },
+    Presented {
+        evidence: AgentInputPresentation,
+    },
 }
 
 impl AgentInputSubmissions {
@@ -79,6 +85,7 @@ impl AgentInputSubmissions {
         let mut entries = BTreeMap::new();
         let mut turns = BTreeMap::new();
         let mut bound_turns = BTreeMap::new();
+        let mut presentations = BTreeMap::new();
         let mut journal = Journal::open(path, |record| {
             match serde_json::from_slice::<Event>(&record.payload)? {
                 Event::Opened { launch: previous } => {
@@ -116,6 +123,18 @@ impl AgentInputSubmissions {
                         return Err(io::Error::other("invalid input turn binding"));
                     }
                 }
+                Event::Presented { evidence } => {
+                    let Some((submission, _)) = entries.get(&evidence.message_id) else {
+                        return Err(io::Error::other("presentation has no prepared input"));
+                    };
+                    if submission.thread_id != evidence.thread_id
+                        || presentations
+                            .insert(evidence.message_id, evidence)
+                            .is_some()
+                    {
+                        return Err(io::Error::other("input presentation binding changed"));
+                    }
+                }
             }
             Ok(())
         })?;
@@ -132,6 +151,7 @@ impl AgentInputSubmissions {
                 entries,
                 turns,
                 bound_turns,
+                presentations,
                 closed: false,
             })),
             dispatch: Arc::default(),

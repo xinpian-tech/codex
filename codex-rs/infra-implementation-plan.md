@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+新增 AgentInputPresentationScan，按模型审计页连续扫描指定消息/thread，核对稳定 item ID 和完整片段内容，仅归一化 provider 可省略的 content kind。已完成 response 的片段位图可沿 previous_response_id 继承；warmup 只贡献续传证据，须非 warmup 请求包含完整片段并收到 Completed 且有实际 turn ID，才产生 AgentInputPresentation，保留 attempt/response 和准备/完成 sequence。Created、流结束及流错误不充当完成；相关 attempt/续传状态受调用方给定容量限制，页应用失败不推进状态。AgentInputSubmissions::record_presentation 将证据与实际 thread/turn 落盘后返回 mailbox 所需 PresentedInput，恢复核对原消息绑定，不把 turn/start 的响应 ID 强行当作消费 turn。extension 库级 Clippy 通过，未编写或运行测试，未扫描真实会话或发送回执。CLI 仍需串联扫描、证据落盘和 mailbox 确认，并处理未决请求、Processed、恢复及最终收尾。
+
 ModelInputAudit 新增持久前缀 snapshot 与按记录数分页 read_page，返回 start/next/durable_end 和完整类型化事件，读取在 blocking worker 中完成，不跨越采样时已落盘的边界。宿主归档加入 model-inputs stream，新生成任务要求对应 job ID，提交、远端回执等待及 HostShutdownJournal 的计划/归档绑定核对均覆盖它；新增字段默认可选以读取旧记录，扩大后的 Archived 内存载荷改用 Box，序列化格式不变。extension 库级 Clippy 通过，未编写或运行测试，未执行日志扫描或真实归档。请求片段与响应/续传的实际匹配、呈现回执、CLI 调度和整体最终封存仍待完成。
 
 请求观察接口现可返回该次尝试独有的响应观察器，core 将其置于既有 request interceptor 之前，以观察变换前的响应流。ModelInputAudit 使用 Prepared 的 attempt ID 关联 Created、Completed、ServerModel、StreamFailed、StreamEnded；完成记录保留 response ID、token usage、上游 usage metadata 和 end_turn，相关事件落盘后再交给原消费链，其他响应事件原样转交。未收到响应流、取消或没有 Completed 的记录仍不能当成完成；流自然结束也不等同于 Completed。新增 futures 工作区依赖，库级 Clippy 与 Bazel 依赖元数据刷新通过，MODULE.bazel.lock 无变化；未编写或运行测试，未调用真实供应商。请求证据分页与片段/续传核对、日志归档、Presented/Processed 及 CLI 收尾仍待完成。
