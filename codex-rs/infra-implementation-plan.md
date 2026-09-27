@@ -600,6 +600,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 远端 tmux 会话 codex-infra-offline 已启动固定 derivation /nix/store/0zz1kcpksb0bg92rxi8iz1gych9kylp6-codex-infra-0.0.0-dev+cfa3628.drv 的构建，使用 --offline、空 substituters、--cores 64、--max-jobs 8。日志为 /root/codex-builds/cfa3628175/build-offline.log，结束后写入同目录 exit-code-offline，产物链接为 result。已观察到离线依赖源码解包持续推进；尚未取得该远端构建的成功终态。未运行测试。
 
+首次离线构建发现 rust-overlay 的 rustc、rust-std、cargo 1.95.0 x86_64 压缩包尚未同步：这些下载 derivation 使用 structuredAttrs，初次只检查 env.outputHash 的清单漏掉了它们。现已在本机下载并核对固定 SHA-256，经 rsync 传至 /root/codex-builds/rust-x86，再用 nix-store --add-fixed sha256 导入远端；未在本机编译工具链。旧日志保留为 build-offline-before-toolchain.log，原 tmux 名称下已重新启动离线构建，复用已完成的依赖产物。后续离线依赖准备按 derivation outputs 的 hash 字段识别固定输出下载。
+
 此前本机 b107836d9d 的 Nix 构建在切换远端前已成功退出。该事实不替代远端 x86_64 产物与真实任务运行。首次部署仍需独立 Team State 仓库及实际机器/provider/account 配置。
 
 ### 首个 Nix release 产物与最新版本构建
