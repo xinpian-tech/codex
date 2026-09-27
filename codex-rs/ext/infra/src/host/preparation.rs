@@ -42,6 +42,7 @@ pub struct PreparedAgentHost {
     pub context: Arc<AgentContext>,
     pub task: TaskSpec,
     pub directory: PathBuf,
+    pub home: PathBuf,
     pub generation: Option<AgentHostGeneration>,
 }
 
@@ -146,6 +147,16 @@ impl PreparedAgentHost {
             if !recorded {
                 journal.append(&serde_json::to_vec(&binding)?)?;
             }
+            let home = match &binding.generation {
+                Some(generation) => {
+                    super::home::prepare_home(&directory, &launch.generation, generation)?
+                }
+                None => {
+                    let home = directory.join("home");
+                    std::fs::create_dir_all(&home)?;
+                    home
+                }
+            };
             // Checkpoint history follows the Agent across host launches. The
             // coordinator's exclusive writer also serializes worktree owners.
             let coordinator =
@@ -197,6 +208,7 @@ impl PreparedAgentHost {
             let mut services =
                 ManagedHostServices::new(audit, Arc::clone(&context), Arc::new(tools));
             services.launch_binding = Some(Arc::new(journal));
+            services.home = Some(home.clone());
             Ok(Self {
                 services,
                 processes,
@@ -204,6 +216,7 @@ impl PreparedAgentHost {
                 context,
                 task,
                 directory,
+                home,
                 generation: binding.generation,
             })
         })

@@ -20,6 +20,7 @@ use crate::ToolAudit;
 mod account;
 mod archive;
 mod generation;
+mod home;
 mod preparation;
 mod provider;
 mod shutdown;
@@ -53,6 +54,7 @@ pub struct ManagedHostServices {
     hooks: Option<Arc<RecordedHookExecutor>>,
     external_auth: Option<Arc<dyn codex_login::ExternalAuth>>,
     launch_binding: Option<Arc<codex_infra_state::Journal>>,
+    home: Option<std::path::PathBuf>,
 }
 
 /// The initialized app-server and its recorded execution lifecycle boundary.
@@ -132,6 +134,7 @@ impl ManagedHostServices {
             hooks: None,
             external_auth: None,
             launch_binding: None,
+            home: None,
         }
     }
 
@@ -144,6 +147,11 @@ impl ManagedHostServices {
         mut args: InProcessStartArgs,
         process_audit: ProcessAudit,
     ) -> std::io::Result<ManagedHost> {
+        if let Some(home) = &self.home
+            && args.config.codex_home.as_path() != home
+        {
+            return Err(std::io::Error::other("host config uses another Agent home"));
+        }
         self.context.validate_audit_identity(&self.audit.identity)?;
         if self.tools.identity != self.audit.identity
             || process_audit.identity != self.audit.identity
