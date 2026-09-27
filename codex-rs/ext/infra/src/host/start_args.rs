@@ -88,7 +88,7 @@ impl PreparedAgentHost {
             state_db,
             environment_manager: Arc::new(environment_manager),
             config_warnings,
-            session_source: SessionSource::Custom("codex-infra".to_owned()),
+            session_source: SessionSource::Exec,
             enable_codex_api_key_env: false,
             initialize: InitializeParams {
                 client_info: ClientInfo {

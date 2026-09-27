@@ -18,6 +18,7 @@ use super::ManagedHost;
 use super::NativeAccountBootstrap;
 use super::PreparedAgentHost;
 use crate::AgentContext;
+use crate::AgentThread;
 use crate::WorkspaceCheckpoints;
 
 /// Account control metadata supplied by the launcher, separate from the Task
@@ -35,6 +36,7 @@ pub enum AgentAccountSource {
 /// Running inference plus the resources needed by the terminal loop/finalizer.
 pub struct StartedAgentHost {
     pub host: ManagedHost,
+    pub thread: AgentThread,
     pub launch: LaunchIntent,
     pub task: TaskSpec,
     pub context: Arc<AgentContext>,
@@ -80,6 +82,11 @@ impl PreparedAgentHost {
             .acquire_recovery(format!("startup:{}", self.launch.launch_id))
             .await?;
         self.checkpoints.recover(lease).await?;
+        let thread_path = self.directory.join("thread.journal");
+        let launch = self.launch.clone();
+        let thread = tokio::task::spawn_blocking(move || AgentThread::open(&thread_path, launch))
+            .await
+            .map_err(io::Error::other)??;
         let local_config = self.load_config(CloudConfigBundleLoader::default()).await?;
         let host = match source {
             AgentAccountSource::Generation => {
@@ -131,6 +138,7 @@ impl PreparedAgentHost {
         };
         Ok(StartedAgentHost {
             host,
+            thread,
             launch: self.launch,
             task: self.task,
             context: self.context,
