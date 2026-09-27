@@ -3717,6 +3717,7 @@ dependencies = [
  "codex-http-client",
  "codex-infra-protocol",
  "codex-infra-provider",
+ "codex-infra-state",
  "codex-login",
  "serde_json",
  "tokio",

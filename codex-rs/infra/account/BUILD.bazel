@@ -6,6 +6,7 @@ rust_binary(
     srcs = [
         "src/main.rs",
         "src/publish.rs",
+        "src/publish/audit.rs",
     ],
     crate_name = "codex_infra_account",
     crate_root = "src/main.rs",

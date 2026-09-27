@@ -13,6 +13,9 @@ use codex_infra_provider::AccountCatalog;
 use codex_infra_provider::AccountDefinition;
 use serde_json::json;
 
+mod audit;
+use audit::PublicationAudit;
+
 /// Uses an isolated Git index; the Team State checkout and its staged changes
 /// are independent of the config ref being published.
 pub struct GitAccounts {
@@ -40,8 +43,34 @@ impl GitAccounts {
         account: String,
         authentication: AccountAuthentication,
     ) -> io::Result<CommitId> {
+        let operation = MessageId::new();
+        let mut audit = PublicationAudit::open(
+            self,
+            operation,
+            json!({
+                "kind": "publish",
+                "provider_id": provider,
+                "account_id": account,
+                "authentication": authentication,
+            }),
+        )?;
+        let result =
+            self.publish_recorded(provider, account, authentication, operation, &mut audit);
+        audit.finish(&result)?;
+        result
+    }
+
+    fn publish_recorded(
+        &self,
+        provider: String,
+        account: String,
+        authentication: AccountAuthentication,
+        operation: MessageId,
+        audit: &mut PublicationAudit,
+    ) -> io::Result<CommitId> {
         let before = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
         let _: CommitId = before.parse().map_err(io::Error::other)?;
+        audit.record(json!({"event": "base_selected", "commit": before}))?;
         let source = format!("{before}:accounts/catalog.json");
         let present = self.run(
             &[
@@ -58,7 +87,6 @@ impl GitAccounts {
         } else {
             serde_json::from_str(&self.run(&["show", &source], &[])?)?
         };
-        let operation = MessageId::new();
         let git_path = self.run(
             &[
                 "rev-parse",
@@ -101,6 +129,11 @@ impl GitAccounts {
             format!("Account {provider}/{account} credential {operation}\n").as_bytes(),
         )?;
         let credential_revision = credential.parse().map_err(io::Error::other)?;
+        audit.record(json!({
+            "event": "credential_committed",
+            "commit": credential,
+            "path": credential_path,
+        }))?;
         let accounts = catalog.0.entry(provider.clone()).or_default();
         let headers = accounts
             .remove(&account)
@@ -139,25 +172,40 @@ impl GitAccounts {
             &["commit-tree", &tree, "-p", &credential],
             format!("Bind account {provider}/{account} to credential {credential}\n").as_bytes(),
         )?;
+        audit.record(json!({
+            "event": "ref_update_requested",
+            "before": before,
+            "config_commit": commit,
+            "credential_commit": credential,
+        }))?;
         self.run(&["update-ref", &self.config_ref, &commit, &before], &[])?;
-        self.push(&commit)?;
+        audit.record(json!({"event": "ref_updated", "config_commit": commit}))?;
+        self.push(&commit, audit)?;
         commit.parse().map_err(io::Error::other)
     }
 
     pub fn sync(&self) -> io::Result<CommitId> {
-        let commit = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
-        let revision = commit.parse().map_err(io::Error::other)?;
-        self.push(&commit)?;
-        Ok(revision)
+        let mut audit = PublicationAudit::open(self, MessageId::new(), json!({"kind": "sync"}))?;
+        let result = (|| {
+            let commit = self.run(&["rev-parse", "--verify", &self.config_ref], &[])?;
+            let revision = commit.parse().map_err(io::Error::other)?;
+            self.push(&commit, &mut audit)?;
+            Ok(revision)
+        })();
+        audit.finish(&result)?;
+        result
     }
 
-    fn push(&self, commit: &str) -> io::Result<()> {
+    fn push(&self, commit: &str, audit: &mut PublicationAudit) -> io::Result<()> {
         let destination = format!("{commit}:{}", self.config_ref);
+        audit.record(json!({"event": "push_requested", "config_commit": commit}))?;
         self.run(&["push", "--", &self.remote, &destination], &[])?;
+        audit.record(json!({"event": "push_returned", "config_commit": commit}))?;
         let observed = self.run(
             &["ls-remote", "--refs", "--", &self.remote, &self.config_ref],
             &[],
         )?;
+        audit.record(json!({"event": "remote_observed", "refs": observed}))?;
         if !observed.lines().any(|line| {
             line.split_once('\t')
                 .is_some_and(|(oid, name)| oid == commit && name == self.config_ref)
