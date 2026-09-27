@@ -17,6 +17,7 @@ use crate::RecordedHookExecutor;
 use crate::StoreAudit;
 use crate::ToolAudit;
 
+mod account;
 mod archive;
 mod provider;
 mod shutdown;
@@ -43,6 +44,7 @@ pub struct ManagedHostServices {
     context: Arc<AgentContext>,
     tools: Arc<ToolAudit>,
     hooks: Option<Arc<RecordedHookExecutor>>,
+    external_auth: Option<Arc<dyn codex_login::ExternalAuth>>,
 }
 
 /// The initialized app-server and its recorded execution lifecycle boundary.
@@ -117,6 +119,7 @@ impl ManagedHostServices {
             context,
             tools,
             hooks: None,
+            external_auth: None,
         }
     }
 
@@ -185,6 +188,10 @@ impl ManagedHostServices {
 }
 
 impl HostServices for ManagedHostServices {
+    fn external_auth(&self) -> Option<Arc<dyn codex_login::ExternalAuth>> {
+        self.external_auth.clone()
+    }
+
     fn thread_store(&self, default: Arc<dyn ThreadStore>) -> Arc<dyn ThreadStore> {
         self.audit.thread_store(default)
     }

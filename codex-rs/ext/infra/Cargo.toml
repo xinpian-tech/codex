@@ -18,10 +18,12 @@ codex-exec-server = { workspace = true }
 codex-exec-server-protocol = { workspace = true }
 codex-extension-api = { workspace = true }
 codex-hooks = { workspace = true }
+codex-infra-account = { workspace = true }
 codex-infra-protocol = { workspace = true }
 codex-infra-provider = { workspace = true }
 codex-infra-runtime = { workspace = true }
 codex-infra-state = { workspace = true }
+codex-login = { workspace = true }
 codex-protocol = { workspace = true }
 codex-thread-store = { workspace = true }
 codex-utils-path-uri = { workspace = true }

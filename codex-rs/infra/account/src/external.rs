@@ -56,6 +56,10 @@ pub struct PublishedAccountAuth<S> {
 }
 
 impl<S: AccountCredentialSource> PublishedAccountAuth<S> {
+    pub fn binding(&self) -> &InferenceBinding {
+        &self.binding
+    }
+
     /// Opens the Agent-local observation journal before any manager uses auth.
     /// The caller creates its parent directory and runs this on a blocking worker.
     pub fn open(binding: InferenceBinding, source: S, journal: &Path) -> io::Result<Self> {
