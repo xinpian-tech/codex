@@ -594,6 +594,12 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 远端 QEMU aarch64 构建与本地验证
+
+用户要求改为在远端通过 QEMU 编译 aarch64 产物，再传回本地测试。本地仅下载、求值及传输，编译继续在 root@henan-z3compile 执行。QEMU 10.1.2 x86_64 静态程序从 Nix 缓存下载后经 rsync 传输；远端通过 /etc/binfmt.d/codex-aarch64.conf 注册带 F 标记的 aarch64 ELF 解释器，并在 Nix extra-platforms 中启用 aarch64-linux。
+
+源码 259a1af9e6 和约 1.3 GiB aarch64 离线依赖经 rsync 同步。tmux 会话 codex-infra-arm 已启动 /nix/store/sf0257w736gfzz6qbkg4wcqr869sg0av-codex-infra-0.0.0-dev+259a1af.drv，使用 --offline、空 substituters、--cores 16、--max-jobs 4。工作目录为 /root/codex-builds/arm-259a1af，日志 build.log，终态 exit-code，产物链接 result；构建成功后自动导出 result-cache，待 rsync 回本机导入并验证。已观察到远端 cargo 和 rustc 运行，尚未取得构建终态或本地验证结果。
+
 ### z3compile 离线构建完成
 
 远端固定源码 cfa3628175 的 x86_64-linux 构建已结束，exit-code-offline 为 0。调整映射数量上限后，codex-core、codex-app-server 和最终 codex-agent 均完成编译；最终 Agent 编译进程曾达到 146,132 个映射。Cargo release 阶段用时 9 分 33 秒，Nix installPhase 与 fixupPhase 均已完成。
