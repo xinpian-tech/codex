@@ -594,6 +594,8 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+AgentHostBootstrap 新增 launcher binding 到终端准备阶段的衔接：在 blocking worker 读取绑定文件与已选 generation，核对真实 hostid，按 root/agent/launch 建立 spool，并将原始 binding bytes、完整 launch 和 generation 写入 launch-binding.journal，之后由外层在返回的 mailbox_directory 打开 TerminalMailbox 并宣告 ready。prepare 从该终端持久选择 bootstrap，调用既有 generation/worktree 准备链，并返回完整 InboxEntry；HostMailbox::input 与 wait_bootstrap_entry 保留原 accepted_sequence、Presented 和 Processed 状态，已处理消息仍可按原 bootstrap 绑定恢复。终端所有权始终留给外层，准备失败后仍可停止输入、恢复终端及归档。runtime/extension 库级 Clippy 通过，未编写或运行测试，未调用真实 hostid、tmux 或启动服务。独立 CLI 尚未装配；launch-binding、preparation、input-lifecycle 等启动日志的归档和整体收尾仍待接通。
+
 StartedAgentHost 新增 begin_bootstrap，串接 Task 内容核对、thread 建立/恢复、已有模型呈现证据扫描、稳定注入请求及 turn 启动。已有呈现复用持久绑定和 Presented 回执；新启动仅使用本次注入前采样位置之后的匹配 append/flush，旧 RPC 成功或历史 flush 不自动触发新 turn。返回 thread 不确定、注入未解决、store 待恢复、已有呈现或 turn 调度结果；turn 分支附带后续呈现驱动。调用方需在独占启动阶段持续消费服务端事件，并将本次调度驱动到结果后再关闭。extension 库级 Clippy 通过，未编写或运行测试，未执行真实启动。已注入但尚未呈现的重启恢复仍需核对当前 thread 内容；该阶段返回明确恢复状态。独立 Agent CLI、具体请求处理、完整生命周期及最终归档继续待完成。
 
 AgentInputDelivery 新增 wait 循环，逐页推进既有证据核对和 Presented 回执，追平后等待持久位置通知，协作停止完成当前步骤后返回并保留驱动游标。ModelInputAudit 通知改为 Running/Closed/Failed，关闭通知携带最终位置；序列化或写入失败保存并通知错误，后续 snapshot/close 不把失败 writer 当成正常完成。等待方区分 Confirmed、Stopped 与 ClosedWithoutPresentation，避免审计已关闭却继续永久等待。extension 库级 Clippy 通过，未编写或运行测试，未调用真实模型或终端。CLI 仍需并行装配输入/事件消费者及停止流程，具体服务端请求处理和整体恢复/最终封存待完成。

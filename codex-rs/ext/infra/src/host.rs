@@ -26,6 +26,8 @@ mod config;
 mod driver_archive;
 mod generation;
 mod home;
+#[cfg(unix)]
+mod launch_bootstrap;
 mod preparation;
 mod provider;
 mod shutdown;
@@ -46,6 +48,8 @@ pub use driver_archive::AgentDriverArchiveReceipts;
 pub use generation::AgentHostConfig;
 pub use generation::AgentHostGeneration;
 pub use generation::AgentHostPrograms;
+#[cfg(unix)]
+pub use launch_bootstrap::AgentHostBootstrap;
 pub use preparation::AgentPreparationConfig;
 pub use preparation::PreparedAgentHost;
 pub use shutdown_journal::HostShutdownJournal;

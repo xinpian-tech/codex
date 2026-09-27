@@ -33,6 +33,8 @@ pub use host::AgentBootstrapOutcome;
 pub use host::AgentDriverArchiveJobIds;
 pub use host::AgentDriverArchiveJobs;
 pub use host::AgentDriverArchiveReceipts;
+#[cfg(unix)]
+pub use host::AgentHostBootstrap;
 pub use host::AgentHostClient;
 pub use host::AgentHostConfig;
 pub use host::AgentHostGeneration;

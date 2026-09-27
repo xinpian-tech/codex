@@ -166,6 +166,11 @@ impl<W: Write> HostMailbox<W> {
         self.outbox.get(message_id)
     }
 
+    /// Includes presented and processed entries when recovering a bound input.
+    pub fn input(&self, message_id: MessageId) -> Option<&InboxEntry> {
+        self.inbox.get(message_id)
+    }
+
     /// Called after the host has entered raw mode and opened its durable state.
     /// The machine collector observes this through the host's own tmux output.
     pub fn announce_ready(&mut self, launch_id: MessageId) -> io::Result<()> {
