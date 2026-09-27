@@ -14,10 +14,20 @@ use super::AgentPreparationConfig;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentHostConfig {
     pub preparation: AgentPreparationConfig,
+    pub programs: AgentHostPrograms,
     pub input_batch: NonZeroUsize,
     pub channel_capacity: NonZeroUsize,
     pub provider_audit_directory: PathBuf,
     pub account_exchange_directory: PathBuf,
+}
+
+/// Codex helper entrypoints from the deployed source flake, separate from the
+/// independent Agent host executable selected by LaunchIntent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentHostPrograms {
+    pub codex: PathBuf,
+    pub linux_sandbox: Option<PathBuf>,
+    pub execve_wrapper: Option<PathBuf>,
 }
 
 /// Exact generation inputs retained with the prepared launch for later archive.

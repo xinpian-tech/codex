@@ -93,6 +93,9 @@ impl PreparedAgentHost {
             .cli_overrides(cli_overrides.clone())
             .harness_overrides(ConfigOverrides {
                 cwd: Some(self.launch.workspace.worktree.clone()),
+                codex_self_exe: Some(inputs.config.programs.codex.clone()),
+                codex_linux_sandbox_exe: inputs.config.programs.linux_sandbox.clone(),
+                main_execve_wrapper_exe: inputs.config.programs.execve_wrapper.clone(),
                 ..Default::default()
             })
             .loader_overrides(loader_overrides.clone())
