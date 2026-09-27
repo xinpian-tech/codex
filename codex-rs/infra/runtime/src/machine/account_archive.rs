@@ -21,6 +21,7 @@ use crate::ArchiveTarget;
 use crate::ArchiveWorkerState;
 
 pub(super) struct AccountArchiveActor {
+    stream: ArchiveStream,
     stop: oneshot::Sender<()>,
     task: JoinHandle<io::Result<()>>,
     state: watch::Receiver<ArchiveWorkerState>,
@@ -58,7 +59,7 @@ impl AccountArchiveActor {
             let (source, position) = opening_source.archive_snapshot()?;
             let receipt_journal = directory.join("receipts.journal");
             let mut current: Option<ArchiveJob> = None;
-            let journal = Journal::open(&directory.join("jobs.journal"), |record| {
+            let mut journal = Journal::open(&directory.join("jobs.journal"), |record| {
                 let job: ArchiveJob = serde_json::from_slice(&record.payload)?;
                 if job.source != source
                     || job.receipt_journal != receipt_journal
@@ -90,6 +91,10 @@ impl AccountArchiveActor {
                 },
                 target: ArchiveTarget::Snapshot(position),
             });
+            if current.is_none() {
+                journal.append(&serde_json::to_vec(&template)?)?;
+                current = Some(template.clone());
+            }
             Ok::<_, io::Error>(Jobs {
                 journal,
                 template,
@@ -98,6 +103,7 @@ impl AccountArchiveActor {
         })
         .await
         .map_err(io::Error::other)??;
+        let stream = jobs.template.stream.clone();
         let (stop, mut stopped) = oneshot::channel();
         let (status, state) = watch::channel(ArchiveWorkerState::Idle);
         let task = tokio::spawn(async move {
@@ -122,7 +128,16 @@ impl AccountArchiveActor {
                 });
             }
         });
-        Ok(Self { stop, task, state })
+        Ok(Self {
+            stream,
+            stop,
+            task,
+            state,
+        })
+    }
+
+    pub(super) fn stream(&self) -> ArchiveStream {
+        self.stream.clone()
     }
 
     pub(super) fn state(&self) -> ArchiveWorkerState {

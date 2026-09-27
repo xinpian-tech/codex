@@ -212,6 +212,13 @@ impl MachineRuntime {
             .ok_or_else(|| io::Error::other("account archive actor has not started"))
     }
 
+    pub fn account_archive_stream(&self) -> io::Result<codex_infra_state::ArchiveStream> {
+        self.account_archive
+            .as_ref()
+            .map(AccountArchiveActor::stream)
+            .ok_or_else(|| io::Error::other("account archive actor has not started"))
+    }
+
     pub fn controller(&self) -> io::Result<SessionController> {
         self.transport
             .as_ref()

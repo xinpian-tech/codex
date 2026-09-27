@@ -129,50 +129,56 @@ impl AccountDirectoryFollower {
         durable: JournalPosition,
         batch: NonZeroUsize,
     ) -> io::Result<AccountDirectoryProgress> {
-        let state = Arc::clone(&self.state);
-        tokio::task::spawn_blocking(move || {
-            let mut state = state
-                .lock()
-                .map_err(|error| io::Error::other(error.to_string()))?;
-            if durable.next_sequence < state.position.next_sequence
-                || durable.byte_offset < state.position.byte_offset
+        let follower = self.clone();
+        tokio::task::spawn_blocking(move || follower.advance_blocking(durable, batch))
+            .await
+            .map_err(io::Error::other)?
+    }
+
+    pub(super) fn advance_blocking(
+        &self,
+        durable: JournalPosition,
+        batch: NonZeroUsize,
+    ) -> io::Result<AccountDirectoryProgress> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        if durable.next_sequence < state.position.next_sequence
+            || durable.byte_offset < state.position.byte_offset
+        {
+            return Err(io::Error::other(
+                "account directory source prefix regressed",
+            ));
+        }
+        let mut reader = JournalReader::open(&state.source.path, state.position)?;
+        let mut applied_records = 0;
+        while state.position != durable && applied_records < batch.get() {
+            let record = reader.next_record()?.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "account directory prefix is incomplete",
+                )
+            })?;
+            let next = reader.position();
+            if next.next_sequence > durable.next_sequence || next.byte_offset > durable.byte_offset
             {
                 return Err(io::Error::other(
-                    "account directory source prefix regressed",
+                    "account directory record exceeds confirmed prefix",
                 ));
             }
-            let mut reader = JournalReader::open(&state.source.path, state.position)?;
-            let mut applied_records = 0;
-            while state.position != durable && applied_records < batch.get() {
-                let record = reader.next_record()?.ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "account directory prefix is incomplete",
-                    )
-                })?;
-                let next = reader.position();
-                if next.next_sequence > durable.next_sequence
-                    || next.byte_offset > durable.byte_offset
-                {
-                    return Err(io::Error::other(
-                        "account directory record exceeds confirmed prefix",
-                    ));
-                }
-                let update: AccountDirectoryUpdate = serde_json::from_slice(&record.payload)?;
-                state.target.apply_update(update)?;
-                state
-                    .journal
-                    .append(&serde_json::to_vec(&Event::Advanced { position: next })?)?;
-                state.position = next;
-                applied_records += 1;
-            }
-            Ok(AccountDirectoryProgress {
-                position: state.position,
-                applied_records,
-                caught_up: state.position == durable,
-            })
+            let update: AccountDirectoryUpdate = serde_json::from_slice(&record.payload)?;
+            state.target.apply_update(update)?;
+            state
+                .journal
+                .append(&serde_json::to_vec(&Event::Advanced { position: next })?)?;
+            state.position = next;
+            applied_records += 1;
+        }
+        Ok(AccountDirectoryProgress {
+            position: state.position,
+            applied_records,
+            caught_up: state.position == durable,
         })
-        .await
-        .map_err(io::Error::other)?
     }
 }

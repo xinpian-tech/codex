@@ -72,6 +72,7 @@ enum Output {
         machine_id: MachineId,
         endpoint: std::net::SocketAddr,
         accounts: Vec<codex_infra_account::AccountDirectoryUpdate>,
+        account_directory_archive: codex_infra_state::ArchiveStream,
     },
     Response {
         id: String,
@@ -164,6 +165,7 @@ async fn main() -> io::Result<()> {
             machine_id,
             endpoint: machine.endpoint(),
             accounts: machine.account_updates(),
+            account_directory_archive: machine.account_archive_stream()?,
         })?;
         let controller = machine.controller()?;
         loop {

@@ -18,6 +18,7 @@ rust_library(
         "src/publish/recovery.rs",
         "src/refresh.rs",
         "src/remote.rs",
+        "src/replica.rs",
         "src/service.rs",
         "src/view.rs",
         "src/wire.rs",
