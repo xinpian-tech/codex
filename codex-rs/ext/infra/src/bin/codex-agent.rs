@@ -5,6 +5,12 @@ use std::path::PathBuf;
 #[path = "agent/assets.rs"]
 mod assets;
 #[cfg(unix)]
+#[path = "agent/build.rs"]
+mod build;
+#[cfg(unix)]
+#[path = "agent/directory.rs"]
+mod directory;
+#[cfg(unix)]
 #[path = "agent/events.rs"]
 mod events;
 #[cfg(unix)]

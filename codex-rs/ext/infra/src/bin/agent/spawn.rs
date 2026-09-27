@@ -22,6 +22,14 @@ pub struct WorkerProfile {
     pub host_program: PathBuf,
     pub repositories: BTreeMap<MachineId, PathBuf>,
     pub remote: String,
+    #[serde(default)]
+    pub task_repository: Option<TaskRepository>,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct TaskRepository {
+    pub repo: String,
+    pub commit: CommitId,
 }
 
 pub async fn spawn(
@@ -62,30 +70,53 @@ pub async fn spawn(
         .ok_or_else(|| io::Error::other("scope required"))?
         .to_owned();
     task.nix_system = profile.generation.nix_system.clone();
+    task.flake_reference = arguments["flake_reference"]
+        .as_str()
+        .ok_or_else(|| io::Error::other("flake_reference required"))?
+        .to_owned();
+    task.build = match arguments.get("build_attribute") {
+        Some(Value::Null) => BuildIntent::NoBuild,
+        Some(Value::String(attribute)) => BuildIntent::Derivation {
+            attribute: attribute.clone(),
+        },
+        _ => {
+            return Err(io::Error::other(
+                "build_attribute must name a derivation or be null",
+            ));
+        }
+    };
     let role = arguments["role"]
         .as_str()
         .ok_or_else(|| io::Error::other("role required"))?
         .to_owned();
-    let known = launch_request(local, LaunchServiceRequest::List).await?;
-    let own = known
-        .events
-        .iter()
-        .rev()
-        .find(|event| event.descriptor.agent_id == host.launch.workspace.agent_id)
-        .ok_or_else(|| io::Error::other("leader missing from machine directory"))?;
-    task.source_commit = own.descriptor.commit.clone();
-    let commit = std::process::Command::new(&host.generation.config.preparation.git)
-        .current_dir(&host.launch.workspace.worktree)
-        .args(["rev-parse", "HEAD"])
-        .output()?;
-    if !commit.status.success() {
-        return Err(io::Error::other("cannot read current source commit"));
+    if !state.role.routes_to_roles.contains(&role)
+        || !state
+            .role
+            .produced_output_kinds
+            .contains(&MessageKind::Bootstrap)
+    {
+        return Err(io::Error::other(
+            "choose a worker role and Bootstrap output from your RoleDefinition",
+        ));
     }
-    task.source_commit = String::from_utf8(commit.stdout)
-        .map_err(io::Error::other)?
-        .trim()
-        .parse()
-        .map_err(io::Error::other)?;
+    let known = launch_request(local, LaunchServiceRequest::List).await?;
+    if let Some(repository) = &profile.task_repository {
+        task.repo = repository.repo.clone();
+        task.source_commit = repository.commit.clone();
+    } else {
+        let commit = std::process::Command::new(&host.generation.config.preparation.git)
+            .current_dir(&host.launch.workspace.worktree)
+            .args(["rev-parse", "HEAD"])
+            .output()?;
+        if !commit.status.success() {
+            return Err(io::Error::other("cannot read current source commit"));
+        }
+        task.source_commit = String::from_utf8(commit.stdout)
+            .map_err(io::Error::other)?
+            .trim()
+            .parse()
+            .map_err(io::Error::other)?;
+    }
     if remote != local {
         launch_request(
             remote,

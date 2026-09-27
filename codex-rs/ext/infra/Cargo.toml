@@ -31,6 +31,7 @@ codex-extension-api = { workspace = true }
 codex-feedback = { workspace = true }
 codex-hooks = { workspace = true }
 codex-infra-account = { workspace = true }
+codex-infra-nix = { workspace = true }
 codex-infra-protocol = { workspace = true }
 codex-infra-provider = { workspace = true }
 codex-infra-runtime = { workspace = true }

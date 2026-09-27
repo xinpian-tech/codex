@@ -594,6 +594,18 @@ TaskCoordination、SessionWorkingContext、ContributionRegistry 和 Presentation
 
 ## 19. 当前实施记录
 
+### 角色协作、构建任务与知识 worker 接线
+
+CLI 主循环读取当前 RoleDefinition，只把 accepts_from_roles 与 accepted_input_kinds 匹配的后续 tmux 消息提交给模型；无关输入继续留存，不触发推理。infra_send 从目录解析接收 Agent 的机器/角色，按 routes_to_roles 和 produced_output_kinds 选择方向与消息类型；支持 Task/Progress/WorkingContext/Contribution/Escalation/Result，并使用当前输入的 task/assignment/reply_to 关联，也可明确指定目标 task/assignment。infra_spawn 使用相同角色定义选择 worker；完成/升级声明对应 Result/Escalation 输出。
+
+infra_directory 已改为 agents/profiles/machines 三类按需分页，Agent 查询可按 role/task 过滤，默认展示相关角色；每页至多四项，并限制序列化内容大小，返回 next 后继续查询。不再只给固定前十几个 Agent 而无法查看其余条目。目录更新仍是元数据同步，不作为广播输入打断所有模型。
+
+infra_spawn 现在要求明确 flake_reference 和 build_attribute（null 表示 NoBuild），形成派生 TaskSpec。新增 infra_build 的实际业务处理，复用 codex-infra-nix 的 NixTaskResolver，按 Task 解析 immutable flake、确认目标机器与 Nix system，求出 drv 并构建该 drv。source=assigned 使用声明的 flake，source=worktree 对当前 worktree 做 Nix path snapshot 并记录当前 Git HEAD；NoBuild 不编译。AgentRun 的 nix_program 指向部署 closure 中的 Nix 可执行文件。实际解析、构建输出和失败信息保存在 launch 的 build-*.json，随现有文件留存链归档；这些工具尚未在真实环境调用。
+
+worker profile 新增可选 task_repository={repo,commit}，可把知识整理 worker 的 Task 绑定到 Team State，而非复制父 Agent 的代码仓库 commit；repositories 仍指明目标机器上的实际 checkout。该 worker 继续使用同一 provider/account/model 选择、tmux 启动、独立 worktree、hook、结果回传与退出留存。执行指令要求按目标仓库整合贡献，知识整理产出 observations 与 memory/skill candidates，携带 Session/event/作者引用，并遵循已有团队确认发布流程。候选的正式发布及完整 Session 检索仍待业务接线。
+
+本轮仅做相关库/Agent binary 静态检查和依赖锁元数据更新，未编写或运行测试，未启动真实 worker、Nix Task 构建或知识任务。真实 Team State 部署、剩余任务协调/检索业务和端到端实验仍未完成。
+
 ### Team State 部署包接线
 
 新增 source flake `lib.mkInfraDeployment`，输入已构建的 `generations`、worker `profiles`、机器配置 `machines` 和首个任务的 `leaders`，输出完整 ConfigGeneration bindings、worker catalog、每机器启动/发布/刷新命令、leader 启动命令及汇总 package。binding 在 Nix 构建时读取真实 generation.json 并填入对应 derivation/store path；profile 和 leader spawn 文件引用该 binding，运行命令直接调用上一阶段的 codex-machine-runtime 与 codex-agent。

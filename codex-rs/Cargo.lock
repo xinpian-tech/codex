@@ -3742,6 +3742,7 @@ dependencies = [
  "codex-feedback",
  "codex-hooks",
  "codex-infra-account",
+ "codex-infra-nix",
  "codex-infra-protocol",
  "codex-infra-provider",
  "codex-infra-runtime",

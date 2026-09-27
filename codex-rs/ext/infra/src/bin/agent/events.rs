@@ -80,40 +80,60 @@ async fn tool(
     state: &mut LoopState,
 ) -> io::Result<String> {
     match name {
-        "infra_directory" => {
-            let events: Vec<codex_infra_protocol::DirectoryEvent> =
-                serde_json::from_slice(&std::fs::read(&config.directory_file)?)?;
-            let mut agents = std::collections::BTreeMap::new();
-            for event in events {
-                agents.insert(event.descriptor.agent_id, event.descriptor);
-            }
-            let machines: std::collections::BTreeMap<
-                codex_infra_protocol::MachineId,
-                std::net::SocketAddr,
-            > = serde_json::from_slice(&std::fs::read(&config.machines_file)?)?;
-            Ok(serde_json::to_string(
-                &json!({"agents":agents.values().take(16).collect::<Vec<_>>(),"machines":machines.keys().take(16).collect::<Vec<_>>(),"profiles":config.worker_profiles.iter().take(8).map(|(name, profile)| (name, &profile.generation.inference)).collect::<std::collections::BTreeMap<_,_>>()}),
-            )?)
-        }
+        "infra_build" => super::build::build(host, config, arguments).await,
+        "infra_directory" => super::directory::query(config, &state.role, arguments),
         "infra_spawn" => super::spawn::spawn(host, config, bootstrap, arguments, state).await,
         "infra_send" => {
-            let to: MessageAddress = serde_json::from_value(arguments["to"].clone())?;
+            let selected: MessageAddress = serde_json::from_value(arguments["to"].clone())?;
+            let agents = super::directory::read(&config.directory_file)?;
+            let recipient = agents
+                .get(&selected.agent_id)
+                .ok_or_else(|| io::Error::other("recipient missing from directory"))?;
+            let kind: MessageKind = serde_json::from_value(arguments["kind"].clone())?;
+            if !state.role.routes_to_roles.contains(&recipient.role)
+                || !state.role.produced_output_kinds.contains(&kind)
+            {
+                return Err(io::Error::other(
+                    "choose a recipient role and message kind from your RoleDefinition",
+                ));
+            }
+            let to = MessageAddress {
+                agent_id: recipient.agent_id,
+                machine_id: recipient.machine_id.clone(),
+                role: recipient.role.clone(),
+            };
             let body = arguments["body"]
                 .as_str()
                 .ok_or_else(|| io::Error::other("body is required"))?;
-            state.pending.push(message(
-                host,
-                bootstrap,
-                to,
-                MessageKind::Progress,
-                body.to_owned(),
-            ));
+            let mut outbound = message(host, bootstrap, to, kind, body.to_owned());
+            outbound.task_id = if arguments["task_id"].is_null() {
+                state.active_input.task_id
+            } else {
+                serde_json::from_value(arguments["task_id"].clone())?
+            };
+            outbound.assignment_id = if arguments["assignment_id"].is_null() {
+                state.active_input.assignment_id
+            } else {
+                serde_json::from_value(arguments["assignment_id"].clone())?
+            };
+            outbound.reply_to = Some(state.active_input.message_id);
+            state.pending.push(outbound);
             Ok(
                 "Queued for checkpoint and tmux delivery at turn end. End this turn to deliver it."
                     .to_owned(),
             )
         }
         "infra_complete" | "infra_escalate" => {
+            let kind = if name == "infra_complete" {
+                MessageKind::Result
+            } else {
+                MessageKind::Escalation
+            };
+            if !state.role.produced_output_kinds.contains(&kind) {
+                return Err(io::Error::other(
+                    "message kind is not an output of your RoleDefinition",
+                ));
+            }
             state.result = arguments["result"]
                 .as_str()
                 .ok_or_else(|| io::Error::other("result is required"))?

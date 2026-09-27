@@ -15,6 +15,8 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct RunConfig {
+    #[serde(default)]
+    pub nix_program: Option<PathBuf>,
     pub account: AgentAccountSource,
     pub directory_file: PathBuf,
     pub machines_file: PathBuf,
@@ -27,6 +29,8 @@ pub struct RunConfig {
 }
 
 pub struct LoopState {
+    pub role: codex_infra_protocol::RoleDefinition,
+    pub active_input: AgentMessage,
     pub thread_id: String,
     pub active: bool,
     pub finished: bool,
@@ -132,6 +136,12 @@ async fn drive(
         }
     };
     let mut state = LoopState {
+        role: serde_json::from_slice(&std::fs::read(
+            host.home
+                .join("roles")
+                .join(format!("{}.json", host.launch.role)),
+        )?)?,
+        active_input: bootstrap.message.clone(),
         thread_id,
         active: false,
         finished: false,
@@ -189,6 +199,14 @@ async fn drive(
             if let Some(entry) = entries.iter().find(|entry| {
                 !state.accepted.contains(&entry.message.message_id)
                     && entry.message.presentation != codex_infra_protocol::Presentation::Archive
+                    && state
+                        .role
+                        .accepts_from_roles
+                        .contains(&entry.message.from.role)
+                    && state
+                        .role
+                        .accepted_input_kinds
+                        .contains(&entry.message.kind)
             }) {
                 input_cursor = entry.accepted_sequence + 1;
                 submit(host, terminal, entry, &mut state).await?;
@@ -252,6 +270,7 @@ async fn submit(
         }
     }
     state.accepted.insert(entry.message.message_id);
+    state.active_input = entry.message.clone();
     state.deliveries.push(delivery);
     Ok(())
 }
